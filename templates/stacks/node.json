@@ -1,0 +1,20 @@
+{
+  "id": "node",
+  "label": "Node.js·TypeScript",
+  "tools": [
+    {"cmd": "node", "label": "Node.js", "install": "winget install OpenJS.NodeJS.LTS (또는 https://nodejs.org)"},
+    {"cmd": "npm", "label": "npm", "install": "Node.js와 함께 설치된다(winget install OpenJS.NodeJS.LTS)"}
+  ],
+  "verify": {
+    "setup": "npm ci",
+    "build": "npm run build",
+    "test": "npm test",
+    "typecheck": "npx tsc --noEmit",
+    "lint": "npm run lint",
+    "format": null
+  },
+  "notes": [
+    "테스트는 바뀐 파일 위주로 돌린다(예: npx vitest run <경로>). 전체 테스트는 커밋 세션이 사본에서 한 번 돈다",
+    "TypeScript가 아니면 typecheck를 null로, 스크립트 이름이 다르면 init --verify-<키>로 바꾼다"
+  ]
+}

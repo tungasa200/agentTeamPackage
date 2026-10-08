@@ -1,0 +1,9 @@
+{
+  "_comment": "운영 도구에 쓰는 Claude Code 플러그인(K2 결정). required는 setup이 설치하고 doctor가 확인한다(없으면 fail). version은 최소 버전이다: 마켓플레이스가 플러그인별 버전 고정을 지원하지 않아 설치는 늘 최신을 받으므로, doctor는 설치된 버전이 이보다 낮을 때만 warn한다(pm 결정). 선택은 doctor가 알리기만 한다. marketplace는 'claude plugin marketplace add'에 넘기는 소스, marketplaceName은 ~/.claude/settings.json extraKnownMarketplaces의 이름, ref는 고정할 git 태그·커밋(null이면 기본 브랜치).",
+  "plugins": [
+    { "id": "ecc@ecc", "marketplaceName": "ecc", "marketplace": "https://github.com/affaan-m/ECC.git", "ref": null, "version": "2.2.2", "required": true, "why": "역할 세션 교체의 save-session·resume-session" },
+    { "id": "impeccable@impeccable", "marketplaceName": "impeccable", "marketplace": "pbakaus/impeccable", "ref": null, "version": "4.4.0", "required": true, "why": "화면 작업의 harden·audit 규칙" },
+    { "id": "claude-mem@thedotmack", "marketplaceName": "thedotmack", "marketplace": "thedotmack/claude-mem", "ref": null, "version": "13.28.0", "required": false, "why": "선택: 대화 기억 검색" },
+    { "id": "prompts.chat@prompts.chat", "marketplaceName": "prompts.chat", "marketplace": "f/prompts.chat", "ref": null, "version": "1.0.0", "required": false, "why": "선택: 프롬프트 모음" }
+  ]
+}

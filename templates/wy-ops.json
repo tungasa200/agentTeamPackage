@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "project": "{{project}}",
+  "product": "{{project}}",
+  "rolePrefix": "{{prefix}}",
+  "pmRole": "{{prefix}}pm",
+  "commitRole": "{{prefix}}commit",
+  "rotation": { "transcriptMB": 5, "contextTokens": 150000, "notifyTokens": 200000 },
+  "memory": { "warnFreeMB": 1024, "blockFreeMB": 500 },
+  "approvals": { "namespace": "{{project}}", "ttlMinutes": 60 },
+  "docs": { "progress": "docs/진행현황.md", "decisions": "docs/결정기록.md" }
+}

@@ -1,0 +1,81 @@
+{
+  "name": "wy-ops-core",
+  "displayName": "WY Ops — 세션 현황·승인 센터",
+  "description": "메모리·프로세스·Claude 역할 세션 상태를 사이드바에서 보고, WY 승인 센터에서 git 명령 요청을 승인하고 결정 요청에 답한다",
+  "version": "0.7.0",
+  "publisher": "wy-ops",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:wyApprovals",
+    "onWebviewPanel:wyActivity"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wyOps",
+          "title": "세션 현황",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "wyOps": [
+        {
+          "type": "webview",
+          "id": "wyOps.sessions",
+          "name": "세션 현황"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "wyOps.refresh",
+        "title": "새로고침",
+        "category": "세션 현황",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "wyApprovals.open",
+        "title": "승인 센터 열기",
+        "category": "WY",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "wyOps.revealSession",
+        "title": "세션 현황에서 보기",
+        "category": "세션 현황"
+      },
+      {
+        "command": "wyActivity.open",
+        "title": "활동 보기",
+        "category": "WY",
+        "icon": "$(pulse)"
+      }
+    ],
+    "configuration": {
+      "title": "WY Ops",
+      "properties": {
+        "wyOps.approvals.sound": {
+          "type": "boolean",
+          "default": true,
+          "description": "WY 승인 센터에 새 카드가 들어오면 소리로 알립니다(여러 장이 한꺼번에 와도 한 번)."
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "wyOps.refresh",
+          "when": "view == wyOps.sessions",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}

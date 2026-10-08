@@ -1,0 +1,21 @@
+{
+  "deny": [
+    "Edit(~/.claude/wy-approvals/**/decisions/**)",
+    "Edit(~/.claude/wy-approvals/**/decisions.log)",
+    "Edit(~/.claude/wy-approvals/**/used/**)",
+    "Edit(~/.claude/wy-approvals/**/sessions/**)",
+    "Edit(~/.claude/wy-approvals/**/message-blocks.log)",
+    "Edit(~/.wy-tools/**)",
+    "Edit(/.claude/wy-ops.json)",
+    "Edit(/.claude/wy-ops.local.json)",
+    "Edit(/.claude/settings.local.json)"
+  ],
+  "hooks": [
+    { "event": "PreToolUse", "matcher": "Bash|PowerShell", "script": "wy-approval-guard.js", "timeout": 10 },
+    { "event": "PreToolUse", "matcher": "SendMessage", "script": "wy-message-guard.js", "timeout": 15 },
+    { "event": "PermissionRequest", "script": "wy-permission.js", "timeout": 960 },
+    { "event": "PermissionDenied", "script": "wy-permission.js", "timeout": 30 },
+    { "event": "SessionStart", "script": "wy-session-start.js", "timeout": 10 },
+    { "event": "Stop", "script": "wy-context-size.js", "timeout": 15 }
+  ]
+}

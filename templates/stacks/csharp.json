@@ -1,0 +1,19 @@
+{
+  "id": "csharp",
+  "label": "C# (.NET)",
+  "tools": [
+    { "cmd": "dotnet", "label": ".NET SDK", "install": "winget install Microsoft.DotNet.SDK.8 (또는 https://dot.net, 프로젝트의 대상 버전에 맞춘다)" }
+  ],
+  "verify": {
+    "setup": "dotnet restore",
+    "build": "dotnet build --no-restore",
+    "test": "dotnet test --no-build",
+    "typecheck": null,
+    "lint": null,
+    "format": "dotnet format --verify-no-changes"
+  },
+  "notes": [
+    "타입 검사는 dotnet build가 맡는다. 경고를 줄이려면 프로젝트에 TreatWarningsAsErrors를 켠다",
+    "빌드 서버가 남지 않게 끝나면 dotnet build-server shutdown을 한다"
+  ]
+}

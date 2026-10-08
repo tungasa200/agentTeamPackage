@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="{{csp}}">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{css}}">
+  <title>세션 현황</title>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-working" viewBox="0 0 16 16"><path d="M8 2.5a5.5 5.5 0 1 1-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></symbol>
+    <symbol id="i-waiting" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.75" fill="none" stroke="currentColor" stroke-width="1.75"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-stopped" viewBox="0 0 16 16"><rect x="3.75" y="3.75" width="8.5" height="8.5" rx="1.5" fill="currentColor"/></symbol>
+    <symbol id="i-none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.75" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.2 2.2"/></symbol>
+    <symbol id="i-approval" viewBox="0 0 16 16"><path d="M8 1.75 14.75 13.75H1.25Z" fill="currentColor"/><path d="M8 6v3.5" stroke="var(--on-warn)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".9" fill="var(--on-warn)"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 16 16"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 1.75 14.75 13.75H1.25Z" fill="currentColor"/><path d="M8 6v3.5" stroke="var(--on-warn)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".9" fill="var(--on-warn)"/></symbol>
+    <symbol id="i-error" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M8 4.75v3.75" stroke="var(--on-err)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="var(--on-err)"/></symbol>
+  </svg>
+
+  <header class="bar">
+    <p class="stamp" id="stamp">불러오는 중…</p>
+    <p class="sr-only" id="announce" role="status"></p>
+    <button type="button" class="icon-btn" id="refresh" title="지금 새로고침" aria-disabled="false">
+      <svg class="ico"><use href="#i-refresh"/></svg><span>새로고침</span>
+    </button>
+  </header>
+
+  <section class="block" aria-labelledby="h-mem">
+    <div class="head">
+      <h2 id="h-mem">메모리</h2>
+      <span class="aside" id="mem-total"></span>
+    </div>
+    <div id="mem" class="mem is-loading">
+      <p class="mem-free"><span class="big" id="mem-free">— GB</span> <span class="dim">여유</span></p>
+      <div class="meter" role="meter" id="mem-meter" aria-label="메모리 사용량" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="fill" id="mem-fill"></div>
+        <div class="limit" id="mem-limit"></div>
+        <div class="limit limit-block" id="mem-block"></div>
+      </div>
+      <p class="mem-note" id="mem-note"></p>
+    </div>
+    <p class="err-line" id="mem-err" hidden></p>
+  </section>
+
+  <section class="block" aria-labelledby="h-proc">
+    <div class="head">
+      <h2 id="h-proc">
+        <button type="button" class="fold" id="proc-fold" aria-expanded="true" aria-controls="proc-body">
+          <svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg>프로세스
+        </button>
+      </h2>
+      <span class="aside">상위 5개 그룹</span>
+    </div>
+    <div id="proc-body">
+      <ol class="procs is-loading" id="procs">
+        <li class="skel"></li><li class="skel"></li><li class="skel"></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="block" aria-labelledby="h-sess">
+    <div class="head">
+      <h2 id="h-sess">세션</h2>
+      <span class="aside" id="sess-sum"></span>
+    </div>
+    <table class="sessions" id="sessions">
+      <thead><tr><th scope="col">역할</th><th scope="col">상태</th><th scope="col" class="num">경과</th><th scope="col"><span class="sr-only">열기</span></th></tr></thead>
+      <tbody id="sess-body" class="is-loading">
+        <tr class="skel-row"><td colspan="4"><span class="skel"></span></td></tr>
+        <tr class="skel-row"><td colspan="4"><span class="skel"></span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

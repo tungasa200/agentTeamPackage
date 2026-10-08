@@ -1,0 +1,14 @@
+{
+  "id": "custom",
+  "label": "직접 입력",
+  "tools": [],
+  "verify": {
+    "setup": null,
+    "build": null,
+    "test": null,
+    "typecheck": null,
+    "lint": null,
+    "format": null
+  },
+  "notes": []
+}

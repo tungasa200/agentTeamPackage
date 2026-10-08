@@ -1,0 +1,19 @@
+{
+  "id": "python",
+  "label": "Python",
+  "tools": [
+    { "cmd": "python", "label": "Python", "install": "winget install Python.Python.3.12 (또는 https://www.python.org, pytest·mypy·ruff는 가상환경에 pip로 설치)" }
+  ],
+  "verify": {
+    "setup": "python -m pip install -r requirements.txt",
+    "build": null,
+    "test": "python -m pytest -q",
+    "typecheck": "python -m mypy .",
+    "lint": "python -m ruff check .",
+    "format": "python -m ruff format --check ."
+  },
+  "notes": [
+    "가상환경(.venv)을 쓰고 의존성은 requirements.txt나 pyproject.toml로 고정한다",
+    "도구는 python -m으로 불러 가상환경 안의 것을 쓴다(PATH의 다른 설치본과 섞이지 않게)"
+  ]
+}

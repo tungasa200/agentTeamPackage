@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="{{csp}}">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="{{css}}">
+  <title>WY 활동</title>
+</head>
+<body>
+  <svg class="sprite" width="0" height="0" aria-hidden="true">
+    <symbol id="i-perm" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="10.5" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-commit" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 8h3.75M10.75 8h3.75" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.5 8.25 3 3 6-6.5" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path d="m4.5 4.5 7 7m0-7-7 7" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 16 16"><path d="M2.5 8h10M9 4.5 12.5 8 9 11.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-down" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-bug" viewBox="0 0 16 16"><ellipse cx="8" cy="9.5" rx="3.5" ry="4.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5.25V13.5M4.5 9.5H2M14 9.5h-2.5M5 6 3 4.5M11 6l2-1.5M5.5 12.5 3.5 14M10.5 12.5l2 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-send" viewBox="0 0 16 16"><path d="M2 8h10.5M8.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.55M13 2.5v2.5h-2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-hand" viewBox="0 0 16 16"><path d="M2 9 3.6 3.6c.15-.5.6-.85 1.1-.85h6.6c.5 0 .95.35 1.1.85L14 9v3.25c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1Z M2 9h3l1 1.5h4L11 9h3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="i-block" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m4 12 8-8" stroke="currentColor" stroke-width="1.5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.75V8l2.25 1.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 2 14.5 13.5h-13Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.5v3.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".9" fill="currentColor"/></symbol>
+  </svg>
+  <div class="wy" id="app">
+    <header class="act-bar">
+      <span class="seg-ctl" role="group" aria-label="보기">
+        <button type="button" data-mode="threads" aria-pressed="true">스레드</button>
+        <button type="button" data-mode="feed" aria-pressed="false">피드</button>
+        <button type="button" data-mode="time" aria-pressed="false" class="wide-only">타임라인</button>
+      </span>
+      <span class="seg-ctl range" id="range" role="group" aria-label="시간 범위" hidden>
+        <button type="button" data-range="1" aria-pressed="true">1시간</button>
+        <button type="button" data-range="3" aria-pressed="false">3시간</button>
+        <button type="button" data-range="12" aria-pressed="false">12시간</button>
+      </span>
+      <span class="sum" id="sum">불러오는 중…</span>
+    </header>
+    <div class="strip" id="strip" aria-label="세션 상태"></div>
+    <main class="scroll" id="main"></main>
+  </div>
+  <script nonce="{{nonce}}" src="{{js}}"></script>
+</body>
+</html>

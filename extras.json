@@ -1,0 +1,70 @@
+{
+  "_comment": "설치 때 함께 까는 도구(카드 1110). lib/extras.js가 읽는다. requiredFor: 이 역할 그룹(roles.json의 group) 중 하나라도 있으면 끌 수 없음, 'rotation'은 늘 필수. needs: 먼저 있어야 하는 항목(켜진 항목이 needs로 부르면 꺼 둬도 켠다, default:false인 python·pipx는 부르는 항목이 있을 때만 켜짐). check: 모두 통과해야 '있음' — cmd(종료 코드 0), path(~ = 홈), mcp(~/.claude.json 최상위 mcpServers 이름 = 사용자 범위, 프로젝트 범위 등록은 치지 않음), plugin(claude plugin list). install: 차례로 실행할 명령 [cmd, ...args]. 명령의 ~ 는 홈으로 바꾼다(pipx 직후에는 PATH에 ~/.local/bin이 없을 수 있어 전체 경로로 부른다). plugin 항목의 마켓플레이스는 plugins.json에서 읽는다. 남의 코드는 두지 않고 설치 명령만 둔다.",
+  "items": [
+    {
+      "id": "python", "kind": "winget", "label": "Python 3 (pipx 도구용)",
+      "source": "winget Python.Python.3.12",
+      "check": [{ "cmd": ["py", "-3", "--version"] }],
+      "install": [["winget", "install", "-e", "--id", "Python.Python.3.12", "--accept-source-agreements", "--accept-package-agreements"]],
+      "requiredFor": [], "default": false
+    },
+    {
+      "id": "pipx", "kind": "pip", "label": "pipx (Python 도구 설치기)",
+      "source": "https://pypi.org/project/pipx/",
+      "needs": ["python"],
+      "check": [{ "cmd": ["py", "-3", "-m", "pipx", "--version"] }],
+      "install": [["py", "-3", "-m", "pip", "install", "--user", "pipx"], ["py", "-3", "-m", "pipx", "ensurepath"]],
+      "requiredFor": [], "default": false
+    },
+    {
+      "id": "agent-browser", "kind": "npm-global", "label": "agent-browser (브라우저 자동화 CLI)",
+      "source": "npm agent-browser",
+      "check": [{ "cmd": ["agent-browser", "--version"] }],
+      "install": [["npm", "install", "-g", "agent-browser"], ["agent-browser", "install"]],
+      "requiredFor": ["qa", "design", "browser"], "default": true
+    },
+    {
+      "id": "agent-browser-mcp", "kind": "mcp", "label": "agent-browser MCP (사용자 범위 등록)",
+      "source": "agent-browser mcp (CLI에 든 MCP stdio 서버)",
+      "needs": ["agent-browser"],
+      "check": [{ "mcp": "agent-browser" }],
+      "install": [["claude", "mcp", "add", "--scope", "user", "agent-browser", "--", "agent-browser", "mcp"]],
+      "requiredFor": ["qa", "design", "browser"], "default": true
+    },
+    {
+      "id": "agent-reach", "kind": "skill", "label": "전역 스킬 agent-reach (웹 조사)",
+      "source": "https://github.com/Panniantong/agent-reach",
+      "needs": ["pipx"],
+      "check": [{ "path": "~/.claude/skills/agent-reach/SKILL.md" }],
+      "install": [["py", "-3", "-m", "pipx", "install", "https://github.com/Panniantong/agent-reach/archive/94f06c1969dfc1834001269d79d3ad0972d9dee6.zip"], ["~/.local/bin/agent-reach.exe", "skill", "--install"]],
+      "requiredFor": [], "default": true
+    },
+    {
+      "id": "find-skills", "kind": "skill", "label": "전역 스킬 find-skills (스킬 찾기)",
+      "source": "https://github.com/vercel-labs/skills",
+      "check": [{ "path": "~/.claude/skills/find-skills/SKILL.md" }],
+      "install": [["npx", "-y", "skills", "add", "vercel-labs/skills", "--skill", "find-skills", "-g", "-a", "claude-code", "-y"]],
+      "requiredFor": [], "default": true
+    },
+    {
+      "id": "graphify", "kind": "skill", "label": "전역 스킬 graphify (코드 지식 그래프)",
+      "source": "https://github.com/Graphify-Labs/graphify (PyPI graphifyy)",
+      "needs": ["pipx"],
+      "check": [{ "path": "~/.claude/skills/graphify/SKILL.md" }],
+      "install": [["py", "-3", "-m", "pipx", "install", "graphifyy"], ["~/.local/bin/graphify.exe", "install", "--platform", "windows"]],
+      "requiredFor": [], "default": true
+    },
+    {
+      "id": "headroom", "kind": "mcp", "label": "headroom MCP (컨텍스트 압축)",
+      "source": "PyPI headroom-ai",
+      "needs": ["pipx"],
+      "check": [{ "mcp": "headroom" }],
+      "install": [["py", "-3", "-m", "pipx", "install", "headroom-ai"], ["~/.local/bin/headroom.exe", "mcp", "install", "--agent", "claude"]],
+      "requiredFor": [], "default": true
+    },
+    { "id": "ecc", "kind": "plugin", "label": "플러그인 ecc (세션 저장·이어가기)", "plugin": "ecc@ecc", "requiredFor": ["rotation"], "default": true },
+    { "id": "impeccable", "kind": "plugin", "label": "플러그인 impeccable (화면 점검)", "plugin": "impeccable@impeccable", "requiredFor": ["frontend", "design"], "default": true },
+    { "id": "claude-mem", "kind": "plugin", "label": "플러그인 claude-mem (대화 기억 검색)", "plugin": "claude-mem@thedotmack", "requiredFor": [], "default": true },
+    { "id": "prompts.chat", "kind": "plugin", "label": "플러그인 prompts.chat (프롬프트 모음)", "plugin": "prompts.chat@prompts.chat", "requiredFor": [], "default": true }
+  ]
+}
