@@ -23,7 +23,7 @@ try {
   write(path.join(approvals, 'decisions', 'old-1.json'));
   write(path.join(approvals, 'used', 'old-1.json'));
   write(path.join(approvals, 'decisions.log'), '{"id":"a"}\n{"id":"b"}\n');
-  for (const f of ['requests/r.json', 'decisions/d.json', 'used/u.json', 'sessions/s.json', 'decisions.log', 'message-blocks.log']) write(path.join(approvals, 'erp-project', f));
+  for (const f of ['requests/r.json', 'decisions/d.json', 'used/u.json', 'sessions/s.json', 'decisions.log', 'message-blocks.log']) write(path.join(approvals, 'my-project', f));
   write(path.join(approvals, 'other-ns', 'requests', 'r.json'));
   write(path.join(oldInstall, 'extension.js'));
   write(path.join(oldInstall, 'hooks', 'wy-approval-guard.js'));
@@ -35,7 +35,7 @@ try {
   assert.deepStrictEqual(items.map((i) => rel(i.path)).sort(), [
     '.claude/wy-approvals/decisions', '.claude/wy-approvals/decisions.log', '.claude/wy-approvals/requests', '.claude/wy-approvals/used', '.wy-tools/vscode-dashboard',
   ], '정리 대상');
-  assert.ok(items.every((i) => !rel(i.path).includes('erp-project') && !rel(i.path).includes('other-ns') && !rel(i.path).includes('wy-ops')), '프로젝트 폴더·새 설치본은 대상 아님');
+  assert.ok(items.every((i) => !rel(i.path).includes('my-project') && !rel(i.path).includes('other-ns') && !rel(i.path).includes('wy-ops')), '프로젝트 폴더·새 설치본은 대상 아님');
   assert.strictEqual(items.find((i) => rel(i.path) === '.wy-tools/vscode-dashboard').count, 2, '파일 수');
   assert.ok(items.find((i) => rel(i.path).endsWith('decisions.log')).what.includes('2줄'), '로그 줄 수');
 
@@ -49,9 +49,9 @@ try {
   assert.ok(fs.existsSync(oldInstall), '옛 설치본 그대로');
 
   // 3. 목록에 없는 경로·프로젝트별 폴더를 넘겨도 지우지 않는다
-  const sneaky = legacy.remove([path.join(approvals, 'erp-project'), path.join(approvals, 'erp-project', 'decisions'), approvals, home, 'C:/Windows'], home, opts());
+  const sneaky = legacy.remove([path.join(approvals, 'my-project'), path.join(approvals, 'my-project', 'decisions'), approvals, home, 'C:/Windows'], home, opts());
   assert.ok(sneaky.every((r) => r.removed === false), '목록 밖은 거부');
-  assert.ok(fs.existsSync(path.join(approvals, 'erp-project', 'decisions', 'd.json')), '프로젝트 결정 그대로');
+  assert.ok(fs.existsSync(path.join(approvals, 'my-project', 'decisions', 'd.json')), '프로젝트 결정 그대로');
 
   // 4. 받은 것만 지운다: 옛 승인 위치 3개만 넘김 → 그것만 사라지고 나머지는 그대로
   const pick = items.filter((i) => ['requests', 'decisions', 'decisions.log'].includes(path.basename(i.path)));
@@ -60,7 +60,7 @@ try {
   for (const n of ['requests', 'decisions', 'decisions.log']) assert.ok(!fs.existsSync(path.join(approvals, n)), `${n} 지워짐`);
   assert.ok(fs.existsSync(path.join(approvals, 'used')), '넘기지 않은 used는 그대로');
   for (const f of ['requests/r.json', 'decisions/d.json', 'used/u.json', 'sessions/s.json', 'decisions.log', 'message-blocks.log']) {
-    assert.ok(fs.existsSync(path.join(approvals, 'erp-project', f)), `프로젝트별 ${f} 그대로`);
+    assert.ok(fs.existsSync(path.join(approvals, 'my-project', f)), `프로젝트별 ${f} 그대로`);
   }
   assert.ok(fs.existsSync(path.join(approvals, 'other-ns', 'requests', 'r.json')), '다른 namespace 그대로');
 

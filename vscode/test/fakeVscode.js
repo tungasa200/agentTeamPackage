@@ -1,5 +1,5 @@
 // 공용 테스트 도우미: 가짜 vscode 모듈로 확장을 불러온다(Extension Development Host 없이). 운영 도구 구현 계획 2.1
-//   const fake = require('./fakeVscode').install({ workspace: 'C:/projects/erp-project' });
+//   const fake = require('./fakeVscode').install({ workspace: 'C:/projects/my-project' });
 //   require('../extension').activate(fake.context);
 //   fake.commands['wyApprovals.open']();  fake.panels[0].send({ type: 'ready' });  fake.panels[0].posts
 // install() 뒤에 require한 모듈은 require('vscode')로 이 가짜를 받는다. uninstall()로 되돌린다.

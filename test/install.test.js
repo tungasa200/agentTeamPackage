@@ -35,11 +35,11 @@ try {
   const home = path.join(root, 'home');
   fs.mkdirSync(home);
   assert.strictEqual(claudeTrusted('C:/x', home), null, '설정 파일이 없으면 모름');
-  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ projects: { 'C:/projects/erp-project': { hasTrustDialogAccepted: true }, 'c:/projects/new': { hasTrustDialogAccepted: false } } }));
-  assert.strictEqual(claudeTrusted('C:\\projects\\erp-project', home), true);
-  assert.strictEqual(claudeTrusted('c:/Projects/ERP-project/tools/x', home), true, '하위 폴더');
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ projects: { 'C:/projects/my-project': { hasTrustDialogAccepted: true }, 'c:/projects/new': { hasTrustDialogAccepted: false } } }));
+  assert.strictEqual(claudeTrusted('C:\\projects\\my-project', home), true);
+  assert.strictEqual(claudeTrusted('c:/Projects/MY-project/tools/x', home), true, '하위 폴더');
   assert.strictEqual(claudeTrusted('C:/projects/new', home), false, '신뢰 안 함');
-  assert.strictEqual(claudeTrusted('C:/projects/erp-project-2', home), false, '이름이 비슷한 다른 폴더');
+  assert.strictEqual(claudeTrusted('C:/projects/my-project-2', home), false, '이름이 비슷한 다른 폴더');
   console.log('wy-ops install 검사 통과');
 } finally {
   rmTree(root);

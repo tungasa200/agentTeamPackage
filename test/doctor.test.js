@@ -278,11 +278,11 @@ try {
   {
     const pc = makePc('secrets');
     const opsFile = path.join(pc.repo, '.claude', 'wy-ops.json');
-    json(opsFile, { ...JSON.parse(fs.readFileSync(opsFile, 'utf8')), secretsDir: '../worklog-secret' });
+    json(opsFile, { ...JSON.parse(fs.readFileSync(opsFile, 'utf8')), secretsDir: '../my-secret' });
     let r = byId(doctor.checkAll(pc.opts)).secrets;
-    assert.ok(r.level === 'warn' && r.detail.includes(`${path.join(pc.root, 'worklog-secret').replace(/\\/g, '/')} 없음`), '상대 경로는 저장소 루트 기준');
-    fs.mkdirSync(path.join(pc.root, 'worklog-secret'));
-    write(path.join(pc.root, 'worklog-secret', 'secret.txt'), '읽으면 안 됨');
+    assert.ok(r.level === 'warn' && r.detail.includes(`${path.join(pc.root, 'my-secret').replace(/\\/g, '/')} 없음`), '상대 경로는 저장소 루트 기준');
+    fs.mkdirSync(path.join(pc.root, 'my-secret'));
+    write(path.join(pc.root, 'my-secret', 'secret.txt'), '읽으면 안 됨');
     r = byId(doctor.checkAll(pc.opts)).secrets;
     assert.ok(r.level === 'ok' && !r.detail.includes('읽으면 안 됨'), '있으면 통과, 내용은 읽지 않음');
     const elsewhere = path.join(pc.root, 'other-place', 'secret');

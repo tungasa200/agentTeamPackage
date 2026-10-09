@@ -47,11 +47,11 @@ try {
   // 4. 한글 홈에서 cleanup-legacy가 죽지 않고 지운다
   const home = path.join(base, '홍 길동');
   write(path.join(home, '.claude', 'wy-approvals', 'requests', 'old.json'));
-  write(path.join(home, '.claude', 'wy-approvals', 'erp-project', 'decisions', 'd.json'));
+  write(path.join(home, '.claude', 'wy-approvals', 'my-project', 'decisions', 'd.json'));
   const items = legacy.list(home, { env: {} });
   assert.deepStrictEqual(items.map((i) => path.basename(i.path)), ['requests'], '한글 홈 목록');
   assert.ok(legacy.remove(items, home, { env: {} })[0].removed, '한글 홈에서 지움');
-  assert.ok(fs.existsSync(path.join(home, '.claude', 'wy-approvals', 'erp-project', 'decisions', 'd.json')), '프로젝트 폴더 그대로');
+  assert.ok(fs.existsSync(path.join(home, '.claude', 'wy-approvals', 'my-project', 'decisions', 'd.json')), '프로젝트 폴더 그대로');
 
   // 5. doctor 실행기: 공백·한글이 든 스크립트 경로와 인자를 그대로 넘긴다
   const script = path.join(base, '스크립트 폴더', 'echo args.js');

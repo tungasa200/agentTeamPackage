@@ -5,9 +5,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 process.env.WY_APPROVALS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-ext-'));
-const { install, EXT } = require('./fakeVscode');
+const { install, EXT, REPO } = require('./fakeVscode');
 
-const fake = install({ workspace: 'C:/projects/erp-project' });
+const fake = install({ workspace: REPO });
 try {
   require(path.join(EXT, 'extension.js')).activate(fake.context);
   assert.deepStrictEqual(fake.messages.filter((m) => m[0] === 'error'), [], '시작 오류 없음');

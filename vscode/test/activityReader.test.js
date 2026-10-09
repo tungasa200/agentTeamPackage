@@ -38,7 +38,7 @@ const write = (dir, f, lines) => fs.writeFileSync(path.join(dir, f), lines.map((
 const append = (dir, f, lines) => fs.appendFileSync(path.join(dir, f), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 
 test('저장소 경로로 대화 기록 폴더를 계산한다', () => {
-  assert.strictEqual(transcriptDir('C:\\projects\\erp-project', 'H'), path.join('H', '.claude', 'projects', 'C--projects-erp-project'));
+  assert.strictEqual(transcriptDir('C:\\projects\\my-project', 'H'), path.join('H', '.claude', 'projects', 'C--projects-my-project'));
 });
 
 test('받는 쪽 대상 이름에서 [ref]를 뗀다', () => {

@@ -38,7 +38,7 @@ const LOOP = 'until [ -f ~/.claude/wy-approvals/p/decisions/20261009-x.json ]; d
 // 2. 원래 오래 걸리는 것: 빌드·테스트·설치·하위 에이전트
 {
   const long = (input, name = 'Bash') => readOpenTool(write('l.jsonl', [use('t', name, input, 0)])).long;
-  for (const cmd of ['./gradlew :worklog:compileJava --no-daemon', 'npm test', 'npm run test:unit', 'npx vitest run src', 'pytest -q', 'cargo test', 'docker compose up -d', 'npm ci']) {
+  for (const cmd of ['./gradlew :app:compileJava --no-daemon', 'npm test', 'npm run test:unit', 'npx vitest run src', 'pytest -q', 'cargo test', 'docker compose up -d', 'npm ci']) {
     assert.strictEqual(long({ command: cmd }), true, cmd);
   }
   for (const cmd of [LOOP, 'git status', 'node vscode/test/a.test.js', 'npm view x']) assert.strictEqual(long({ command: cmd }), false, cmd);

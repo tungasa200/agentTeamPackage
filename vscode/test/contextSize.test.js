@@ -29,7 +29,7 @@ const assistant = (inp, read, create, extra) => line({ type: 'assistant', messag
     // 2. 기준값: 설정이 없으면 15만·20만
     assert.deepStrictEqual(thresholds(null), { contextTokens: 150000, notifyTokens: 200000 });
     assert.deepStrictEqual(thresholds({ rotation: { contextTokens: 1000 } }), { contextTokens: 1000, notifyTokens: 200000 });
-    assert.ok(transcriptFile('C:\\projects\\erp-project', 'abc', 'H').endsWith(path.join('projects', 'C--projects-erp-project', 'abc.jsonl')));
+    assert.ok(transcriptFile('C:\\projects\\my-project', 'abc', 'H').endsWith(path.join('projects', 'C--projects-my-project', 'abc.jsonl')));
 
     // 3. 훅: 프로젝트 설정(roles)과 가짜 claude agents 목록
     const proj = path.join(tmp, 'proj');
