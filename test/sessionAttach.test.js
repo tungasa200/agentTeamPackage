@@ -25,6 +25,7 @@ try {
     '@echo off',
     `if "%1"=="agents" type "${agents}" & exit /b 0`,
     'if "%1"=="attach" echo ATTACH %2 & exit /b 0',
+    'if "%1"=="stop" echo STOP %2 & exit /b 0',
     'if "%1"=="--bg" echo BG %* & exit /b 0',
     'echo UNEXPECTED %* & exit /b 1',
   ].join('\r\n'));
@@ -39,8 +40,8 @@ try {
 
   write([
     { id: 'old1', name: 'AB-pm', kind: 'background', state: 'stopped', startedAt: 1, sessionId: 'a' },
-    { id: 'new2', name: 'AB-pm', kind: 'background', state: 'running', startedAt: 2, sessionId: 'b' },
-    { id: 'ide3', name: 'AB-qa', kind: 'interactive', state: 'running', startedAt: 3, sessionId: 'c' },
+    { id: 'new2', name: 'AB-pm', kind: 'background', state: 'running', status: 'busy', pid: 102, startedAt: 2, sessionId: 'b' },
+    { id: 'ide3', name: 'AB-qa', kind: 'interactive', status: 'idle', pid: 103, startedAt: 3, sessionId: 'c' },
   ]);
   let out = ps(['attach', 'AB-pm']);
   assert.ok(/ATTACH new2/.test(out), `pm 역할(agent:false)도 이름으로 최신 백그라운드 세션에 붙음\n${out}`);
@@ -54,11 +55,29 @@ try {
   out = ps(['stop', 'AB-pm']);
   assert.ok(/역할 이름이 아닙니다: AB-pm/.test(out), `pm 예외는 attach에만\n${out}`);
 
+  // 살아 있음은 pid로 본다: 턴을 마치고 쉬는 백그라운드 세션도 state=done을 내지만 pid·status가 있다(2026-10-10 stop 회귀)
+  write([
+    { id: 'q1', name: 'AB-qa', kind: 'background', state: 'done', status: 'idle', pid: 201, startedAt: 2, sessionId: 'g' },
+    { id: 'c1', name: 'AB-commit', kind: 'background', state: 'blocked', status: 'idle', pid: 202, startedAt: 2, sessionId: 'h' },
+  ]);
+  out = ps(['stop', 'AB-qa']);
+  assert.ok(/STOP q1/.test(out) && !/실행 중이 아닙니다/.test(out), `쉬는 세션(state=done, pid 있음)도 멈춤\n${out}`);
+  out = ps(['attach', 'AB-commit']);
+  assert.ok(/ATTACH c1/.test(out), `state=blocked, pid 있음은 살아 있음\n${out}`);
+  out = ps(['start', 'AB-qa']);
+  assert.ok(/이미 실행 중입니다\(q1\)/.test(out) && !/BG /.test(out), `쉬는 세션을 다시 띄우지 않음\n${out}`);
+  out = ps(['health']);
+  assert.ok(/AB-qa\s+idle/.test(out), `health는 살아 있으면 status\n${out}`);
+  // pid가 없으면 state가 무엇이든 멈춘 것
+  write([{ id: 'q2', name: 'AB-qa', kind: 'background', state: 'working', startedAt: 1, sessionId: 'i' }]);
+  out = ps(['stop', 'AB-qa']);
+  assert.ok(/실행 중이 아닙니다/.test(out) && !/STOP/.test(out), `pid 없으면 멈춘 것\n${out}`);
+
   // start-pm: 백그라운드 pm이 없으면 pmRole 이름으로 --bg(역할 파일 없이), 인수인계 경로를 시작 지시에
   const handoff = path.join(tmp, '2026-10-10-AB-pm-session.tmp');
   fs.writeFileSync(handoff, 'x');
   const hp = handoff.replace(/\\/g, '/');
-  write([{ id: 'ide1', name: 'AB-pm', kind: 'interactive', state: 'running', startedAt: 1, sessionId: 'e' }]);
+  write([{ id: 'ide1', name: 'AB-pm', kind: 'interactive', status: 'idle', pid: 101, startedAt: 1, sessionId: 'e' }]);
   out = ps(['start-pm', `'${handoff}'`]);
   assert.ok(/BG --bg --name AB-pm /.test(out) && !/--agent/.test(out), `pm은 --agent 없이 --bg\n${out}`);
   assert.ok(out.includes(`/ecc:resume-session ${hp}`) && /ListAgents/.test(out) && /pm-ops/.test(out), `시작 지시: 인수인계·pm-ops·ListAgents\n${out}`);
@@ -68,7 +87,7 @@ try {
   out = ps(['start-pm', `'${path.join(tmp, 'none-such.tmp')}'`]);
   assert.ok(/인수인계 파일이 없습니다/.test(out) && !/BG /.test(out), `없는 경로는 거부\n${out}`);
   // 이미 백그라운드 pm이 돌면 거부, -Force면 띄우고 이전 것을 멈추라고 알림
-  write([{ id: 'bg9', name: 'AB-pm', kind: 'background', state: 'running', startedAt: 5, sessionId: 'f' }]);
+  write([{ id: 'bg9', name: 'AB-pm', kind: 'background', state: 'blocked', status: 'idle', pid: 105, startedAt: 5, sessionId: 'f' }]);
   out = ps(['start-pm', `'${handoff}'`]);
   assert.ok(/이미 실행 중입니다\(bg9\)/.test(out) && !/BG /.test(out), `실행 중이면 거부\n${out}`);
   out = ps(['start-pm', `'${handoff}'`, '-Force']);

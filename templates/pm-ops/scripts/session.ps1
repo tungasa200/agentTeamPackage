@@ -67,8 +67,9 @@ function Get-Sessions { (claude agents --json --all 2>$null | ConvertFrom-Json) 
 function Get-Bg($name) {
   Get-Sessions | Where-Object { $_.kind -eq 'background' -and $_.name -eq $name } | Sort-Object startedAt -Descending | Select-Object -First 1
 }
-# 멈춘 세션은 state가 stopped·done·failed로 나온다
-function Test-Running($s) { $s.state -notin 'stopped','done','failed' }
+# 살아 있는 세션(프로세스가 있는 것)에만 pid·status가 붙는다. state로 보지 않는다: 턴을 마치고 쉬는 백그라운드 세션도 state=done을 낸다
+function Test-Running($s) { $null -ne $s.pid }
+function Get-State($s) { if (Test-Running $s) { $s.status } else { $s.state } }
 function Get-Transcript($s) { if ($s) { Get-Item "$Transcripts\$($s.sessionId).jsonl" -ErrorAction SilentlyContinue } }
 # 현재 대화 토큰: 기록 끝 1MB에서 마지막 assistant 응답의 usage를 더한다(대시보드·대화 크기 훅과 같은 기준). 못 읽으면 $null
 function Get-ContextTokens($t) {
@@ -107,7 +108,7 @@ function Start-New($name, $handoff) {
 
 switch ($Cmd) {
   'list' {
-    Get-Sessions | Sort-Object name | Format-Table name, kind, @{n='상태';e={ if ($_.status) { $_.status } else { $_.state } }}, id -AutoSize
+    Get-Sessions | Sort-Object name | Format-Table name, kind, @{n='상태';e={ Get-State $_ }}, id -AutoSize
   }
   'health' {
     $all = Get-Sessions
@@ -116,7 +117,7 @@ switch ($Cmd) {
       $t = Get-Transcript $s
       $mb = if ($t) { [math]::Round($t.Length / 1MB, 1) } else { 0 }
       $tok = Get-ContextTokens $t
-      [pscustomobject]@{ 역할 = $r; 상태 = if ($s) { $s.state } else { '없음' }
+      [pscustomobject]@{ 역할 = $r; 상태 = if ($s) { Get-State $s } else { '없음' }
         '대화(k토큰)' = if ($tok) { [math]::Round($tok / 1000) } else { '-' }; '대화(MB)' = $mb
         '마지막 활동' = if ($t) { $t.LastWriteTime.ToString('MM-dd HH:mm') } else { '-' }
         권장 = if (Test-Rotate $tok $mb) { '세션 교체' } else { '' } }
