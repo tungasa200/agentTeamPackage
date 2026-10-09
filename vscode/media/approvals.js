@@ -902,8 +902,21 @@
     body.append(h);
 
     if (r.broken) {
-      body.append(el('p', 'broken-tx', `이 요청 파일은 형식이 맞지 않아 처리할 수 없습니다: ${r.broken}. 요청한 세션이 파일을 고치거나 지우면 이 카드가 사라집니다.`));
+      // 사람 말로: 무엇이 틀렸나 + 누구에게 다시 올리게 할지(pm 제안 4번)
+      const fix = r.fix || { what: r.broken, ask: '요청한 세션에 다시 올리라고 pm에 알리세요' };
+      const bx = el('div', 'broken-tx');
+      bx.append(el('p', 'broken-what', fix.what), el('p', 'broken-ask', fix.ask));
+      bx.append(el('p', 'broken-note', '처리 버튼 없음 · 요청 파일을 고치거나 지우면 사라짐'));
+      body.append(bx);
     } else {
+      // git 카드 맨 위 한 줄: 무엇이 바뀌고 어떻게 되돌리는지(요청의 effect 칸, 없으면 자동 문구)
+      if (kindOf(r) === 'git' && r.effect) {
+        const fx = el('p', 'effect');
+        fx.style.setProperty('--c', m.c);
+        fx.append(ico(GIT_ICON[r.kind] || 'i-commit', 'i-s'), el('span', null, r.effect));
+        if (r.effectAuto) fx.title = '요청에 effect 칸이 없어 종류·브랜치·커밋 수로 만든 문구';
+        body.append(fx);
+      }
       const who = el('div', 'who-row');
       const me = el('span', 'me');
       me.append(avatar(r.session, { ended: !!r.sessionEnded }), document.createTextNode(r.session));

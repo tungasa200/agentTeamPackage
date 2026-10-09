@@ -188,6 +188,9 @@ kbd {
 .link { border: 0; background: none; padding: 0; color: var(--vscode-textLink-foreground, var(--focus)); cursor: pointer; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
 .link:hover { color: var(--vscode-textLink-activeForeground, var(--focus)); }
 
+/* git 카드 맨 위 한 줄: 무엇이 바뀌고 어떻게 되돌리는지 */
+.effect { display: flex; gap: 8px; align-items: baseline; margin: 10px 0 0; padding: 8px 12px; max-width: 64ch; border-radius: var(--r); background: color-mix(in srgb, var(--c, var(--k-git)) 12%, transparent); font-size: 15px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.effect .i { flex: none; align-self: center; color: var(--c, var(--k-git)); }
 .what { margin: 12px 0 0; max-width: 64ch; overflow-wrap: anywhere; }
 .why { margin-top: 14px; border-radius: var(--r); background: var(--card); }
 .why summary { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; list-style: none; color: var(--dim); font-size: 12.5px; }
@@ -213,6 +216,11 @@ kbd {
 .chip-btn[aria-expanded="true"] svg:last-child { transform: rotate(180deg); }
 .detail-text { margin: 10px 0 0; color: var(--dim); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .broken-tx { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--r); background: color-mix(in srgb, var(--err) 9%, transparent); overflow-wrap: anywhere; }
+.broken-tx p { margin: 0; max-width: 64ch; }
+.broken-what { font-weight: 600; }
+.broken-tx .broken-ask { margin-top: 4px; }
+/* 붉은 바탕 위 보조 글은 회색 대신 전경색을 옅게 */
+.broken-tx .broken-note { margin-top: 6px; color: color-mix(in srgb, var(--fg) 72%, transparent); font-size: 12px; }
 
 /* 권한 타이머 */
 .timer { margin-top: 14px; padding: 10px 12px; border-radius: var(--r); background: color-mix(in srgb, var(--k-perm) 8%, transparent); }

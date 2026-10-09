@@ -27,17 +27,27 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 - 입력 대기는 할 일을 마치고 다음 지시를 기다리는 상태, 승인 대기는 권한·샌드박스·선택 대화상자 응답을 기다리는 상태다(`claude agents`의 `waitingFor`로 구분). 상태 위에 마우스를 올리면 기다리는 이유가 보인다.
 - 여유 메모리가 1GB 미만이면 막대와 문구가 경고색으로 바뀐다. 막대 위의 세로선이 1GB 기준이다.
 
+### 세션 멈춤 감지
+
+백그라운드 역할 세션이 도구 한 번(셸 명령 등)에 오래 묶여 있으면 그 세션 줄 아래에 '멈춤 의심 n분 · <명령 앞부분>'이 경고색으로 보인다. 묶인 동안 세션은 다른 세션의 메시지를 받지 못한다(예: 결정 파일을 포그라운드 until 루프로 기다리는데 카드가 형식 오류라 끝나지 않음).
+
+- 근거: 대화 기록(`~/.claude/projects/<저장소>/<sessionId>.jsonl`) 끝에서 결과가 아직 없는 마지막 도구 호출과 그 시각. 살아 있고 일하는 중(권한 대기·입력 대기 아님)인 백그라운드 세션만 본다. 대화형 세션은 사람이 보고 있으니 보지 않는다.
+- 기준: `.claude/wy-ops.json`의 `stuck.minutes`(기본 10분). 원래 오래 걸리는 것(빌드·테스트·설치·컨테이너: gradle·mvn·npm test/ci/install/run build·vitest·jest·playwright·pytest·cargo·go·dotnet·docker build/compose·make 등, 하위 에이전트 Agent·Task·Workflow)은 `stuck.longMinutes`(기본 30분)를 넘어야 보인다. 예: `"stuck": { "minutes": 10, "longMinutes": 30 }`.
+- pm 역할에 한 번 알린다: 승인 폴더의 결정 로그에 한 줄을 붙인다(pm 역할이 이미 감시하는 곳, 아래 '결정을 받는 방법'). 같은 도구 호출로는 한 번만이다. 결정이 아니라 알림이다.
+  `{"id":"stuck-<세션 앞 8자>-<호출 뒤 8자>","kind":"stuck","session":"AB-commit","relatedSessions":["AB-pm"],"decision":"stuck","minutes":12,"tool":"Bash","command":"until [ -f …","since":"…","notice":"AB-commit 세션이 도구 한 번(Bash until [ -f …)에 12분째 묶여 있습니다(멈춤 의심). …","decidedAt":"…"}`
+- 사이드바가 닫혀 있어도 확장이 1분마다 세션 상태를 읽어 알린다(사이드바가 보이면 10초 폴링이 대신한다). VS Code가 꺼져 있으면 알리지 않는다.
+
 ## 승인 센터(작업창 탭)
 
 상태 표시줄의 '승인 대기 N'을 누르거나 명령 팔레트에서 `WY: 승인 센터 열기`를 실행한다. VS Code를 다시 열면 탭이 되살아난다. N은 대기 중인 카드(git·결정·권한·할 일)를 합친 수이고, 마우스를 올리면 종류별로 나눠서 보인다.
 
 새 카드가 들어오면 OS 기본 알림음을 한 번 낸다(탭이 닫혀 있어도). 여러 장이 5초 안에 몰려도 한 번이고, VS Code를 켤 때 이미 쌓여 있던 카드로는 울리지 않는다. 끄려면 설정 `wyOps.approvals.sound`를 끈다. 창을 여러 개 열면 창마다 울린다.
 
-- **git 명령 카드**: 커밋·푸시(파랑)와 PM 결정(노랑: 병합·`gh pr merge`, 브랜치 생성·삭제, reset, 강제 푸시, rebase, 태그 삭제). 매번 [승인] 또는 [거부]를 누른다. 자동 승인은 없다. 거부할 때는 사유를 적어야 한다.
+- **git 명령 카드**: 커밋·푸시(파랑)와 PM 결정(노랑: 병합·`gh pr merge`, 브랜치 생성·삭제, reset, 강제 푸시, rebase, 태그 삭제). 제목 바로 아래 큰 글씨 한 줄이 무엇이 바뀌고 어떻게 되돌리는지다(요청의 `effect`, 없으면 자동 문구). 매번 [승인] 또는 [거부]를 누른다. 자동 승인은 없다. 거부할 때는 사유를 적어야 한다.
 - **결정 요청 카드**(보라): 질문 1~4개, 질문마다 선택지 2~4개(추천 표시), 하나만 또는 여러 개 고르기, '기타' 직접 입력, 메모. 모든 질문에 답해야 [응답 전송]이 된다.
 - **권한 요청 카드**: 백그라운드 세션(`claude agents`의 kind=background)이 도구 실행 권한 요청에 대한 응답을 기다릴 때 훅이 올린다. 대화형 세션이나 종류를 알 수 없는 세션은 카드 없이 평소 터미널 권한 요청 창으로 간다. [허용]은 그 한 번만, [거부]는 사유가 세션에 전달된다. 15분 안에 결정이 없으면 거부로 닫힌다.
 - **할 일 카드**: 사람이 직접 할 일(콘솔 작업, 설정 수정, 직접 실행). 방법 단계와 확인 방법을 보고 처리한 뒤 [완료]를 누르면 요청 세션이 이어 간다.
-- **형식 오류 카드**: 요청 파일을 읽지 못했거나 필수 칸(아래 '요청 형식')이 빠진 요청. 처리 버튼이 없다.
+- **형식 오류 카드**: 요청 파일을 읽지 못했거나 필수 칸(아래 '요청 형식')이 빠졌거나 `kind`가 없는 값인 요청. 처리 버튼이 없다. 무엇이 틀렸는지와 "요청한 세션(이름)에 다시 올리라고 pm에 알리세요"를 사람 말로 보여 준다(예: `종류(kind) 'pr'는 없는 값 · … · PR 병합은 merge`).
 
 ### 파일(저장소 밖 `~/.claude/wy-approvals/<namespace>/`)
 
@@ -47,7 +57,8 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 |---|---|---|
 | `requests/<id>.json` | 요청하는 세션 | 요청 하나 |
 | `decisions/<id>.json` | 확장 | 그 요청의 결정. 요청과 같은 id |
-| `decisions.log` | 확장 | 결정마다 JSON 한 줄을 덧붙인다(알림용) |
+| `decisions.log` | 확장 | 결정마다 JSON 한 줄을 덧붙인다(알림용). 멈춤 의심 알림(`kind: "stuck"`, '세션 멈춤 감지')도 여기에 한 줄 |
+| `sessions/<sessionId>.stuck-<도구 호출 id>` | 확장 | 멈춤 의심을 pm에 알렸다는 표시(같은 도구 호출로는 창이 여럿이어도 한 번) |
 | `used/<id>.json` | 가드 훅 | 그 승인으로 명령을 한 번 실행했다는 표시 |
 | `message-blocks.log` | 메시지 가드 훅 | 종료된 세션에 보내려다 거부된 메시지마다 JSON 한 줄(`at`·`from`·`fromSessionId`·`to`·`toSessionId`·`toState`, 본문 없음). 1MB를 넘으면 앞 절반을 버린다. 세션 현황의 '꺼진 뒤 메시지 옴' 경고가 읽는다 |
 
@@ -80,6 +91,7 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
   "why": "AB-backend2 작업이 끝나 검증을 통과했다",
   "onClick": "승인: AB-commit이 아래 명령을 한 번 실행한다. 거부: 실행하지 않고 사유를 요청 세션에 전한다",
   "cost": "되돌리려면 새 커밋이 필요하다(푸시 전)",
+  "effect": "feature/P1에 커밋 1개 추가(파일 1개) · 푸시 전이라 되돌리기 쉬움",
   "branch": "feature/P1",
   "command": "git commit -F .git/AB_COMMIT_MSG",
   "files": ["vscode/approvalStore.js"],
@@ -92,6 +104,8 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
 
 - `command`: 실제로 실행할 명령 그대로. 가드 훅은 공백만 정리해 실행 명령과 똑같은지 비교한다. 여러 명령을 `&&`로 이을 때는 잠금 대상 명령마다 요청을 하나씩 쓴다.
 - push 요청은 `commits`에 올라갈 커밋을, commit 요청은 `files`(또는 `fileCount`)와 `verification`을 채운다.
+- `effect`(선택): 무엇이 바뀌고 어떻게 되돌리는지 한 줄, 200자 이내. 카드 제목 바로 아래 큰 글씨로 보인다. 짧은 명사형·단문. 예: `main에 22개 커밋 합침 · revert로 되돌림`, `feature/P1에 커밋 1개 추가(파일 1개) · 푸시 전이라 되돌리기 쉬움`. 비우면 `kind`·`branch`·`commits`·`files`·`command`로 만든다(push → `원격 feature/P1에 3개 커밋 올림 · revert로 되돌림`, `gh pr merge` → `원격 main에 22개 커밋 합침 · revert로 되돌림`, `reset --hard` → `… 작업 중 변경도 지움 · 지운 변경은 되찾기 어려움`).
+- `kind`는 위 값만. PR 병합(`gh pr merge`)도 `merge`다(`pr`은 형식 오류 카드).
 
 결정 요청(`kind`: `choice`, AskUserQuestion과 같은 모양):
 
@@ -191,6 +205,7 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
 - **모든 결정을 감시할 때**(pm 역할): `decisions.log`에 새 줄이 붙는지 본다. 예:
   `tail -n 0 -F ~/.claude/wy-approvals/my-project/decisions.log`
   새 줄의 `session`·`relatedSessions`를 보고, 그 세션이 종료돼 있으면 재시작해서(`session.ps1 start <역할> "<결정 요약>"`) 결정 파일 경로와 요약을 전한다.
+  `kind: "stuck"` 줄은 결정이 아니라 멈춤 의심 알림이다(결정 파일 없음, 세션을 재시작하지 않는다). `notice`대로 그 세션을 살핀다(사용자에게 `claude attach`를 권하거나, 막힌 원인을 풀거나, 필요하면 세션을 멈추고 다시 띄운다).
 - 가드 훅은 승인 파일을 **읽는** 셸 명령(cat·ls·tail·test·감시 루프)은 통과시키고, **쓰는** 명령만 막는다.
 
 ### 세션별 사용 규칙(초안)

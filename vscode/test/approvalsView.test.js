@@ -20,9 +20,9 @@ const STATE = {
     card({ id: 'p0', kind: 'permission', title: '기한 지난 권한', sessionId: 'sid-0', tool: 'Bash', command: 'x', expiresAt: iso(1), createdAt: iso(16) }),
     card({ id: 'c1', kind: 'choice', title: '결정', background: '', questions: [
       { question: 'Q1', header: 'h', multiSelect: false, allowOther: true, options: [{ label: 'A', description: '', cost: 'A의 대가', onClick: 'A를 고르면', recommended: true }, { label: 'B', description: '', cost: 'B의 대가', onClick: '' }] }] }),
-    card({ id: 'g1', kind: 'force-push', title: '강제 푸시', branch: 'main', command: 'git push -f', commits: [], files: [], fileCount: null, verification: '' }),
+    card({ id: 'g1', kind: 'force-push', title: '강제 푸시', branch: 'main', command: 'git push -f', commits: [], files: [], fileCount: null, verification: '', effect: '원격 main을 로컬 내용으로 덮어씀 · 덮인 커밋은 되찾기 어려움', effectAuto: true }),
     card({ id: 't1', kind: 'todo', title: '할 일', sessionId: 'sid-2', steps: ['하나', '`둘`'], check: '목록에 보이면 됨', sessionEnded: true }),
-    { id: 'b1', broken: '필수 필드 누락: what' },
+    { id: 'b1', broken: '알 수 없는 종류: pr', fix: { what: "종류(kind) 'pr'는 없는 값 · PR 병합은 merge", session: 'WY-commit', ask: '요청한 세션(WY-commit)에 다시 올리라고 pm에 알리세요' } },
   ],
   recent: [{ id: 'r1', decision: 'done', kind: 'todo', session: 'WY-pm', note: '메모', decidedAt: iso(60), request: null }],
 };
@@ -47,7 +47,7 @@ function extensionWiring() {
 
 function findJsdom() {
   try {
-    return require(require.resolve('jsdom', { paths: [path.join(REPO, 'frontend')] }));
+    return require('jsdom'); // 의존성 아님: NODE_PATH로 다른 곳의 jsdom을 주면 화면 검사가 돈다
   } catch {
     return null;
   }
@@ -134,6 +134,7 @@ function screenBehavior(jsdom) {
   // 형식 오류: 처리 버튼 없음
   s.send({ type: 'select', id: 'b1' });
   assert.deepStrictEqual(s.txt('.act .btns button'), ['요청 폴더 열기'], '형식 오류는 처리 불가');
+  assert.deepStrictEqual(s.txt('.broken-tx p').slice(0, 2), ["종류(kind) 'pr'는 없는 값 · PR 병합은 merge", '요청한 세션(WY-commit)에 다시 올리라고 pm에 알리세요'], '형식 오류를 사람 말로');
 
   // j/k 이동, 처리됨 탭, g a, 빈 상태
   s.key('k');
@@ -163,6 +164,8 @@ function screenBehavior(jsdom) {
   s2.send({ type: 'select', id: 'g1' });
   s2.send({ type: 'state', state: STATE });
   assert.strictEqual(s2.id('dt-title').textContent, '강제 푸시', '먼저 온 select');
+  assert.deepStrictEqual(s2.txt('.effect'), ['원격 main을 로컬 내용으로 덮어씀 · 덮인 커밋은 되찾기 어려움'], 'git 카드 맨 위 한 줄');
+  assert.strictEqual(s2.d.querySelector('.effect').previousElementSibling.id, 'dt-title', '제목 바로 아래');
   assert.ok(s2.id('app').classList.contains('has-sel'), '좁은 폭은 상세만');
   s2.key('Escape');
   assert.ok(!s2.id('app').classList.contains('has-sel') && s2.d.activeElement.id === 'row-g1', 'Esc로 목록, 그 줄로 포커스');
@@ -213,7 +216,7 @@ try {
   extensionWiring();
   const jsdom = findJsdom();
   if (jsdom) screenBehavior(jsdom);
-  else console.log('jsdom 없음: 화면 동작 검사는 건너뜀(frontend에서 npm ci 하면 돈다)');
+  else console.log('jsdom 없음: 화면 동작 검사는 건너뜀(NODE_PATH에 jsdom이 든 node_modules를 주면 돈다)');
   console.log('approvalsView 검사 통과');
 } finally {
   fs.rmSync(process.env.WY_APPROVALS_DIR, { recursive: true, force: true });

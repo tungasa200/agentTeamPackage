@@ -107,10 +107,61 @@ function readQuestions(list) {
   });
 }
 
+// git 카드 맨 위 한 줄(pm 제안 4번, 사용자 승인 2026-10-09): 무엇이 바뀌고 어떻게 되돌리는지. 짧은 명사형·단문.
+// 요청의 effect 칸(선택)이 있으면 그것을, 없으면 kind·branch·commits·files·command로 만든다
+function gitEffect(r) {
+  const cmd = String(r.command || '');
+  const b = text(r.branch, 200).trim();
+  const n = Array.isArray(r.commits) ? r.commits.length : 0;
+  const files = Number.isFinite(r.fileCount) ? r.fileCount : Array.isArray(r.files) ? r.files.length : 0;
+  const on = b ? `${b}에` : '현재 브랜치에';
+  const count = n ? ` ${n}개 커밋` : '';
+  switch (r.kind) {
+    case 'commit':
+      return `${on} 커밋 1개 추가${files ? `(파일 ${files}개)` : ''} · 푸시 전이라 되돌리기 쉬움`;
+    case 'push':
+      return `원격 ${b || '브랜치'}에${count || ' 커밋'} 올림 · revert로 되돌림`;
+    case 'force-push':
+      return `원격 ${b || '브랜치'}를 로컬 내용으로 덮어씀 · 덮인 커밋은 되찾기 어려움`;
+    case 'branch':
+      return `브랜치 ${b || '새 브랜치'} 만듦 · 지우면 되돌림`;
+    case 'delete-branch':
+      return `브랜치 ${b || ''} 삭제 · 병합 안 된 커밋은 잃을 수 있음`.replace('  ', ' ');
+    case 'merge':
+      return `${/\bgh\s+pr\s+merge\b/.test(cmd) ? '원격 ' : ''}${b || '대상 브랜치'}에${count} 합침 · revert로 되돌림`;
+    case 'reset':
+      return /--hard\b/.test(cmd)
+        ? `${b || '현재 브랜치'}를 이전 커밋으로 되돌림, 작업 중 변경도 지움 · 지운 변경은 되찾기 어려움`
+        : `${b || '현재 브랜치'}를 이전 커밋으로 되돌림 · reflog로 되찾음`;
+    case 'rebase':
+      return `${b || '현재 브랜치'} 커밋 다시 씀 · 원격에 있으면 강제 푸시 필요`;
+    case 'tag-delete':
+      return '태그 삭제 · 다시 만들면 되돌림';
+    default:
+      return '';
+  }
+}
+
+// 형식 오류 카드의 사람 말 설명: 무엇이 틀렸는지 + 누구에게 다시 올리게 할지
+function brokenFix(raw, message) {
+  const kind = raw && typeof raw === 'object' ? raw.kind : undefined;
+  let what = message;
+  if (!raw || typeof raw !== 'object') what = '파일이 JSON이 아니거나 쓰는 중에 읽힘';
+  else if (!KINDS[kind]) {
+    const allowed = Object.keys(KINDS).filter((k) => k !== 'permission').join(', ');
+    const hint = /^(pr|pull[-_ ]?request|gh)$/i.test(String(kind)) ? ' · PR 병합은 merge' : '';
+    what = `종류(kind) '${text(kind, 40)}'는 없는 값 · 쓸 수 있는 값: ${allowed}${hint}`;
+  } else what = message.replace(/^필수 필드 누락: /, '필수 칸 비어 있음: ');
+  const who = raw && typeof raw === 'object' && typeof raw.session === 'string' && raw.session.trim() ? text(raw.session, 40) : '';
+  return { what, session: who || null, ask: `요청한 세션(${who || '이름 없음'})에 다시 올리라고 pm에 알리세요` };
+}
+
 // 요청 파일을 화면용 모양으로 고른다. 형식이 틀린 파일은 broken으로 남겨 화면에 알린다
 function readRequest(file, id) {
+  let raw;
   try {
     const r = readJson(file);
+    raw = r;
     if (!r || typeof r !== 'object') throw new Error('객체가 아님');
     if (!KINDS[r.kind]) throw new Error(`알 수 없는 종류: ${r.kind}`);
     // OPS-03: 카드만 보고 판단할 수 있게 무엇을·왜·누르면 무슨 일이 비면 올리지 않는다
@@ -160,9 +211,11 @@ function readRequest(file, id) {
       files: Array.isArray(r.files) ? r.files.slice(0, 200).map((f) => text(f, 300)) : [],
       fileCount: Number.isFinite(r.fileCount) ? r.fileCount : Array.isArray(r.files) ? r.files.length : null,
       verification: text(r.verification),
+      effect: text(r.effect, 200).trim() || gitEffect(r),
+      effectAuto: !text(r.effect, 200).trim(),
     };
   } catch (err) {
-    return { id, broken: err.message };
+    return { id, broken: err.message, fix: brokenFix(raw, err.message) };
   }
 }
 
@@ -345,4 +398,4 @@ function listDecisionDigests(root = ROOT) {
   return out;
 }
 
-module.exports = { listPermissionRequests, readSessionRegistry, decisionDigest, listDecisionDigests, ROOT, KINDS, GIT_KINDS, ROUTINE_KINDS, LIMITS, ID_RE, rootFor, paths, ensureDirs, readJson, writeJsonAtomic, readState, countPending, readRequest, decide, answer, markDone, normalize };
+module.exports = { gitEffect, brokenFix, listPermissionRequests, readSessionRegistry, decisionDigest, listDecisionDigests, ROOT, KINDS, GIT_KINDS, ROUTINE_KINDS, LIMITS, ID_RE, rootFor, paths, ensureDirs, readJson, writeJsonAtomic, readState, countPending, readRequest, decide, answer, markDone, normalize };
