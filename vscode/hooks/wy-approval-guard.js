@@ -297,14 +297,17 @@ const HEREDOC_DATA = new Set(['cat', 'tee']);
 const CODE_INTERPRETERS = new Set(['node', 'python', 'python3', 'py', 'perl', 'ruby', 'deno', 'bun']);
 
 // here-doc 본문을 떼어 낸다. 셸(bash 등)이나 모르는 프로그램의 본문은 명령이므로 그대로 둔다.
-//   돌려줌 { command: 본문을 뺀 명령, bodies: here-doc 머리 순서대로 본문(그대로 둔 것은 null) }
+//   돌려줌 { command: 본문을 뺀 명령, bodies: here-doc 머리 순서대로 본문(그대로 둔 것은 null),
+//           code: 데이터 본문(cat·tee)만 뺀 명령 — 실행되지 않는 데이터의 ?·[·*를 와일드카드로 보지 않게(2026-10-10 pm 오탐) }
 function splitHeredocs(command) {
   const lines = command.split('\n');
   const out = [];
+  const code = [];
   const bodies = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     out.push(line);
+    code.push(line);
     const m = line.match(/<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
     if (!m) continue;
     const before = segments(line.slice(0, m.index)).pop() || '';
@@ -316,9 +319,10 @@ function splitHeredocs(command) {
       continue;
     }
     bodies.push(lines.slice(i + 1, end).join('\n'));
+    if (CODE_INTERPRETERS.has(prog)) code.push(...lines.slice(i + 1, end));
     i = end;
   }
-  return { command: out.join('\n'), bodies };
+  return { command: out.join('\n'), bodies, code: code.join('\n') };
 }
 
 // s[i]의 여는 괄호에 맞는 닫는 괄호 위치(따옴표 안은 건너뜀). 없으면 -1
@@ -539,9 +543,10 @@ function writesApprovalFiles(command, cwd) {
   // 보호 폴더·파일 이름만 나와도(경로가 변수·명령 치환으로 쪼개진 경우: D=$(echo …/wy-approvals/ns); rm $D/decisions/a)
   // 아래 리다이렉트·쓰기 프로그램 검사는 한다. 그 검사는 대상이 보호 경로이거나 알 수 없는 값일 때만 막는다
   const named = SOFT_NAMES.test(command.replace(/\\/g, '/').toLowerCase());
-  if (!moved && !mentioned && !named && !GLOB.test(scan)) return false;
   // here-doc 본문(cat의 데이터, node·python의 코드)은 명령으로 나누지 않는다. 코드 본문은 그 인터프리터 조각에서 본다
-  const { command: shell, bodies } = splitHeredocs(command);
+  const { command: shell, bodies, code } = splitHeredocs(command);
+  // 와일드카드 관문은 데이터 본문을 뺀 명령으로 본다(코드 본문은 남긴다: 코드 안 와일드카드 경로 우회를 그대로 잡게)
+  if (!moved && !mentioned && !named && !GLOB.test(code.replace(/\$[?#$!@*0-9]/g, ''))) return false;
   // 리다이렉트(> >> 2> *>). =>(화살표 함수)·->·>=는 리다이렉트가 아니다
   for (const m of shell.matchAll(/(?<![=\-<])(?:\d|\*)?>{1,2}(?!=)\s*("[^"]*"|'[^']*'|[^\s|;&<>)]+)/g)) {
     const target = m[1].replace(/^["']|["']$/g, '');

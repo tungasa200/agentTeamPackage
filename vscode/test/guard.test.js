@@ -130,6 +130,8 @@ const deny = [
   `python - <<'EOF'${NL}import os${NL}fd = os.open('.claude/wy-ops.json', os.O_WRONLY)${NL}os.fdopen(fd, 'w').write('{}')${NL}EOF`,
   // cat here-doc이라도 리다이렉트 대상이 보호 경로면 막는다
   `cat >> .claude/wy-ops.json <<'EOF'${NL}{}${NL}EOF`,
+  // 데이터 본문을 와일드카드 관문에서 빼도, 명령 쪽 와일드카드 대상은 그대로 펼쳐 막는다
+  `cat > h/.cl*/wy-a*/my-project/decisions/a.json <<'EOF'${NL}{"a": [1]}${NL}EOF`,
   // 셸 here-doc 본문은 명령이므로 그대로 본다
   `bash <<'EOF'${NL}rm -rf ~/.claude/wy-approvals/my-project/decisions${NL}EOF`,
   // 요청 폴더로 이동해도 ..로 거슬러 오르거나, 요청 폴더가 아닌 승인 폴더로 이동하면 막는다
@@ -217,6 +219,8 @@ const allow = [
   `node -e "const s=require('fs').readFileSync('.claude/wy-ops.json','utf8');process.stdout.write(s.replace('a','b'))"`,
   // pm 보고: 문서에 덧붙이는 cat here-doc. 본문(데이터)에 보호 이름·리다이렉트·쓰기 명령 글자가 있어도 대상(docs/…)만 본다
   `cat >> docs/진행현황.md <<'EOF'${NL}- wy-ops.json·sessions 정리: rm ~/.claude/wy-approvals/my-project/sessions/x.json > .claude/settings.local.json${NL}EOF`,
+  // pm 보고(2026-10-10): 작업 폴더 변수로 스크립트를 쓰는 cat here-doc. 데이터 본문의 ?.·[]를 와일드카드로 보고 변수 대상을 막던 오탐
+  `cat > "$CLAUDE_JOB_DIR/tmp/cdpshot.mjs" <<'EOF'${NL}const r = await send('Target.attachToTarget', { targetId: t.id });${NL}const sessionId = r?.sessionId;${NL}console.log(arr[0]);${NL}EOF`,
 ];
 for (const c of deny) { const e = ev(c); ok(e && e.decision === 'deny', 'should deny: ' + c); }
 // 설정에 commitRole이 없으면 기본 이름 없이 잠금 대상은 모두 거부(커밋 역할 이름으로 띄운 세션도)

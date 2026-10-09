@@ -96,6 +96,7 @@ try {
   assert.ok(exts.has(REMOTE_SSH) && fs.existsSync(path.join(desktop, 'wy-host.lnk')));
   assert.ok(r.hostLine.endsWith("host --add-key 'ssh-ed25519 AAAAC3fake wy-ops-connect-wy-host'"));
   assert.ok(out.includes('호스트의 관리자 PowerShell에서 실행할 한 줄(공개키 등록):'));
+  assert.ok(out.some((s) => s.includes('ssh -N -L 19222:localhost:9222 wy-host')), 'Chrome 포트 전달은 접속 PC 쪽 다른 포트(0.8.0 실측)');
 
   // 3-4. 두 번째 실행: 모두 이미 됨, 키를 덮어쓰지 않음
   calls.length = 0;

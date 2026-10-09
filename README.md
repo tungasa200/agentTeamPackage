@@ -91,6 +91,6 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 - 작업 사본을 바로 쓰려면 `install.ps1 deploy --dev`(설치본 `current`가 이 폴더를 가리킵니다. doctor가 '개발 연결 중'으로 알립니다). 풀려면 `install.ps1 deploy`.
 - 시험: 저장소 루트에서 `node test/<이름>.test.js`, `node vscode/test/<이름>.test.js`. npm 의존성은 없습니다. 시험은 임시 폴더·가짜 명령으로 돌고 실제 홈 폴더와 설치본은 건드리지 않습니다.
 
-- powershell -ExecutionPolicy Bypass -File C:\projects\agentTeamPackage\install.ps1 restore <USB>\wy-transfer.zip --project <erp-project를 clone한 폴더>
+- powershell -ExecutionPolicy Bypass -File C:\projects\agentTeamPackage\install.ps1 restore <USB>\wy-transfer.zip --project <프로젝트를 clone한 폴더>
 - 버전: 0.x는 개발 중, 첫 공개 판이 1.0.0입니다. 프로젝트는 `.claude/wy-ops.json`의 `wyOpsVersion`으로 쓰는 버전을 적고, doctor가 설치본과 비교합니다.
 - VS Code 확장 id(`wy-ops.wy-ops`)는 바꾸지 않습니다. 확장은 설치본 `current`를 읽는 얇은 껍데기라 버전을 바꿀 때 다시 설치하지 않아도 됩니다.
