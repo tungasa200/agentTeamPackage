@@ -230,6 +230,16 @@
       line.title = cmd;
       who.append(line);
     }
+    // 멈춤 의심: 도구 한 번에 기준 분 이상 묶임(그동안 메시지를 받지 못한다)
+    if (s && s.stuck) {
+      tr.classList.add('is-stuck');
+      // 글은 본문 글꼴, 명령만 고정폭(권한 대기 줄과 같은 모양)
+      const line = el('span', 's-stuck');
+      line.append(el('b', null, `멈춤 의심 ${s.stuck.minutes}분`), document.createTextNode(' · '), el('code', null, s.stuck.command || s.stuck.tool));
+      line.title = `${s.stuck.tool} 한 번에 ${s.stuck.minutes}분째 묶여 있습니다${s.stuck.long ? '(빌드·테스트 기준 적용)' : ''}. 묶인 동안 메시지를 받지 못합니다. pm 세션에 한 번 알렸습니다.
+${s.stuck.command || ''}`;
+      who.append(line);
+    }
     // 꺼진 뒤 이 세션 앞으로 메시지가 왔거나 막혔다(주황 경고, 확인함으로 숨김)
     // 좁은 사이드바에서도 읽히게 세션 줄 아래 한 줄을 통째로 쓴다
     const warn = s && s.offWarning;

@@ -100,6 +100,7 @@ choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르�
 - `claude attach`로 깨운 백그라운드 세션은 `--agent` 없이 재시작될 수 있다. 그러면 가드 훅이 그 세션을 {{commitRole}}로 보지 않아 커밋이 막힌다. 사용자가 권한 요청 때문에 attach했으면 그 뒤 {{commitRole}}은 `rotate {{commitRole}} none`으로 세션을 교체한다. attach는 `!`로는 안 되고 별도 터미널에서 해야 한다.
 - VS Code Reload Window를 하면 패널 세션 이름이 풀린다. 백그라운드 세션은 영향 없다.
 - 권한 요청 대기는 사용자가 알아채지 못한다. 역할 세션을 실행해 둔 동안에는 `claude agents --json --all`에서 `state`가 `blocked`인 세션을 20초 간격으로 감시(Monitor)하고, 새로 걸리면 바로 알린다.
+- `decisions.log`의 `kind:"stuck"` 줄은 결정이 아니라 멈춤 의심 알림이다(세션이 도구 한 번에 기준 분 이상 묶여 메시지를 못 받음). 세션을 재시작하지 말고 먼저 살핀다(`claude logs <id>`). 그다음 `notice`대로: 막힌 원인을 풀거나, 사용자에게 `claude attach`를 권하거나, 필요하면 멈추고 다시 띄운다.
 
 ## 6-2. {{pmRole}}을 터미널에서 쓸 때
 

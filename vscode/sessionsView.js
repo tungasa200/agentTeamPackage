@@ -9,9 +9,11 @@ const { execFile } = require('child_process');
 const { loadOpsConfig } = require('./opsConfig');
 const { rootFor } = require('./approvalStore');
 const { readSessionStatus } = require('./agentsReader');
+const { notifyStuck } = require('./stuckTool');
 
 const VIEW_ID = 'wyOps.sessions';
 const INTERVAL = { memory: 5000, processes: 15000, sessions: 10000 };
+const STUCK_INTERVAL = 60000; // 패널이 안 보여도 멈춤 의심을 pm에 알리려고 세션 상태를 이 간격으로 읽는다
 const COMMAND_TIMEOUT = 8000;
 const REVEAL_REPLAY_MS = 10000;
 
@@ -59,10 +61,15 @@ function workspaceDir() {
   return folder ? folder.uri.fsPath : null;
 }
 
-// 세션 상태: claude agents + 권한 요청 파일 + 세션 등록 기록(agentsReader, 계획 2.2)
-function readSessions() {
+// 세션 상태: claude agents + 권한 요청 파일 + 세션 등록 기록(agentsReader, 계획 2.2).
+// 멈춤 의심인 세션은 여기서 pm 세션에 한 번 알린다(stuckTool.notifyStuck, 같은 도구 호출로는 한 번)
+async function readSessions() {
   const dir = workspaceDir();
-  return readSessionStatus({ root: rootFor(dir), ops: dir ? loadOpsConfig(dir) : null });
+  const root = rootFor(dir);
+  const ops = dir ? loadOpsConfig(dir) : null;
+  const rows = await readSessionStatus({ root, ops });
+  for (const r of rows) if (r.stuck) notifyStuck(root, r, (ops && ops.pmRole) || null);
+  return rows;
 }
 
 // 메모리 경고 선(wy-ops.json memory, D-86): warnFreeMB 미만 주의, blockFreeMB 미만 위험
@@ -255,7 +262,11 @@ async function openSession(id, name) {
 
 function register(context) {
   const provider = new Provider(context.extensionUri, context.globalState);
+  // 패널이 보이면 패널 폴링(10초)이 읽으므로 건너뛴다
+  const stuckTimer = setInterval(() => (provider.view && provider.view.visible) || provider.update('sessions'), STUCK_INTERVAL);
+  if (stuckTimer.unref) stuckTimer.unref();
   context.subscriptions.push(
+    { dispose: () => clearInterval(stuckTimer) },
     vscode.window.registerWebviewViewProvider(VIEW_ID, provider),
     vscode.commands.registerCommand('wyOps.refresh', () => provider.refreshAll()),
     // 승인 센터의 "세션 현황에서 보기"(D-89): 뷰를 열고 그 세션 줄을 강조한다(인자는 전체 sessionId 또는 짧은 id)

@@ -226,7 +226,7 @@ h2 {
   font-size: 11px;
 }
 .s-id { font-family: var(--mono); font-size: 10.5px; }
-.s-pending {
+.s-pending, .s-stuck {
   display: block;
   margin-top: 2px;
   overflow: hidden;
@@ -236,6 +236,10 @@ h2 {
   font-family: var(--mono);
   font-size: 11px;
 }
+/* 경고색 글자는 밝은 테마에서 흐리므로 전경색과 섞는다 */
+.s-stuck { color: color-mix(in srgb, var(--warn) 70%, var(--fg)); font-family: inherit; }
+.s-stuck b { font-weight: 600; }
+.s-stuck code { font-family: var(--mono); font-size: 10.5px; }
 .badge {
   display: inline-block;
   margin-left: 6px;
@@ -275,10 +279,10 @@ tr.needs-answer .st-input { color: var(--warn); font-weight: 600; }
 
 /* 사람이 봐야 하는 줄은 바탕색으로 먼저 보이게 한다 */
 tr.st-row-permission td { background: color-mix(in srgb, var(--err) 10%, transparent); }
-tr.needs-answer td, tr.st-row-offwarn td { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+tr.needs-answer td, tr.st-row-offwarn td, tr.is-stuck td { background: color-mix(in srgb, var(--warn) 8%, transparent); }
 tr.is-revealed td { background: color-mix(in srgb, var(--focus) 22%, transparent); }
-:is(tr.st-row-permission, tr.needs-answer, tr.st-row-offwarn, tr.is-revealed) td:first-child { padding-left: 6px; border-radius: var(--r) 0 0 var(--r); }
-:is(tr.st-row-permission, tr.needs-answer, tr.st-row-offwarn, tr.is-revealed) td:last-child { padding-right: 6px; border-radius: 0 var(--r) var(--r) 0; }
+:is(tr.st-row-permission, tr.needs-answer, tr.st-row-offwarn, tr.is-stuck, tr.is-revealed) td:first-child { padding-left: 6px; border-radius: var(--r) 0 0 var(--r); }
+:is(tr.st-row-permission, tr.needs-answer, tr.st-row-offwarn, tr.is-stuck, tr.is-revealed) td:last-child { padding-right: 6px; border-radius: 0 var(--r) var(--r) 0; }
 tr.is-revealed:focus { outline: 1px solid var(--focus); outline-offset: -1px; }
 tr.is-absent .s-name { color: var(--dim); font-weight: 400; }
 
