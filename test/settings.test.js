@@ -43,4 +43,21 @@ assert.strictEqual(splitCommand('node "a'), null, '짝 안 맞음');
   assert.deepStrictEqual(next.hooks.SessionStart[0].hooks[0].args, [`${NEW}/wy-session-start.js`]);
 }
 
+// 7. 백그라운드 훅(wy-decision-wake): async·asyncRewake를 넣고, 같은 Stop의 다른 훅(wy-context-size)과 따로 둔다.
+//    빠진 표시는 고치고, 다 맞으면 바꿀 것 없음
+{
+  const NEW = 'C:/t/hooks';
+  const { next } = plan({}, NEW);
+  const all = next.hooks.Stop.flatMap((g) => g.hooks);
+  const wake = all.find((h) => scriptOf(h) === `${NEW}/wy-decision-wake.js`);
+  assert.deepStrictEqual([wake.async, wake.asyncRewake, wake.timeout], [true, true, 86400]);
+  const ctx = all.find((h) => scriptOf(h) === `${NEW}/wy-context-size.js`);
+  assert.ok(!('async' in ctx) && !('asyncRewake' in ctx), '다른 Stop 훅은 동기 그대로');
+  assert.deepStrictEqual(plan(next, NEW).changes, [], '다시 돌리면 바꿀 것 없음');
+  delete wake.asyncRewake;
+  const again = plan(next, NEW);
+  assert.ok(again.changes.some((c) => c.type === 'hook-update' && /asyncRewake/.test(c.to)), '빠진 표시를 고침');
+  assert.strictEqual(again.next.hooks.Stop.flatMap((g) => g.hooks).find((h) => scriptOf(h) === `${NEW}/wy-decision-wake.js`).asyncRewake, true);
+}
+
 console.log('settings 검사 통과');

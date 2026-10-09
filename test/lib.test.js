@@ -15,11 +15,11 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-lib-'));
 const NEW = 'C:/Users/pc2/.wy-tools/wy-ops/current/vscode/hooks';
 const OLD = 'C:/Users/pc2/.wy-tools/vscode-dashboard/hooks';
 try {
-  // 1. settings: 빈 파일 → deny 9줄 + 훅 6개
+  // 1. settings: 빈 파일 → deny 9줄 + 훅 7개
   {
     const { next, changes } = settings.plan({}, NEW);
     assert.strictEqual(changes.filter((c) => c.type === 'deny-add').length, 9);
-    assert.strictEqual(changes.filter((c) => c.type === 'hook-add').length, 6);
+    assert.strictEqual(changes.filter((c) => c.type === 'hook-add').length, 7);
     assert.deepStrictEqual(next.hooks.PreToolUse.map((g) => g.matcher), ['Bash|PowerShell', 'SendMessage']);
     assert.strictEqual(next.hooks.PermissionRequest[0].hooks[0].timeout, 960);
     assert.ok(JSON.stringify(next).includes(`${NEW}/wy-session-start.js`));

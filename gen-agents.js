@@ -52,6 +52,22 @@ function verifyList(ops) {
   return lines.join('\n');
 }
 
+// 머리글(frontmatter)의 name·description 값: 그대로 두면 YAML이 다르게 읽는 값(': '·' #'·앞의 지시 문자·true/null/숫자 등)만
+// 큰따옴표로 감싼다(JSON 문자열은 YAML 큰따옴표 문자열로도 맞다). 안전한 값은 그대로 두어 생성물이 괜히 바뀌지 않게 한다.
+function yamlScalar(v) {
+  const s = String(v);
+  if (/^"(?:[^"\\]|\\.)*"$|^'(?:[^']|'')*'$/.test(s)) return s; // 원본에서 이미 따옴표로 감싼 값은 그대로(두 번 감싸면 따옴표가 값에 들어간다)
+  const plain = s !== '' && s === s.trim() && !/^[-?:,[\]{}#&*!|>'"%@`]/.test(s) && !/: |:$| #|[\x00-\x1f]/.test(s)
+    && !/^(?:true|false|yes|no|on|off|null|~|[-+]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?|0x[0-9a-f]+|0o[0-7]+|\.inf|\.nan)$/i.test(s);
+  return plain ? s : JSON.stringify(s);
+}
+
+// 채운 결과의 첫 머리글 블록에서 name:·description: 줄 값만 yamlScalar로 바꾼다(본문의 {{description}}은 그대로)
+function quoteFrontmatter(text) {
+  return text.replace(/^---\n([\s\S]*?\n)---\n/, (all, head) =>
+    '---\n' + head.replace(/^(name|description): (.*)$/gm, (l, k, v) => `${k}: ${yamlScalar(v)}`) + '---\n');
+}
+
 const size = (mb) => (Number(mb) % 1024 === 0 ? `${Number(mb) / 1024}GB` : `${Number(mb)}MB`);
 
 function fill(template, values, where) {
@@ -76,7 +92,7 @@ function generate(root) {
     const roleFile = path.join(root, '.claude', 'ops', 'roles', `${r.name}.md`);
     if (!fs.existsSync(roleFile)) throw new Error(`역할 원본이 없습니다: ${roleFile}`);
     const role = readRole(roleFile);
-    return { name: r.name, text: fill(template, { ...ops, verifyList: verifyList(ops), ...role, name: r.name }, templateFile) };
+    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), ...role, name: r.name }, templateFile)) };
   });
 }
 
@@ -131,4 +147,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { generate, readRole, fill, size, verifyList, VERIFY_KEYS };
+module.exports = { generate, readRole, fill, size, verifyList, yamlScalar, quoteFrontmatter, VERIFY_KEYS };

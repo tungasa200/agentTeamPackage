@@ -200,6 +200,20 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
 
 요청한 세션은 요청 파일을 쓴 뒤 결정을 기다리며 멈춰 있을 필요가 없다. 결정 파일은 지워지지 않으니 나중에 읽어도 된다.
 
+#### 자동으로 깨어남(0.7.2, Stop 훅 `wy-decision-wake.js`)
+
+결정이 기록되면 그 결정의 `session`인 세션이 스스로 깨어 다음 턴을 시작한다. 감시(Monitor)를 걸 필요가 없고, 리로드·세션 교체 뒤에도 다음 턴부터 다시 동작한다.
+
+- 동작: 매 턴이 끝날 때(Stop) Claude Code가 이 훅을 백그라운드로 띄운다(`async` + `asyncRewake`). 훅은 `decisions.log`를 2초마다 보다가 이 세션 앞 줄이 붙으면 한 줄 요약을 stderr에 쓰고 종료 코드 2로 끝난다. Claude Code는 그 요약을 system reminder로 보여 주며 쉬던 세션의 턴을 시작한다. 요약: `- <id> · <kind> · <decision> · <선택값·메모·거부 사유 앞부분>`. 자세한 내용은 `decisions/<id>.json`을 읽는다.
+- 대상: 줄의 `session`이 이 세션 이름(`claude agents --json`의 name)인 결정. 멈춤 알림(`kind: "stuck"`)은 `relatedSessions`(pm 역할)를 깨운다. `relatedSessions`의 다른 결정은 깨우지 않는다(pm이 전한다).
+- 한 번만: `sessions/<sessionId>.wake.json`에 로그를 어디까지 읽었는지 남긴다. 처음 뜬 세션은 로그 끝에서 시작해 지난 결정을 몰아 알리지 않는다. 깨운 턴 동안 들어온 결정은 그 턴이 끝난 뒤 다음 훅이 바로 알린다.
+- 세션당 대기 1개: `sessions/<sessionId>.wake.lock`(대기 프로세스 pid). 살아 있는 대기가 있으면 새로 뜬 훅은 바로 끝난다. 세션이 끝나면(`claude stop`·창 닫기) Claude Code가 대기를 함께 끝낸다.
+- 시간 상한: 훅 `timeout` 86400초(24시간). 24시간 동안 턴이 한 번도 없으면 대기가 끝나고, 다음 턴부터 다시 건다.
+- 깨우지 못하는 경우: 세션이 꺼져 있음(결정 파일만 남고, pm이 `session.ps1 start`로 전한다), 설치 전 세션(`install.ps1 setup`이 settings.local.json에 훅을 넣은 뒤 새로 뜬 턴부터), 도구 하나에 오래 묶인 세션(그 도구가 끝난 뒤 알림을 본다).
+- 실측(2026-10-09, Claude Code 2.1.295): 쉬는 interactive·백그라운드(`claude --bg`) 세션 모두 결정 1초 안에 새 턴 시작. 대기가 10분(훅 기본 시간 상한)을 넘어도 깨움.
+
+아래 수동 방법은 훅이 없는 세션이나 다른 세션 앞 결정까지 보는 pm에게만 필요하다.
+
 - **id 하나를 기다릴 때**(요청한 세션이 직접): `decisions/<id>.json`이 생길 때까지 확인한다. 예(Bash, Monitor의 until 루프):
   `until [ -f ~/.claude/wy-approvals/my-project/decisions/<id>.json ]; do sleep 5; done; cat ~/.claude/wy-approvals/my-project/decisions/<id>.json`
 - **모든 결정을 감시할 때**(pm 역할): `decisions.log`에 새 줄이 붙는지 본다. 예:

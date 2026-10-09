@@ -37,7 +37,7 @@ description: {{project}}의 {{pmRole}}(개발 총괄) 세션이 반복하는 운
 - **pm이 정하고 즉시 알린다:** 정한 순간 사용자 보고에 "**[pm 결정]** 무엇을, 왜" 한 줄. 알리지 않고 정하지 않는다. 판단이 애매하면 카드로 올린다. 승인된 순서(커밋 뒤 배포 등)는 세션끼리 바로 잇게 하고 결과만 받는다. 해당: 이미 정해진 문서·결정을 구현하는 데 필요한 작은 추가, 문서에 단계가 적혀 있는 것, 디자인 세부(디자인 담당 기준을 따름), 운영 절차.
 - 결정 근거가 되는 사실은 해당 세션에 먼저 확인하고, 틀렸으면 사용자에게 정정한다.
 
-choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르면 무슨 일)을 넣고, 선택지마다 cost(그 선택의 대가)를 넣는다. 빠지면 형식 오류 카드가 된다. 사용자에게 올릴 때는 **WY 승인 센터의 choice 요청**(`~/.claude/wy-approvals/{{approvals.namespace}}/requests/`, 형식은 wy-ops 승인 센터 README)으로 올리고 `~/.claude/wy-approvals/{{approvals.namespace}}/decisions.log`를 감시해 결과를 받는다. 사용자가 터미널에서 대화 중이어도 마찬가지다. `AskUserQuestion`은 승인 센터를 쓸 수 없을 때만 쓴다. 추천안을 첫 번째에 "(추천)"으로, 각 선택지의 대가를 한 줄로 쓴다. 관련 질문은 최대 4개까지 한 번에 묶는다.
+choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르면 무슨 일)을 넣고, 선택지마다 cost(그 선택의 대가)를 넣는다. 빠지면 형식 오류 카드가 된다. 사용자에게 올릴 때는 **WY 승인 센터의 choice 요청**(`~/.claude/wy-approvals/{{approvals.namespace}}/requests/`, 형식은 wy-ops 승인 센터 README)으로 올린다. 결과는 결정 깨우기 훅(Stop 훅 `wy-decision-wake`)이 카드를 올린 세션을 깨워 알려 주므로 따로 감시하지 않는다. 훅이 설정되지 않은 프로젝트면 `~/.claude/wy-approvals/{{approvals.namespace}}/decisions.log`를 Monitor로 감시한다. 사용자가 터미널에서 대화 중이어도 마찬가지다. `AskUserQuestion`은 승인 센터를 쓸 수 없을 때만 쓴다. 추천안을 첫 번째에 "(추천)"으로, 각 선택지의 대가를 한 줄로 쓴다. 관련 질문은 최대 4개까지 한 번에 묶는다.
 
 결정이 나면 같은 턴에:
 - 요청한 세션에 회신(무엇으로 정해졌는지, 남은 가정 승인 여부)
@@ -109,7 +109,7 @@ choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르�
 - `pm-cmd` 출력은 터미널용 명령이다. 패널에서 이어야 하면 새 대화에 `/ecc:resume-session <경로>`를 넣고 `/rename {{pmRole}}`.
 - `!`로 실행한 명령은 화면을 주고받지 못한다. `claude attach`처럼 대화형 화면이 필요한 명령은 사용자에게 별도 터미널에서 실행하게 한다.
 - VS Code Reload Window: 터미널 세션 유지(`terminal.integrated.enablePersistentSessions`, 기본 켜짐) 덕에 {{pmRole}} 대화는 이어진다. 프로세스가 다시 떠서 `ListAgents`의 ref가 바뀔 수 있다. 꺼졌으면 `claude --resume`으로 {{pmRole}}을 골라 잇는다. `claude --continue`는 같은 폴더의 백그라운드 세션이 더 최근이면 그쪽을 열므로 쓰지 않는다.
-- 리로드나 VS Code 재시작 뒤에는 {{pmRole}}이 걸어 둔 감시(Monitor: 결정 수신, 권한 요청 대기)가 끊긴다. 다시 건다.
+- 리로드나 VS Code 재시작 뒤에는 {{pmRole}}이 걸어 둔 감시(Monitor: 권한 요청 대기)가 끊긴다. 다시 건다. 결정 수신은 훅이 하므로 다시 걸 것이 없고, 다른 세션 앞 결정까지 지켜봐야 할 때만 decisions.log Monitor를 건다.
 - 터미널 글꼴·색 설정은 사용자 VS Code 설정(settings.json)의 `terminal.integrated.*`다. 새 글꼴을 설치했으면 Reload가 아니라 VS Code를 완전히 다시 열어야 반영된다.
 
 ## 7. 단계 마무리 체크

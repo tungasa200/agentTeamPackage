@@ -12,7 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadOpsConfig, findProjectRoot } = require('./vscode/opsConfig');
-const { fill } = require('./gen-agents');
+const { fill, quoteFrontmatter } = require('./gen-agents');
 
 const CORE = path.join(__dirname, 'templates', 'pm-ops', 'SKILL.md');
 const SCRIPTS = path.join(__dirname, 'templates', 'pm-ops', 'scripts');
@@ -21,7 +21,7 @@ const read = (f) => fs.readFileSync(f, 'utf8').replace(/^﻿/, '').replace(/\r\n
 function generate(root) {
   const ops = loadOpsConfig(root);
   if (!ops) throw new Error(`${root}/.claude/wy-ops.json을 읽지 못했습니다`);
-  let text = fill(read(CORE), ops, CORE);
+  let text = quoteFrontmatter(fill(read(CORE), ops, CORE)); // 설정값(project·pmRole)에 ': ' 등이 들어가도 머리글 YAML이 깨지지 않게
   const addendum = path.join(root, '.claude', 'ops', 'pm-ops.project.md');
   if (fs.existsSync(addendum)) text = text.replace(/\n*$/, '\n\n') + read(addendum).replace(/\n*$/, '\n');
   return text;
