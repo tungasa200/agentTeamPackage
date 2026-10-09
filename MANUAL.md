@@ -210,7 +210,7 @@ pm 자신:
 
 호스트(한 번, **관리자 PowerShell**):
 1. `<설치> host --dry-run`으로 바꿀 목록을 봅니다(관리자가 아니어도 됨).
-2. `<설치> host` → 목록 확인 후 `y`. 하는 일: OpenSSH 서버 설치·자동 시작, SSH 기본 셸 PowerShell, `sshd_config` 공개키 로그인만(비밀번호 로그인 끔, 고치기 전 백업·`sshd -t` 검사 실패 시 되돌림), `C:\ProgramData\ssh\administrators_authorized_keys` 권한(Administrators·SYSTEM만), 방화벽 OpenSSH 규칙을 Tailscale 대역(`100.64.0.0/10`)만, 전원 AC 대기·최대 절전 끔(화면 끄기는 그대로), 원격 창용 껍데기 확장(`~\.vscode-server\extensions`). 이미 된 것은 건너뛰므로 여러 번 실행해도 됩니다.
+2. `<설치> host` → 목록 확인 후 `y`. 하는 일: OpenSSH 서버 설치·자동 시작(Win32-OpenSSH를 winget `Microsoft.OpenSSH.Preview`로 `C:\Program Files\OpenSSH`에. Windows 선택적 기능판이 8.1 미만이거나 실행되지 않으면 먼저 제거. winget이 없으면 MSI 설치 안내), SSH 기본 셸 PowerShell, `sshd_config` 공개키 로그인만(비밀번호 로그인 끔, 고치기 전 백업·`sshd -t` 검사 실패 시 되돌림), `C:\ProgramData\ssh\administrators_authorized_keys` 권한(Administrators·SYSTEM만), 방화벽 OpenSSH 규칙을 Tailscale 대역(`100.64.0.0/10`)만(규칙이 없으면 만들고, 이름이 다른 OpenSSH 허용 규칙도 같은 대역으로 좁힘), 전원 AC 대기·최대 절전 끔(화면 끄기는 그대로), 원격 창용 껍데기 확장(`~\.vscode-server\extensions`). 이미 된 것은 건너뛰므로 여러 번 실행해도 됩니다.
 3. 자동으로 하지 않는 일은 승인 센터에 할 일 카드로 올라옵니다(프로젝트 폴더 밖에서 실행했으면 출력으로 안내): Tailscale 설치·로그인·Run unattended·이 기기만 키 만료 끔, 자동 로그인(Sysinternals Autologon — 비밀번호를 레지스트리에 평문으로 두는 방식은 쓰지 않음), Windows 업데이트 사용 시간. 이미 된 것(Tailscale 실행·로그인, 자동 로그인 켜짐)은 카드를 올리지 않습니다. 자동 로그인이 레지스트리 평문 비밀번호(`DefaultPassword`)로 켜져 있으면 Autologon으로 바꾸라는 주의가 나옵니다(값은 읽지 않음).
 
 접속 PC(한 번):

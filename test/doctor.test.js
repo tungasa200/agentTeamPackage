@@ -415,6 +415,7 @@ try {
     pc.state.host = {
       sshd: { status: 'Running', start: 'Automatic' }, tailscale: { status: 'Running', start: 'Automatic' },
       firewall: { enabled: 'True', remote: ['100.64.0.0/10'] }, standby: ac(0), hibernate: ac(0),
+      sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 4.2.0',
     };
     r = byId(doctor.checkAll(pc.opts)).host;
     assert.ok(r.level === 'warn' && r.detail.includes('원격 확장') && r.fix.includes(' host'), JSON.stringify(r));

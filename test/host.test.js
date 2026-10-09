@@ -28,7 +28,10 @@ function fakePc(name, over = {}) {
   const pc = {
     programData,
     calls: [],
-    st: { admin: true, sshd: null, tailscale: null, defaultShell: null, firewall: null, standby: 1800, hibernate: 0, keysAcl: null, ...over },
+    programFiles: path.join(base, name, 'pf'),
+    st: { admin: true, sshd: null, tailscale: null, defaultShell: null, firewall: null, standby: 1800, hibernate: 0, keysAcl: null,
+      sshdPath: null, sshdExe: null, sshdVersion: null, builtin: false, fwOthers: [], ...over },
+    winget: true,
     fail: null, // 실패시킬 단계 표식(스크립트 일부 문자열)
     sshdT: 0,
   };
@@ -45,9 +48,11 @@ function fakePc(name, over = {}) {
           admin: s.admin, sshd: s.sshd, tailscale: s.tailscale, defaultShell: s.defaultShell,
           firewall: s.firewall, standby: powercfg(s.standby), hibernate: powercfg(s.hibernate), keysAcl: s.keysAcl,
           tailscaleState: s.tailscaleState, autoLogon: s.autoLogon,
+          sshdPath: s.sshdPath, sshdExe: s.sshdExe, sshdVersion: s.sshdVersion, builtin: s.builtin, fwOthers: s.fwOthers,
         }));
       }
-      if (script.includes('Add-WindowsCapability')) s.sshd = { status: 'Stopped', start: 'Manual' };
+      if (script.includes('Remove-WindowsCapability')) Object.assign(s, { builtin: false, sshd: null, sshdPath: null, sshdExe: null, sshdVersion: null });
+      if (script.includes('Set-NetFirewallRule -Name ')) s.fwOthers = s.fwOthers.map((r) => (script.includes(`'${r.name}'`) ? { ...r, remote: [host.TAILNET] } : r));
       if (script.includes('Start-Service sshd')) {
         s.sshd = { status: 'Running', start: 'Automatic' };
         if (!fs.existsSync(path.join(programData, 'ssh', 'sshd_config'))) {
@@ -69,6 +74,16 @@ function fakePc(name, over = {}) {
       if (args[1] === 'hibernate-timeout-ac') pc.st.hibernate = 0;
       return ok();
     }
+    if (cmd === 'winget') {
+      if (!pc.winget) return { status: null, stdout: '', stderr: 'spawnSync winget ENOENT' };
+      if (args[0] === 'install') {
+        const exe = path.join(pc.programFiles, 'OpenSSH', 'sshd.exe');
+        fs.mkdirSync(path.dirname(exe), { recursive: true });
+        fs.writeFileSync(exe, '');
+        Object.assign(pc.st, { sshd: { status: 'Stopped', start: 'Manual' }, sshdPath: exe, sshdExe: exe, sshdVersion: 'OpenSSH_for_Windows_10.0p2' });
+      }
+      return ok('v1.9');
+    }
     if (/sshd\.exe$/.test(cmd)) return { status: pc.sshdT, stdout: '', stderr: pc.sshdT ? 'line 3: Bad configuration option' : '' };
     return { status: null, stdout: '', stderr: 'unknown' };
   };
@@ -79,7 +94,7 @@ function io(pc, argv, { yes = true } = {}) {
   const out = [];
   const todos = [];
   const r = host.cli({
-    argv: ['host', ...argv], platform: 'win32', programData: pc.programData, run: pc.run,
+    argv: ['host', ...argv], platform: 'win32', programData: pc.programData, programFiles: pc.programFiles, run: pc.run,
     say: (s = '') => out.push(s), confirm: () => yes,
     writeTodos: (items) => (todos.push(...items.map((t) => t.key)), items.map((t) => `setup-${t.key}`)),
     afterApply: () => out.push('<afterApply>'),
@@ -141,6 +156,59 @@ try {
     assert.deepStrictEqual(again.r.done, []);
   }
 
+  // OpenSSH 버전·sshd.exe 위치
+  {
+    assert.strictEqual(host.sshVersion('OpenSSH_for_Windows_9.5p1, LibreSSL 3.8.2'), 9.05);
+    assert.strictEqual(host.sshVersion('OpenSSH_7.7p1, LibreSSL 2.6.5'), 7.07);
+    assert.strictEqual(host.sshVersion(''), null);
+    const pf = 'C:\\Program Files';
+    assert.strictEqual(host.findSshd({ programFiles: pf, exists: () => true }), 'C:\\Program Files\\OpenSSH\\sshd.exe', 'Program Files 우선');
+    assert.strictEqual(host.findSshd({ programFiles: pf, exists: () => false }), 'C:\\Windows\\System32\\OpenSSH\\sshd.exe', '없으면 System32');
+  }
+
+  // 선택적 기능 7.7(실행 안 됨): 제거 → winget 설치 → 서비스 → 나머지. sshd -t는 Program Files 쪽으로
+  {
+    const sys = 'C:\\Windows\\System32\\OpenSSH\\sshd.exe';
+    const pc = fakePc('old-builtin', { sshd: { status: 'Stopped', start: 'Manual' }, builtin: true, sshdPath: sys, sshdExe: sys, sshdVersion: '' });
+    const { r, out } = io(pc, []);
+    assert.ok(r.ok, out);
+    assert.deepStrictEqual(r.done.slice(0, 3), ['remove-builtin', 'install', 'service'], out);
+    assert.ok(out.includes('sshd -V 실행 실패'), out);
+    assert.ok(pc.calls.includes(`winget install --id ${host.WINGET_ID} -e --silent --accept-package-agreements --accept-source-agreements`), pc.calls.join('\n'));
+    assert.ok(pc.calls.some((c) => c === 'sshd.exe -t'), 'sshd -t 실행');
+    assert.ok(fs.existsSync(path.join(pc.programFiles, 'OpenSSH', 'sshd.exe')));
+    // 낮은 버전(7.7)이 실행은 되어도 교체, 8.1 이상 선택적 기능은 그대로 씀
+    assert.ok(host.builtinBad({ builtin: true, sshdExe: sys, sshdVersion: 'OpenSSH_7.7p1' }));
+    assert.ok(!host.builtinBad({ builtin: true, sshdExe: sys, sshdVersion: 'OpenSSH_for_Windows_9.5p1' }));
+    assert.ok(!host.builtinBad({ builtin: true, sshdPath: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2' }));
+  }
+  // 서비스가 이미 Program Files 쪽이면 제거·설치 건너뜀(선택적 기능판 파일이 남아 있어도)
+  {
+    const pfExe = 'C:\\Program Files\\OpenSSH\\sshd.exe';
+    const keys = host.plan({ admin: true, sshd: { status: 'Running', start: 'Automatic' }, sshdPath: pfExe, sshdExe: pfExe, sshdVersion: '', builtin: true, fwOthers: [], standbyAc: 0, hibernateAc: 0 }, { programData: path.join(base, 'pfsvc') }).map((s) => s.key);
+    assert.ok(!keys.includes('install') && !keys.includes('remove-builtin') && !keys.includes('service'), keys.join());
+  }
+  // winget이 없으면 MSI 안내로 멈춤
+  {
+    const pc = fakePc('nowinget');
+    pc.winget = false;
+    const { r, out } = io(pc, []);
+    assert.strictEqual(r.failed, 'install');
+    assert.ok(/winget이 없습니다.*msiexec \/i <받은 msi> ADDLOCAL=Server/.test(out), out);
+  }
+  // 방화벽: 기본 규칙 이름이 없으면 만들고, 모든 주소를 받는 다른 OpenSSH 규칙은 Tailscale 대역으로 좁힘
+  {
+    const others = [{ name: 'sshd-preview', enabled: true, remote: ['Any'] }, { name: 'off-rule', enabled: false, remote: ['Any'] }];
+    assert.ok(!host.fwOk({ enabled: true, remote: [host.TAILNET] }, others));
+    assert.ok(host.fwOk({ enabled: true, remote: [host.TAILNET] }, [others[1]]), '꺼진 규칙은 괜찮음');
+    const pc = fakePc('fw-others', { fwOthers: others.map((r) => ({ ...r, enabled: r.enabled ? 'True' : 'False' })) }); // probe 출력처럼 문자열
+    const { r, out } = io(pc, []);
+    assert.ok(r.ok, out);
+    assert.ok(out.includes('다른 OpenSSH 규칙도 100.64.0.0/10만으로: sshd-preview') && !out.includes('off-rule'), out);
+    assert.deepStrictEqual(pc.st.firewall, { enabled: 'True', remote: [host.TAILNET] }, '기본 이름 규칙을 새로 만듦');
+    assert.deepStrictEqual(pc.st.fwOthers[0].remote, [host.TAILNET]);
+  }
+
   // 이미 된 손일은 카드에서 뺌: Tailscale 실행+로그인, 자동 로그인(평문 비밀번호 없음). 업데이트 사용 시간은 늘 남음
   {
     const ts = { status: 'Running', start: 'Automatic' };
@@ -160,6 +228,29 @@ try {
     const warn = io(fakePc('manual-plain', { autoLogon: { enabled: true, plainPassword: true } }), ['--dry-run']);
     assert.ok(/주의: 자동 로그인이 레지스트리 평문/.test(warn.out), warn.out);
   }
+  // 실패 메시지: CLIXML 원문 대신 사람 말(진행 레코드·위치·CategoryInfo 줄 뺌)
+  {
+    const clixml = '#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><MS><PR N="Record"><AV>처음 사용하기 위해 모듈을 준비하는 중입니다.</AV></PR></MS></Obj>'
+      + '<S S="Error">Start-Service : &apos;OpenSSH SSH Server (sshd)&apos; 서비스를 시작할 수 없습니다._x000D__x000A_</S><S S="Error">위치 줄:4 문자:1_x000D__x000A_</S>'
+      + '<S S="Error">+ Start-Service sshd_x000D__x000A_</S><S S="Error">    + CategoryInfo          : OpenError: (System.ServiceProcess.ServiceController:ServiceController) [Start-Service]_x000D__x000A_</S><S S="Error"> _x000D__x000A_</S></Objs>';
+    assert.strictEqual(host.errText({ status: 1, stderr: clixml }), "Start-Service : 'OpenSSH SSH Server (sshd)' 서비스를 시작할 수 없습니다.");
+    assert.strictEqual(host.errText({ status: 1, stderr: ' 그냥 글 \r\n' }), '그냥 글');
+    assert.strictEqual(host.errText({ status: 3, stderr: '', stdout: '' }), '종료 코드 3');
+    // 단계 실패가 CLIXML로 와도 출력에는 풀린 글만
+    const pc = fakePc('clixml');
+    const run0 = pc.run;
+    pc.run = (cmd, args) => (cmd === 'powershell' && Buffer.from(args[args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le').includes('Start-Service sshd') ? { status: 1, stdout: '', stderr: clixml } : run0(cmd, args));
+    const { out } = io(pc, []);
+    assert.ok(out.includes("실패 sshd 자동 시작·실행: Start-Service : 'OpenSSH SSH Server (sshd)' 서비스를 시작할 수 없습니다.") && !out.includes('CLIXML'), out);
+  }
+  // 실제 자식 powershell(Windows에서만): 오류는 스크립트 안에서 잡혀 메시지 한 줄로 온다(없는 서비스라 아무것도 바꾸지 않음)
+  if (process.platform === 'win32') {
+    const { spawnSync } = require('child_process');
+    const r = host.ps((c, a) => spawnSync(c, a, { encoding: 'utf8' }), "Write-Progress -Activity x -Status y\nStart-Service 'wy-ops-no-such-service'");
+    assert.strictEqual(r.status, 1);
+    assert.ok(!/CLIXML|<Objs/.test(r.stderr) && /wy-ops-no-such-service/.test(r.stderr), JSON.stringify(r.stderr));
+  }
+
   // 점검 스크립트는 DefaultPassword 값을 읽지 않음(이름 목록만)
   {
     let script = '';
@@ -250,14 +341,18 @@ try {
     assert.ok(/해당 없음/.test(host.check(() => ({}), { platform: 'linux' }).detail));
     const good = {
       sshd: { status: 'Running', start: 'Automatic' }, tailscale: { status: 'Running', start: 'Automatic' },
-      firewall: { enabled: 'True', remote: [host.TAILNET] }, standby: 0, hibernate: 0,
+      firewall: { enabled: 'True', remote: [host.TAILNET] }, standby: 0, hibernate: 0, sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2, LibreSSL 4.2.0',
     };
     assert.strictEqual(check(good).level, 'ok', check(good).detail);
+    assert.ok(check(good).detail.includes('OpenSSH 10.0(Program Files)'), check(good).detail);
     for (const [over, word] of [
       [{ firewall: { enabled: 'True', remote: ['Any'] } }, '방화벽'],
       [{ tailscale: null }, 'Tailscale 없음'],
       [{ standby: 1800 }, 'AC 대기 1800초'],
       [{ sshd: { status: 'Stopped', start: 'Automatic' } }, 'sshd Stopped'],
+      [{ sshdVersion: '' }, 'sshd -V 실행 실패'],
+      [{ sshdVersion: 'OpenSSH_7.7p1' }, '8.1 미만'],
+      [{ fwOthers: [{ name: 'x', enabled: 'True', remote: ['Any'] }] }, '다른 OpenSSH 규칙'],
     ]) {
       const r = check({ ...good, ...over });
       assert.ok(r.level === 'warn' && r.detail.includes(word), JSON.stringify(r));
