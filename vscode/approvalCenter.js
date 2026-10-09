@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const store = require('./approvalStore');
-const { ArrivalBell } = require('./arrivalBell');
+const { ArrivalBell, alertMode, notifyText, playSystemSound } = require('./arrivalBell');
 
 const { loadOpsConfig } = require('./opsConfig');
 
@@ -55,11 +55,22 @@ class ApprovalCenter {
     this.loadLedger();
     this.roleWarnings = [];
     this.endedSessions = [];
-    // 새 카드 소리(설정 wyOps.approvals.sound, 기본 켜짐)
+    // 새 카드 알림(설정 wyOps.approvals.sound로 끄기, 기본 켜짐). 로컬 창은 소리, 원격 창은 VS Code 알림(wyOps.approvals.alert)
+    const config = () => vscode.workspace.getConfiguration && vscode.workspace.getConfiguration('wyOps');
     this.bell = new ArrivalBell({
       enabled: () => {
-        const c = vscode.workspace.getConfiguration && vscode.workspace.getConfiguration('wyOps');
+        const c = config();
         return !c || c.get('approvals.sound', true) !== false;
+      },
+      play: (ids) => {
+        const c = config();
+        const mode = alertMode(c ? c.get('approvals.alert', 'auto') : 'auto', vscode.env && vscode.env.remoteName);
+        if (mode.sound) playSystemSound();
+        if (!mode.notify) return;
+        const byId = new Map((this.pendingRows || []).map((r) => [r.id, r]));
+        Promise.resolve(vscode.window.showInformationMessage(notifyText(ids.map((id) => byId.get(id) || { id })), '승인 센터 열기'))
+          .then((pick) => pick && this.open({ id: ids[0] }))
+          .catch(() => {});
       },
     });
     this.watch();
@@ -150,6 +161,7 @@ class ApprovalCenter {
         ...state.roleWarnings.map((w) => `커밋 세션 역할 누락: ${w.name}(${w.id || '?'})이 --agent ${w.name} 없이 실행 중입니다. 커밋이 가드 훅에 막히니 session.ps1 rotate ${w.name} none으로 세션을 교체하세요.`),
       ];
       state.error = '';
+      this.pendingRows = state.pending;
       this.bell.update(state.pending.filter((r) => !r.broken).map((r) => r.id));
     } catch (err) {
       state = { ...(this.state || { pending: [], recent: [], root: this.root }), error: String(err.message || err) };

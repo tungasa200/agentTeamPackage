@@ -91,8 +91,8 @@ PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. 필요
 
 pm 자신:
 1. pm 창에서 `/ecc:save-session`(short-id는 pm 역할 이름).
-2. `session.ps1 pm-cmd` — 붙여 넣을 명령 한 줄이 나옵니다.
-3. 새 터미널(또는 VS Code 새 Claude 패널)에서 그 줄을 실행하고, 옛 pm 창을 닫습니다.
+2. `session.ps1 start-pm <경로> -Force` — 새 pm을 백그라운드 세션으로 띄우고 이전 pm 세션 id를 알려 줍니다(백그라운드 pm이 이미 돌면 -Force 없이는 거부).
+3. 터미널에서 `session.ps1 attach <pm 역할>`로 새 pm에 붙고, 이전 pm은 `claude stop <이전 id>`(대화형 창이었으면 창 닫기). `session.ps1 pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력합니다.
 
 ### 2-5. 기억은 파일에
 
@@ -204,6 +204,23 @@ pm 자신:
 
 요약: PC에 `global` 한 번 → 프로젝트마다 `quickstart`나 `init`(접두사 다르게) → 프로젝트마다 창·pm 따로 → 쉬는 쪽은 `stop`.
 
+### 3-5. 다른 PC에서 원격으로 쓰기(호스트·접속 PC)
+
+한 PC(호스트)에서 역할 세션·빌드·브라우저를 모두 돌리고, 다른 PC(접속 PC)는 VS Code Remote-SSH로 붙어 제어만 합니다. 연결은 Tailscale 사설망 위의 OpenSSH(공개키 로그인만)이고 공개 포트는 열지 않습니다. 접속하면 승인 센터·세션 현황은 호스트 쪽에서 돌고, 역할 세션은 VS Code 창을 닫아도 호스트에서 계속 돕니다.
+
+호스트(한 번, **관리자 PowerShell**):
+1. `<설치> host --dry-run`으로 바꿀 목록을 봅니다(관리자가 아니어도 됨).
+2. `<설치> host` → 목록 확인 후 `y`. 하는 일: OpenSSH 서버 설치·자동 시작, SSH 기본 셸 PowerShell, `sshd_config` 공개키 로그인만(비밀번호 로그인 끔, 고치기 전 백업·`sshd -t` 검사 실패 시 되돌림), `C:\ProgramData\ssh\administrators_authorized_keys` 권한(Administrators·SYSTEM만), 방화벽 OpenSSH 규칙을 Tailscale 대역(`100.64.0.0/10`)만, 전원 AC 대기·최대 절전 끔(화면 끄기는 그대로), 원격 창용 껍데기 확장(`~\.vscode-server\extensions`). 이미 된 것은 건너뛰므로 여러 번 실행해도 됩니다.
+3. 자동으로 하지 않는 일은 승인 센터에 할 일 카드로 올라옵니다(프로젝트 폴더 밖에서 실행했으면 출력으로 안내): Tailscale 설치·로그인·Run unattended·이 기기만 키 만료 끔, 자동 로그인(Sysinternals Autologon — 비밀번호를 레지스트리에 평문으로 두는 방식은 쓰지 않음), Windows 업데이트 사용 시간. 이미 된 것(Tailscale 실행·로그인, 자동 로그인 켜짐)은 카드를 올리지 않습니다. 자동 로그인이 레지스트리 평문 비밀번호(`DefaultPassword`)로 켜져 있으면 Autologon으로 바꾸라는 주의가 나옵니다(값은 읽지 않음).
+
+접속 PC(한 번):
+1. Tailscale을 설치하고 호스트와 같은 계정으로 로그인합니다.
+2. `<설치> connect <별칭> --host <호스트의 Tailscale 이름> [--user <호스트 계정>] [--folder <호스트의 프로젝트 폴더>] [--attach <역할>] [--passphrase]` → 키 생성, `~\.ssh\config` 별칭, Remote-SSH 확장, 바탕화면 바로가기. 끝에 '호스트에서 실행할 한 줄'이 나옵니다. `--attach <역할>`은 그 역할 세션에 바로 붙는 바로가기('<별칭> <역할>')를 하나 더 만들고(호스트 폴더 필요), `--passphrase`는 키에 암호를 걸고 ssh-agent에 한 번 올립니다.
+3. 그 한 줄(`… install.ps1 host --add-key '<공개키>'`)을 호스트의 관리자 PowerShell에서 실행합니다. 같은 키는 다시 넣지 않습니다.
+4. `ssh <별칭>`이 비밀번호 없이 되면 끝. 바로가기를 누르면 VS Code가 호스트의 프로젝트 폴더를 엽니다.
+
+매일: 바로가기 → 원격 터미널에서 `session.ps1 attach <pm 역할>`(또는 `--attach`로 만든 바로가기) → 카드는 승인 센터 탭에서. 미리보기는 VS Code 포트 탭에서 포워딩해 접속 PC 브라우저의 `localhost`로 봅니다. 재부팅 뒤에는 자동 로그인 → `ssh <별칭>` → 역할 세션을 다시 띄웁니다. doctor의 '호스트' 줄이 sshd·방화벽 범위·Tailscale·전원·원격 창용 확장을 점검합니다(호스트가 아닌 PC는 '해당 없음').
+
 ---
 
 ## 4. 매일 쓰기
@@ -293,6 +310,8 @@ pm 자신:
 | `export` / `import` / `restore` | 개인 상태 옮기기([NEW-PC.md](NEW-PC.md) 3장) | `<설치> export --out D:\move.zip` |
 | `quickstart` | 한 줄 설치: 이 PC 설치 + 프로젝트 붙이기 + 로그인·신뢰 안내 + 점검 요약(3-0) | `C:\tools\wy-ops\install.ps1 quickstart` |
 | `global` / `setup` / `init` | 설치를 단계별로 직접(3-1~3-3) | — |
+| `host` | 이 PC를 원격 호스트로(관리자 PowerShell, 3-5). `--dry-run`은 목록만. `--add-key`는 접속 PC 공개키 등록 | `<설치> host`, `<설치> host --add-key 'ssh-ed25519 AAAA… 주석'` |
+| `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기(3-5) | `<설치> connect <별칭> --host <Tailscale 이름>` |
 
 공통 옵션: `--yes`(확인 없이 진행), `--project <폴더>`, `--skip-extension`, `--skip-extras`(함께 까는 도구 건너뜀), `--skip-install`(없는 도구를 설치하지 않고 알리기만).
 
@@ -306,9 +325,11 @@ pm 자신:
 | `stop` | 쉬는 세션 멈추기(메모리 반납, 트랜스크립트는 남음) | `… session.ps1 stop AB-qa` |
 | `prep` | 세션 교체 준비: 진행 중인 것만 저장하라고 지시 | `… session.ps1 prep AB-backend1` |
 | `rotate` | 컨텍스트가 길어진 세션을 새 세션으로 교체 | `… session.ps1 rotate AB-backend1 none` |
-| `pm-cmd` | pm 자신의 세션 교체: 새 창에 붙여 넣을 명령 출력 | `… session.ps1 pm-cmd` |
+| `pm-cmd` | pm 자신의 세션 교체 순서 출력(start-pm → 이전 pm 종료 → attach, 예전 대화형 한 줄 포함) | `… session.ps1 pm-cmd [경로]` |
+| `start-pm` | pm을 백그라운드 세션으로 띄우기(인수인계 경로·pm-ops 스킬·ListAgents 확인을 시작 지시로). 이미 돌면 거부, 세션 교체 중엔 `-Force` | `… session.ps1 start-pm <경로> -Force` |
 | `adopt` | 닫은 VS Code 세션의 대화를 백그라운드 역할 세션으로 옮기기 | `… session.ps1 adopt AB-qa <세션ID>` |
 | `pin` / `unpin` | 실행 중인 세션을 메모리 부족 정리에서 빼기 / 되돌리기 | `… session.ps1 pin AB-commit` |
+| `attach` | 실행 중인 역할 세션(pm 포함)에 붙기. 원격 터미널에서 쓰고, 빠져나와도 세션은 계속 돎 | `… session.ps1 attach AB-pm` |
 
 ---
 
@@ -357,6 +378,7 @@ pm 자신:
 | 모든 역할에 들어가는 공통 문구 | `.claude/ops/agent.md`. 없으면 패키지 기본 틀(`templates/agent.md`)을 씁니다. 바꾸려면 그 파일을 이 경로로 복사해 고칩니다 |
 | pm 운영 절차의 이 프로젝트 부록 | `.claude/ops/pm-ops.project.md` |
 | 역할 이름·수·요약, 검증 명령, 문서 경로 | `.claude/wy-ops.json`(`roles`·`verify`·`docs`). 세션은 고치지 못하게 막혀 있어 사람이 고칩니다 |
+| 원격 접속 때 호스트에서 열 프로젝트 폴더(선택) | `.claude/wy-ops.json`의 `remote.hostFolder`(예: `"remote": { "hostFolder": "C:\\work\\myproject" }`). `connect`에 `--folder`가 없으면 이 값을 씁니다 |
 
 고친 뒤:
 1. 프로젝트 폴더에서 `<설치> gen`.

@@ -18,7 +18,7 @@ const writeReq = (id) => {
 };
 
 const { install, EXT } = require('./fakeVscode');
-const { ArrivalBell, soundCommand } = require(path.join(EXT, 'arrivalBell.js'));
+const { ArrivalBell, soundCommand, alertMode, notifyText } = require(path.join(EXT, 'arrivalBell.js'));
 
 function bell(opts = {}) {
   const calls = [];
@@ -90,6 +90,43 @@ test('승인 센터: 켤 때 쌓인 카드는 조용히, 새 요청 파일이 �
     writeReq('new2');
     center.reload();
     assert.strictEqual(rang, 1, '설정을 끄면 조용히');
+    center.dispose();
+  } finally {
+    fake.uninstall();
+  }
+});
+
+test('알림 방법(0.8.0 P2): auto는 로컬 창 소리·원격 창 알림, 나머지는 설정대로', () => {
+  assert.deepStrictEqual(alertMode('auto', undefined), { sound: true, notify: false });
+  assert.deepStrictEqual(alertMode('auto', 'ssh-remote'), { sound: false, notify: true });
+  assert.deepStrictEqual(alertMode('이상한 값', 'ssh-remote'), { sound: false, notify: true });
+  assert.deepStrictEqual(alertMode('sound', 'ssh-remote'), { sound: true, notify: false });
+  assert.deepStrictEqual(alertMode('notification', undefined), { sound: false, notify: true });
+  assert.deepStrictEqual(alertMode('both', undefined), { sound: true, notify: true });
+  assert.strictEqual(notifyText([{ id: 'a', title: '커밋  요청' }]), 'WY 승인 센터: 새 카드 — 커밋 요청');
+  assert.strictEqual(notifyText([{ id: 'a' }, { id: 'b' }, { id: 'c' }]), 'WY 승인 센터: 새 카드 3장 — a 외 2장');
+  assert.strictEqual(notifyText([{ id: 'a', title: 'x'.repeat(200) }]).length, 'WY 승인 센터: 새 카드 — '.length + 80);
+});
+
+test('원격 창: 새 카드는 VS Code 알림(카드 제목·승인 센터 열기)으로, 버튼을 누르면 그 카드를 연다', async () => {
+  writeReq('old2');
+  const fake = install({ workspace: proj });
+  fake.settings['wyOps.approvals.sound'] = true;
+  fake.vscode.env.remoteName = 'ssh-remote';
+  fake.nextChoice = '승인 센터 열기';
+  try {
+    const { ApprovalCenter } = require(path.join(EXT, 'approvalCenter.js'));
+    const center = new ApprovalCenter(fake.context);
+    const opened = [];
+    center.open = (a) => opened.push(a);
+    center.reload();
+    const before = fake.messages.length;
+    writeReq('remote1');
+    center.reload();
+    await new Promise((r) => setImmediate(r));
+    const info = fake.messages.slice(before).filter((m) => m[0] === 'info');
+    assert.deepStrictEqual(info, [['info', 'WY 승인 센터: 새 카드 — remote1', '승인 센터 열기']]);
+    assert.deepStrictEqual(opened, [{ id: 'remote1' }]);
     center.dispose();
   } finally {
     fake.uninstall();

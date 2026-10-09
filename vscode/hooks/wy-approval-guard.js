@@ -45,7 +45,7 @@ const WRITE_API = new RegExp(
 // 쓰기 API를 숨기는 흔한 방법(계산된 이름, eval 등). 있으면 판단할 수 없으니 막는다
 const OBFUSCATION = /\[[^\]]*\+[^\]]*\]|\beval\b|\bFunction\s*\(|getattr|__import__|\bexec\s*\(|\bcompile\s*\(|fromCharCode|\batob\b|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|Buffer\.from|Invoke-Expression|\biex\b|-EncodedCommand|-enc\b|globalThis|process\.binding|\bimportlib\b/i;
 // 읽기 API. 인터프리터 코드가 이것만 쓰면 통과
-const READ_API = /readFileSync|readFile|\brequire\s*\(|existsSync|statSync|readdirSync|JSON\.parse|json\.load|\bopen\s*\(|read_text|Get-Content|Test-Path|Get-ChildItem|Get-Item|ConvertFrom-Json|\]::(?:ReadAll|Exists)|\bcat\b|\btype\b/i;
+const READ_API = /readFileSync|readFile|\brequire\s*\(|existsSync|statSync|readdirSync|JSON\.parse|json\.load|\bopen\s*\(|read_text|Get-Content|Test-Path|Get-ChildItem|Get-Item|ConvertFrom-Json|Select-String|\bsls\b|Select-Object|Measure-Object|\]::(?:ReadAll|Exists)|\bcat\b|\btype\b/i;
 // 버리는 리다이렉트 대상
 const NULL_TARGET = /^(?:\/dev\/null|nul|\$null|&\d)$/i;
 const LEADING_KEYWORDS = new Set(['do', 'then', 'else', 'elif', 'until', 'while', 'if', '!', '{', '(', 'time', 'exec', 'sudo', 'env', '&']);
@@ -254,7 +254,8 @@ function movesIntoProtected(command, cwd) {
     if (HIDDEN_CHDIR.has(prog) || t.slice(1).includes('-')) return i < segs.length - 1;
     const args = t.slice(1).filter((a) => !/^-/.test(a));
     const up = PARENT_REF.test(command);
-    const into = (p) => PROTECTED_DIR.test(p) || (up && CLAUDE_SUBDIR.test(p));
+    // 요청 폴더(requests/) 안으로의 이동은 통과(..로 거슬러 오르지 않을 때). 카드를 임시 이름으로 쓰고 rename하는 절차(0.8.0 오탐 수정)
+    const into = (p) => (PROTECTED_DIR.test(p) && (up || !REQUESTS_PATH.test(p))) || (up && CLAUDE_SUBDIR.test(p));
     return args.some((a) => {
       if (into(a.replace(/\\/g, '/').toLowerCase()) || into(normDir(a)) || UNKNOWN_TARGET.test(a)) return true;
       if (!GLOB.test(a) && !a.startsWith('~') && into(normDir(path.resolve(cwd || process.cwd(), a)))) return true; // cwd 기준(.claude/jobs에서 cd ..)
@@ -288,6 +289,238 @@ function resolveVars(command) {
   return out;
 }
 
+// ── 0.8.0 오탐 수정: here-doc 본문과 코드의 쓰기 대상 ──────────────────────────────
+// 요청 폴더(requests/)는 세션이 카드를 쓰는 곳이라 보호 대상이 아니다(임시 이름 .part로 쓴 뒤 rename — README)
+const REQUESTS_PATH = /wy-approvals\/(?:[^/\s"'`]+\/)?requests(?:\/|$)/;
+// 본문을 명령으로 보지 않는 here-doc 소비자: 데이터를 받는 것(cat·tee)과 코드 인터프리터(본문은 그 코드로 따로 본다)
+const HEREDOC_DATA = new Set(['cat', 'tee']);
+const CODE_INTERPRETERS = new Set(['node', 'python', 'python3', 'py', 'perl', 'ruby', 'deno', 'bun']);
+
+// here-doc 본문을 떼어 낸다. 셸(bash 등)이나 모르는 프로그램의 본문은 명령이므로 그대로 둔다.
+//   돌려줌 { command: 본문을 뺀 명령, bodies: here-doc 머리 순서대로 본문(그대로 둔 것은 null) }
+function splitHeredocs(command) {
+  const lines = command.split('\n');
+  const out = [];
+  const bodies = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    out.push(line);
+    const m = line.match(/<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
+    if (!m) continue;
+    const before = segments(line.slice(0, m.index)).pop() || '';
+    const t = leadingTokens(before);
+    const prog = t.length ? path.basename(t[0]).toLowerCase().replace(/\.exe$/, '') : '';
+    const end = lines.findIndex((l, j) => j > i && (m[1] ? l.replace(/^\t+/, '') : l) === m[3]);
+    if (end < 0 || !(HEREDOC_DATA.has(prog) || CODE_INTERPRETERS.has(prog))) {
+      bodies.push(null);
+      continue;
+    }
+    bodies.push(lines.slice(i + 1, end).join('\n'));
+    i = end;
+  }
+  return { command: out.join('\n'), bodies };
+}
+
+// s[i]의 여는 괄호에 맞는 닫는 괄호 위치(따옴표 안은 건너뜀). 없으면 -1
+function closeParen(s, i) {
+  let depth = 0;
+  let q = '';
+  for (let j = i; j < s.length; j++) {
+    const c = s[j];
+    if (q) {
+      if (c === '\\') j++;
+      else if (c === q) q = '';
+    } else if (c === '"' || c === "'" || c === '`') q = c;
+    else if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c) && --depth === 0) return j;
+  }
+  return -1;
+}
+
+// 괄호·따옴표 밖의 구분자로 나눈다
+function splitTop(s, seps) {
+  const out = [];
+  let cur = '';
+  let depth = 0;
+  let q = '';
+  for (let j = 0; j < s.length; j++) {
+    const c = s[j];
+    if (q) {
+      cur += c;
+      if (c === '\\') cur += s[++j] || '';
+      else if (c === q) q = '';
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') q = c;
+    else if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    if (depth === 0 && seps.includes(c)) {
+      out.push(cur);
+      cur = '';
+    } else cur += c;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim());
+}
+
+// 코드 안에서 글자 그대로 정한 변수(const d = …, d = …). 다시 정하거나(+= 등, 다른 값) 값이 여러 개면 모르는 값으로 둔다
+function definitions(code) {
+  const defs = new Map();
+  const bad = new Set();
+  for (const m of code.matchAll(/(?:^|[;\n{(]|\b(?:const|let|var)\s)\s*([A-Za-z_$][\w$]*)\s*=(?![=>])/g)) {
+    const value = splitTop(code.slice(m.index + m[0].length), ';\n,')[0];
+    if (defs.has(m[1]) && defs.get(m[1]) !== value) bad.add(m[1]);
+    defs.set(m[1], value);
+  }
+  for (const m of code.matchAll(/([A-Za-z_$][\w$]*)\s*(?:[-+*/%|&^]|\?\?|\|\||&&|\/\/)=/g)) bad.add(m[1]);
+  for (const n of bad) defs.delete(n);
+  return defs;
+}
+
+const HOME_EXPR = /^(?:(?:require\(\s*['"](?:node:)?os['"]\s*\)|os)\.homedir\(\)|homedir\(\)|Path\.home\(\)|os\.path\.expanduser\(\s*['"]~['"]\s*\)|process\.env\.(?:HOME|USERPROFILE)|process\.env\[\s*['"](?:HOME|USERPROFILE)['"]\s*\]|os\.environ\[\s*['"](?:HOME|USERPROFILE)['"]\s*\]|os\.(?:environ\.get|getenv)\(\s*['"](?:HOME|USERPROFILE)['"]\s*\))$/;
+const CWD_EXPR = /^(?:process\.cwd\(\)|os\.getcwd\(\)|Path\.cwd\(\)|__dirname)$/;
+const JOIN_CALL = /^(?:(?:require\(\s*['"](?:node:)?path['"]\s*\)|path)(?:\.posix|\.win32)?\.(?:join|resolve)|os\.path\.join|Path|PurePath|PurePosixPath|PureWindowsPath)\s*\(/;
+const SAME_CALL = /^(?:String|str|os\.path\.(?:expanduser|abspath|normpath|realpath)|(?:path(?:\.posix|\.win32)?)\.normalize)\s*\(/;
+
+// 경로 식을 글자로 푼다(문자열·+·/·path.join·Path·홈·변수). 풀 수 없으면 null
+function evalPath(expr, defs, depth = 0) {
+  if (depth > 6) return null;
+  let e = String(expr).trim();
+  while (e.startsWith('(') && closeParen(e, 0) === e.length - 1) e = e.slice(1, -1).trim();
+  if (!e) return null;
+  const plus = splitTop(e, '+');
+  if (plus.length > 1) {
+    const parts = plus.map((p) => evalPath(p, defs, depth + 1));
+    return parts.includes(null) ? null : parts.join('');
+  }
+  const slash = splitTop(e, '/');
+  if (slash.length > 1 && slash.every(Boolean)) {
+    const parts = slash.map((p) => evalPath(p, defs, depth + 1));
+    return parts.includes(null) ? null : parts.join('/');
+  }
+  let m = e.match(/^[rRuUbB]?(['"])([^'"]*)\1$/);
+  if (m) return m[2].replace(/\\\\/g, '\\');
+  const interp = (body, re) => {
+    let bad = false;
+    const s = body.replace(re, (_, x) => {
+      const v = evalPath(x, defs, depth + 1);
+      if (v === null) bad = true;
+      return v || '';
+    });
+    return bad ? null : s;
+  };
+  if ((m = e.match(/^`([^`]*)`$/))) return interp(m[1], /\$\{([^}]*)\}/g);
+  if ((m = e.match(/^[fF][rR]?(['"])([^'"]*)\1$/))) return interp(m[2], /\{([^}]*)\}/g);
+  if (HOME_EXPR.test(e)) return '~';
+  if (CWD_EXPR.test(e)) return '.';
+  for (const [re, join] of [[JOIN_CALL, true], [SAME_CALL, false]]) {
+    const c = e.match(re);
+    if (c && closeParen(e, c[0].length - 1) === e.length - 1) {
+      const args = splitTop(e.slice(c[0].length, -1), ',').filter(Boolean);
+      if (!join) return args.length ? evalPath(args[0], defs, depth + 1) : null;
+      const parts = args.map((a) => evalPath(a, defs, depth + 1));
+      return parts.includes(null) ? null : parts.join('/') || '.';
+    }
+  }
+  if (/^[A-Za-z_$][\w$]*$/.test(e) && defs.has(e)) return evalPath(defs.get(e), defs, depth + 1);
+  return null;
+}
+
+// 푼 쓰기 대상이 보호 경로(또는 그것을 담은 폴더)인지. 요청 폴더 안은 통과
+function protectedTarget(p, cwd) {
+  const norm = (x) => path.posix.normalize(x.replace(/\\/g, '/')).toLowerCase();
+  const abs = norm(p.startsWith('~') ? p : path.resolve(cwd || process.cwd(), p));
+  for (const x of [norm(p), abs]) {
+    if (mentionsProtected(x) || mentionsProtected(`${x}/`)) return true;
+    if (PROTECTED_DIR.test(x) && !REQUESTS_PATH.test(x)) return true;
+  }
+  return false;
+}
+
+// 인자 목록을 위치 인자와 이름 인자(name=value)로
+function callArgs(inner) {
+  const pos = [];
+  const kw = {};
+  for (const a of splitTop(inner, ',').filter(Boolean)) {
+    const m = a.match(/^([A-Za-z_]\w*)\s*=(?!=)\s*([\s\S]*)$/);
+    if (m) kw[m[1]] = m[2];
+    else pos.push(a);
+  }
+  return { pos, kw };
+}
+
+// 모듈 함수로 부르는 쓰기(fs.writeFileSync(p, …), os.remove(p), shutil.move(a, b), 구조 분해한 writeFileSync(p))
+const ONE_TARGET = new Set(['writeFileSync', 'writeFile', 'appendFileSync', 'appendFile', 'createWriteStream', 'unlinkSync', 'unlink', 'rmSync', 'rm', 'rmdirSync', 'rmdir', 'mkdirSync', 'mkdir', 'truncateSync', 'truncate', 'utimesSync', 'utimes', 'chmodSync', 'chmod', 'chownSync', 'chown', 'mkdtempSync', 'mkdtemp', 'remove', 'removedirs', 'makedirs', 'rmtree']);
+const TWO_TARGETS = new Set(['renameSync', 'rename', 'copyFileSync', 'copyFile', 'cpSync', 'cp', 'symlinkSync', 'symlink', 'linkSync', 'link', 'replace', 'copy', 'copy2', 'copyfile', 'copytree', 'move']);
+const MODULE_RECV = /^(?:fs|fsp|fsPromises|fs\.promises|promises|os|shutil|require\(['"](?:node:)?fs(?:\/promises)?['"]\)(?:\.promises)?)$/;
+// 대상 객체에 부르는 쓰기(Path(p).write_text(…), p.unlink())
+const RECV_TARGET = new Set(['write_text', 'write_bytes', 'touch', 'unlink', 'mkdir', 'rmdir', 'rename', 'symlink_to', 'hardlink_to', 'chmod']);
+
+// 점(.) 앞의 받는 식 시작 위치(이름·점·괄호를 거슬러 올라간다)
+function receiverStart(code, dot) {
+  let j = dot - 1;
+  while (j >= 0) {
+    if (code[j] === ')' || code[j] === ']') {
+      let depth = 0;
+      for (; j >= 0; j--) {
+        if (')]'.includes(code[j])) depth++;
+        else if ('(['.includes(code[j]) && --depth === 0) break;
+      }
+      j--;
+    } else if (/[\w$.]/.test(code[j])) j--;
+    else break;
+  }
+  return j + 1;
+}
+
+// 인터프리터 코드가 보호 경로에 쓸 수 있는지. 쓰기 호출마다 대상을 풀어 보고, 풀 수 없거나 보호 경로면 막는다.
+//   알아본 쓰기 호출을 지운 나머지에 쓰기 API가 남으면(별칭·모르는 방법) 막는다
+function codeWritesProtected(code, cwd, strict = true) {
+  if (OBFUSCATION.test(code)) return true;
+  const defs = definitions(code);
+  const blank = [];
+  let found = 0;
+  let blocked = false;
+  const target = (expr) => {
+    const p = expr === undefined ? null : evalPath(expr, defs);
+    if (p === null || protectedTarget(p, cwd)) blocked = true;
+  };
+  for (const m of code.matchAll(/(\.\s*)?\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+    const name = m[2];
+    const open = m.index + m[0].length - 1;
+    const close = closeParen(code, open);
+    if (close < 0) continue;
+    const { pos, kw } = callArgs(code.slice(open + 1, close));
+    const start = m[1] ? receiverStart(code, m.index) : m.index;
+    const recv = m[1] ? code.slice(start, m.index).replace(/\s+/g, '') : '';
+    const moduleCall = !m[1] || MODULE_RECV.test(recv);
+    if (name === 'open' || name === 'openSync') {
+      const mode = pos[1] !== undefined ? pos[1] : kw.mode !== undefined ? kw.mode : kw.flags;
+      const literalMode = mode === undefined ? '' : (String(mode).match(/^[rRbB]?(['"])([^'"]*)\1$/) || [])[2];
+      if (literalMode === undefined || /[wax+]/.test(literalMode)) {
+        found++;
+        target(pos[0] !== undefined ? pos[0] : kw.file);
+      }
+    } else if (moduleCall && (ONE_TARGET.has(name) || TWO_TARGETS.has(name))) {
+      if (name === 'replace' && recv !== 'os') continue; // 문자열 replace
+      found++;
+      target(pos[0]);
+      if (TWO_TARGETS.has(name)) target(pos[1]);
+    } else if (!moduleCall && RECV_TARGET.has(name)) {
+      found++;
+      target(code.slice(start, m.index));
+      if (name === 'rename' || name === 'symlink_to' || name === 'hardlink_to') target(pos[0]);
+    } else if (!(m[1] && (name === 'write' || name === 'writelines'))) continue;
+    // write·writelines: 연 파일(위 open에서 대상을 봤다)·표준 출력에 쓰는 내용이라 인자는 데이터
+    blank.push([start, close + 1]);
+  }
+  if (blocked) return true;
+  let rest = code;
+  for (const [a, b] of blank.sort((x, y) => y[0] - x[0])) rest = rest.slice(0, a) + ' '.repeat(b - a) + rest.slice(b);
+  if (WRITE_API.test(rest)) return true;
+  return strict && !found && !READ_API.test(code); // 보호 이름만 나온 코드(strict 아님)는 쓰기가 없으면 통과
+}
+
 // 보호 경로에 쓸 수 있는 명령인지 본다. 보호 경로가 나오는 명령에서
 //  - 리다이렉트·쓰기 프로그램은 대상이 보호 경로이거나 알 수 없는 값(변수 등)일 때 막는다.
 //    다른 파일에 쓰는 것은 통과(커밋 메시지 본문에 보호 파일 이름이 들어 있는 경우 등)
@@ -307,13 +540,16 @@ function writesApprovalFiles(command, cwd) {
   // 아래 리다이렉트·쓰기 프로그램 검사는 한다. 그 검사는 대상이 보호 경로이거나 알 수 없는 값일 때만 막는다
   const named = SOFT_NAMES.test(command.replace(/\\/g, '/').toLowerCase());
   if (!moved && !mentioned && !named && !GLOB.test(scan)) return false;
+  // here-doc 본문(cat의 데이터, node·python의 코드)은 명령으로 나누지 않는다. 코드 본문은 그 인터프리터 조각에서 본다
+  const { command: shell, bodies } = splitHeredocs(command);
   // 리다이렉트(> >> 2> *>). =>(화살표 함수)·->·>=는 리다이렉트가 아니다
-  for (const m of command.matchAll(/(?<![=\-<])(?:\d|\*)?>{1,2}(?!=)\s*("[^"]*"|'[^']*'|[^\s|;&<>)]+)/g)) {
+  for (const m of shell.matchAll(/(?<![=\-<])(?:\d|\*)?>{1,2}(?!=)\s*("[^"]*"|'[^']*'|[^\s|;&<>)]+)/g)) {
     const target = m[1].replace(/^["']|["']$/g, '');
     if (NULL_TARGET.test(target)) continue;
     if (moved || riskyTarget(target, cwd)) return true;
   }
-  for (const seg of segments(command)) {
+  for (const seg of segments(shell)) {
+    const body = /<<-?\s*(['"]?)[A-Za-z_][\w-]*\1/.test(seg) ? bodies.shift() : null;
     const t = leadingTokens(seg);
     if (!t.length) continue;
     // 코드를 실행하는 것(.NET 호출·인터프리터)은 보호 경로가 언급되거나 보호 폴더로 이동한 명령에서만 따진다
@@ -330,7 +566,12 @@ function writesApprovalFiles(command, cwd) {
     if (WRITERS.has(prog) && risky) return true;
     if (prog === 'sed' && rest.some((a) => a.startsWith('-i') || a.startsWith('--in-place')) && (moved || mentionsProtected(seg) || sedFiles(rest).some((a) => riskyTarget(a, cwd)))) return true;
     if (prog === 'find' && risky && rest.some((a) => ['-delete', '-exec', '-execdir', '-ok'].includes(a))) return true;
-    if (INTERPRETERS.has(prog) && (sensitive || rest.some(unknownGlob))) {
+    if (CODE_INTERPRETERS.has(prog) && (sensitive || named || rest.some(unknownGlob))) {
+      // node·python 등은 쓰기 호출의 대상을 풀어 본다(다른 파일에 쓰면서 내용에 보호 경로 이름이 든 코드는 통과, 0.8.0).
+      // 보호 폴더 이름만 나와도(path.join(…, 'wy-approvals', …, 'decisions')처럼 경로가 조각난 경우) 대상을 본다
+      const strict = sensitive || rest.some(unknownGlob);
+      if (codeWritesProtected([rest.join(' '), body || ''].join('\n'), cwd, strict)) return true;
+    } else if (INTERPRETERS.has(prog) && (sensitive || rest.some(unknownGlob))) {
       const code = rest.join(' ');
       if (WRITE_API.test(code) || OBFUSCATION.test(code) || !READ_API.test(code)) return true;
     }

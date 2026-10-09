@@ -50,3 +50,20 @@ git으로 옮기는 것(코드·문서·결정)은 커밋·푸시로 넘깁니�
 ## 6. 함께 까는 도구
 
 `setup`이 함께 까는 도구(agent-browser, 전역 스킬, MCP, 플러그인)를 설치합니다. 플러그인 마켓플레이스는 버전 고정을 지원하지 않아 늘 최신이 설치됩니다. `plugins.json`의 version은 최소 버전이고, doctor는 그보다 낮을 때만 주의를 띄웁니다. 쓰지 않을 선택 항목은 `.claude/wy-ops.json`의 `extras.off`에 id를 적으면 doctor가 '꺼짐'으로 보고 설치하지 않습니다.
+
+## 7. 원격으로 쓸 때(호스트·접속 PC)
+
+다른 PC에서 이 PC에 붙어 일할 때만 합니다. 순서와 설명은 [MANUAL.md](MANUAL.md) 3-5.
+
+호스트(작업이 도는 PC):
+- [ ] 관리자 PowerShell에서 `install.ps1 host`(먼저 `--dry-run`으로 목록 확인).
+- [ ] Tailscale 설치·로그인, 트레이 메뉴 Run unattended 켜기, 관리 콘솔에서 이 기기만 키 만료 끄기(할 일 카드).
+- [ ] 자동 로그인: Sysinternals Autologon(할 일 카드). 레지스트리에 비밀번호를 평문으로 두지 않습니다.
+- [ ] Windows 업데이트 사용 시간 지정(할 일 카드).
+
+접속 PC(제어만 하는 PC):
+- [ ] Tailscale 설치·같은 계정 로그인.
+- [ ] `install.ps1 connect <별칭> --host <호스트 Tailscale 이름>` → 끝에 나온 한 줄을 호스트의 관리자 PowerShell에서 실행(공개키 등록).
+- [ ] `ssh <별칭>`이 비밀번호 없이 되는지, 바로가기로 호스트 프로젝트 폴더가 열리는지 확인.
+
+공개 저장소·문서에는 호스트 이름·IP·계정·키를 적지 않습니다. 별칭과 호스트 이름은 명령 인수로만 줍니다.

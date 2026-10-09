@@ -11,7 +11,10 @@
 #   session.ps1 pin <역할>              실행 중인 그 역할 세션을 고정 목록(~/.claude/jobs/pins.json)에 넣는다. 메모리 부족 정리에서 빠진다
 #   session.ps1 unpin <역할>            고정 목록에서 뺀다. pin·unpin 모두 멈춘·없는 세션의 id를 목록에서 정리한다
 #                                       start·rotate는 고정하지 않는다. 허용 규칙 한 줄로 이 명령만 열기 위해 pm이 따로 부른다
-param([Parameter(Mandatory)][ValidateSet('list','health','start','stop','prep','rotate','adopt','pm-cmd','pin','unpin')][string]$Cmd, [string]$Role, [string]$Prompt, [switch]$Force)
+#   session.ps1 attach <역할>           실행 중인 그 역할 백그라운드 세션에 붙는다(claude attach <id>, 원격 접속용). pm 역할도 된다
+#   session.ps1 start-pm [경로]         pm 역할을 백그라운드 세션으로 띄운다(역할 파일 없음: pm-ops 스킬·인수인계 경로·ListAgents 확인을 시작 지시로).
+#                                       이미 백그라운드 pm이 실행 중이면 거부한다. pm 세션 교체 중이면 -Force(새 pm을 띄운 뒤 이전 pm을 멈추라고 알려 줌)
+param([Parameter(Mandatory)][ValidateSet('list','health','start','stop','prep','rotate','adopt','pm-cmd','pin','unpin','attach','start-pm')][string]$Cmd, [string]$Role, [string]$Prompt, [switch]$Force)
 
 # claude.exe가 stderr로 진행 문구를 내면 PowerShell 5.1이 'Stop'에서 오류로 끊어 버려 백그라운드 시작이 실패한다
 $ErrorActionPreference = 'Continue'
@@ -57,7 +60,7 @@ if ($Ops) {
 if (-not $Roles.Count -or -not $PmRole) { throw "프로젝트 설정 $Repo\.claude\wy-ops.json에 roles·pmRole이 없습니다(install.ps1 init으로 만듭니다)" }
 # Claude Code는 대화 기록 폴더 이름을 저장소 경로의 영문·숫자 외 문자를 '-'로 바꿔 만든다(Windows는 대소문자 무시)
 $Transcripts = "$env:USERPROFILE\.claude\projects\" + ($Repo -replace '[^A-Za-z0-9]', '-')
-if ($Cmd -notin 'list','health','pm-cmd' -and $Role -notin $Roles) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
+if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -and -not ($Cmd -eq 'attach' -and $Role -eq $PmRole)) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
 
 # PowerShell 5.1의 ConvertFrom-Json은 JSON 배열을 한 덩어리로 넘기므로 괄호로 풀어서 넘긴다
 function Get-Sessions { (claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
@@ -146,6 +149,12 @@ switch ($Cmd) {
     $n = Get-Bg $Role
     if ($n -and $n.sessionId -ne $s.sessionId) { claude rm $s.id | Out-Null }
   }
+  'attach' {
+    # id는 다시 띄울 때마다 바뀌므로 이름으로 찾는다. 빠져나와도 세션은 계속 돈다
+    $s = Get-Bg $Role
+    if (-not $s -or -not (Test-Running $s)) { "$Role 백그라운드 세션이 실행 중이 아닙니다. 먼저: session.ps1 start $Role"; break }
+    claude attach $s.id
+  }
   'stop' {
     $s = Get-Bg $Role
     if (-not $s -or -not (Test-Running $s)) { "$Role 백그라운드 세션이 실행 중이 아닙니다."; break }
@@ -174,11 +183,37 @@ switch ($Cmd) {
     "옮겼습니다. 답을 마치면 session.ps1 stop $Role 로 멈추세요."
   }
   'pm-cmd' {
-    $h = if ($Prompt) { $Prompt } else { (Get-Handoff $PmRole).FullName }
+    # 경로는 두 번째 자리($Role)로 들어온다(pm-cmd는 역할을 받지 않음)
+    $h = @($Prompt, $Role) | Where-Object { $_ } | Select-Object -First 1
+    if (-not $h) { $h = (Get-Handoff $PmRole).FullName }
     if (-not $h) { throw "$PmRole 인수인계 파일이 없습니다. 먼저 /ecc:save-session (short-id $PmRole)을 실행하세요." }
-    "아래 한 줄을 새 터미널(또는 VS Code 새 Claude 패널)에서 실행하면 $($PmRole)이 이어집니다. 이전 pm 창은 닫으세요."
+    $hp = $h -replace '\\','/'
+    "pm 세션 교체(원격 운용: pm은 호스트의 백그라운드 세션, 노트북을 닫아도 계속 돎):"
+    "  1. 인수인계 저장(끝남): $hp"
+    "  2. 새 pm 띄우기: & '$PSCommandPath' start-pm '$hp' -Force"
+    "  3. 이전 pm 종료: 2가 알려 주는 대로(백그라운드면 claude stop <id>, 대화형 창이면 창 닫기). 이전 pm이 2를 실행했다면 3이 마지막 동작"
+    "  4. 붙기: & '$PSCommandPath' attach $PmRole"
+    "호스트 앞에서 대화형으로 이어 갈 때(예전 방식): 새 터미널에서 아래 한 줄, 이전 pm 창은 닫기"
     # 기본 실행 정책에서는 npm의 claude.ps1이 막히므로 claude.cmd로 부른다
-    "cd $Repo; claude.cmd --name $PmRole `"/ecc:resume-session $($h -replace '\\','/')`""
+    "  cd $Repo; claude.cmd --name $PmRole `"/ecc:resume-session $hp`""
+  }
+  'start-pm' {
+    # 경로는 두 번째 자리($Role)로 들어온다. 'none'이나 빈 값이면 인수인계 없이 시작
+    $h = @($Role, $Prompt) | Where-Object { $_ -and $_ -ne 'none' } | Select-Object -First 1
+    if ($h -and -not (Test-Path $h)) { throw "인수인계 파일이 없습니다: $h" }
+    $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
+    $bg = @($live | Where-Object { $_.kind -eq 'background' })
+    if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force"; break }
+    $load = if ($h) { "먼저 /ecc:resume-session $($h -replace '\\','/') 로 인수인계를 불러오고, " } else { "먼저 CLAUDE.md와 $($ProgressDoc)를 읽고, " }
+    $first = "[$PmRole 시작] 이 세션은 호스트에서 백그라운드로 도는 $PmRole(개발 총괄)입니다. 사용자는 session.ps1 attach $PmRole 로 붙어 대화합니다. pm-ops 스킬을 따르세요. " +
+             $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요."
+    # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
+    $first = $first -replace '"', "'"
+    Push-Location $Repo; try { claude --bg --name $PmRole $first } finally { Pop-Location }
+    "백그라운드 $PmRole 을 띄웠습니다. 붙기: session.ps1 attach $PmRole"
+    foreach ($o in $live) {
+      if ($o.kind -eq 'background') { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" } else { "이전 $PmRole 대화형 세션($($o.id))의 창을 닫으세요" }
+    }
   }
   { $_ -in 'pin','unpin' } {
     $pinFile = "$env:USERPROFILE\.claude\jobs\pins.json"

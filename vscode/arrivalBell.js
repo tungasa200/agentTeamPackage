@@ -29,7 +29,22 @@ function playSystemSound() {
   }
 }
 
-// 처음 받은 목록은 기준으로만 삼는다(VS Code를 켤 때 쌓여 있던 카드로 울리지 않게). 그 뒤 새 id가 보이면 한 번 울린다.
+// 알리는 방법(0.8.0 P2): 원격 창(Remote-SSH 등, vscode.env.remoteName 있음)에서는 확장이 호스트에서 돌아 소리가 호스트 스피커에서 난다.
+// 그래서 원격 창은 VS Code 알림(접속 PC 화면에 뜸), 로컬 창은 소리. 설정 wyOps.approvals.alert: auto(기본)·sound·notification·both
+function alertMode(setting, remoteName) {
+  const s = ['sound', 'notification', 'both'].includes(setting) ? setting : 'auto';
+  if (s === 'auto') return remoteName ? { sound: false, notify: true } : { sound: true, notify: false };
+  return { sound: s !== 'notification', notify: s !== 'sound' };
+}
+
+// 알림 문구: 새 카드 제목(없으면 id). 여러 장이면 '외 n장'
+function notifyText(cards) {
+  const name = (c) => String((c && (c.title || c.id)) || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const first = name(cards[0]);
+  return cards.length > 1 ? `WY 승인 센터: 새 카드 ${cards.length}장 — ${first} 외 ${cards.length - 1}장` : `WY 승인 센터: 새 카드 — ${first}`;
+}
+
+// 처음 받은 목록은 기준으로만 삼는다(VS Code를 켤 때 쌓여 있던 카드로 울리지 않게). 그 뒤 새 id가 보이면 한 번 알린다(play에 새 id 목록을 넘김).
 class ArrivalBell {
   constructor({ play = playSystemSound, now = Date.now, enabled = () => true, gap = GAP } = {}) {
     this.play = play;
@@ -48,9 +63,9 @@ class ArrivalBell {
     const t = this.now();
     if (t - this.last < this.gap) return false;
     this.last = t;
-    this.play();
+    this.play(fresh);
     return true;
   }
 }
 
-module.exports = { ArrivalBell, soundCommand, playSystemSound, GAP };
+module.exports = { ArrivalBell, soundCommand, playSystemSound, alertMode, notifyText, GAP };

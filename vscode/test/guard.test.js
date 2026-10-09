@@ -112,6 +112,29 @@ const deny = [
   `sed --in-place=.bak 's/a/b/' .claude/wy-ops.json`, // WY-commit 검증에서 찾음
   // 특수 변수를 빼도 진짜 와일드카드 우회는 그대로 막는다
   `node -e "require('fs').writeFileSync(process.argv[1],'x')" h/.cl*/wy-a*/my-project/decisions/a.json; echo $?`,
+  // 0.8.0: 코드의 쓰기 대상을 풀어 보는 판정 — 대상이 보호 경로이거나 풀 수 없으면 그대로 막는다
+  `node -e "require('fs').writeFileSync(require('os').homedir()+'/.claude/wy-approvals/my-project/decisions/x.json','{}')"`,
+  `node -e "const fs=require('fs');const d=require('os').homedir()+'/.claude/wy-approvals/my-project/requests/';fs.renameSync(d+'a.part',d+'../decisions/a.json')"`,
+  `node -e "const fs=require('fs');const p=require('path').join(require('os').homedir(),'.claude','wy-approvals','my-project','used');fs.rmSync(p,{recursive:true})"`,
+  `node -e "const fs=require('fs');fs.rmSync(require('os').homedir()+'/.claude/wy-approvals/my-project',{recursive:true})"`,
+  `node -e "const w=require('fs').writeFileSync;w('x','.claude/wy-ops.json')"`,
+  `node -e "require('fs')['writeFileSync']('a','~/.claude/wy-approvals/my-project/decisions')"`,
+  `node -e "require('fs').writeFileSync(process.env.TARGET,'x')" # .claude/settings.local.json`,
+  `node -e "const p='.claude/wy-ops.json';require('fs').writeFileSync(p,'{}')"`,
+  `node -e "let p='docs/a.md';p+='/../../.claude/wy-ops.json';require('fs').writeFileSync(p,'{}')"`,
+  `node -e "require('child_process').execSync('echo > .claude/settings.local.json')"`,
+  `python - <<'EOF'${NL}from pathlib import Path${NL}p = Path.home() / '.claude' / 'wy-approvals' / 'my-project' / 'decisions' / 'x.json'${NL}p.write_text('{}')${NL}EOF`,
+  `python - <<'EOF'${NL}import os${NL}os.replace('a.json', os.path.join(os.path.expanduser('~'), '.claude', 'wy-approvals', 'my-project', 'decisions', 'a.json'))${NL}EOF`,
+  `python - <<'EOF'${NL}for p in ['.claude/wy-ops.json']:${NL}    open(p, 'w').write('{}')${NL}EOF`,
+  `python3 - <<'EOF'${NL}import subprocess${NL}subprocess.run(['rm', '.claude/settings.local.json'])${NL}EOF`,
+  `python - <<'EOF'${NL}import os${NL}fd = os.open('.claude/wy-ops.json', os.O_WRONLY)${NL}os.fdopen(fd, 'w').write('{}')${NL}EOF`,
+  // cat here-doc이라도 리다이렉트 대상이 보호 경로면 막는다
+  `cat >> .claude/wy-ops.json <<'EOF'${NL}{}${NL}EOF`,
+  // 셸 here-doc 본문은 명령이므로 그대로 본다
+  `bash <<'EOF'${NL}rm -rf ~/.claude/wy-approvals/my-project/decisions${NL}EOF`,
+  // 요청 폴더로 이동해도 ..로 거슬러 오르거나, 요청 폴더가 아닌 승인 폴더로 이동하면 막는다
+  'cd ~/.claude/wy-approvals/my-project/requests && mv a.part ../decisions/a.json',
+  'cd ~/.claude/wy-approvals/my-project && mv requests/a.part decisions/a.json',
 ];
 const allow = [
   // 읽기
@@ -182,6 +205,18 @@ const allow = [
   'cd ~/.claude/wy-approvals/my-project/decisions && cat x.json',
   'cd ~/.claude/wy-approvals/my-project && ls decisions',
   'Set-Location ~/.claude/wy-approvals/my-project/decisions; Get-Content x.json',
+  // 0.8.0 오탐 수정(pm 보고): 다른 파일에 쓰는 코드의 내용에 보호 경로 이름이 든 경우, 읽기, 요청 폴더 쓰기
+  `python - <<'EOF'${NL}with open('docs/결정기록.md', 'a', encoding='utf-8') as f:${NL}    f.write('- D-163 승인 파일(~/.claude/wy-approvals/<ns>/decisions/)·settings.local.json은 확장·사용자만 쓴다\\n')${NL}EOF`,
+  `powershell -NoProfile -Command "Select-String -Path C:\\projects\\p\\.claude\\settings.local.json -Pattern 'hooks'"`,
+  W`Select-String -Path .claude\settings.local.json -Pattern 'wy-(approval|decision)' | ForEach-Object { $_.Line }`,
+  `node -e "const fs=require('fs');const d=require('os').homedir()+'/.claude/wy-approvals/my-project/requests/';fs.writeFileSync(d+'1.json.part',JSON.stringify({kind:'commit',files:['.claude/settings.local.json','x/decisions.log']}));fs.renameSync(d+'1.json.part',d+'1.json')"`,
+  `node -e "const fs=require('fs'),path=require('path');const d=path.join(require('os').homedir(),'.claude','wy-approvals','my-project','requests');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'a.part'),'{}');fs.renameSync(path.join(d,'a.part'),path.join(d,'a.json'))"`,
+  `python - <<'EOF'${NL}import os, json${NL}from pathlib import Path${NL}d = Path.home() / '.claude' / 'wy-approvals' / 'my-project' / 'requests'${NL}tmp = d / 'a.json.part'${NL}tmp.write_text(json.dumps({'why': 'decisions·used 오탐'}), encoding='utf-8')${NL}os.replace(tmp, d / 'a.json')${NL}EOF`,
+  'cd ~/.claude/wy-approvals/my-project/requests && mv tmp-a.json.part 20261010-a.json',
+  `cat > ~/.claude/wy-approvals/my-project/requests/a.json.part <<'EOF'${NL}{"kind":"commit","why":"decisions 폴더와 settings.local.json 오탐 수정 > 다음"}${NL}EOF${NL}mv ~/.claude/wy-approvals/my-project/requests/a.json.part ~/.claude/wy-approvals/my-project/requests/a.json`,
+  `node -e "const s=require('fs').readFileSync('.claude/wy-ops.json','utf8');process.stdout.write(s.replace('a','b'))"`,
+  // pm 보고: 문서에 덧붙이는 cat here-doc. 본문(데이터)에 보호 이름·리다이렉트·쓰기 명령 글자가 있어도 대상(docs/…)만 본다
+  `cat >> docs/진행현황.md <<'EOF'${NL}- wy-ops.json·sessions 정리: rm ~/.claude/wy-approvals/my-project/sessions/x.json > .claude/settings.local.json${NL}EOF`,
 ];
 for (const c of deny) { const e = ev(c); ok(e && e.decision === 'deny', 'should deny: ' + c); }
 // 설정에 commitRole이 없으면 기본 이름 없이 잠금 대상은 모두 거부(커밋 역할 이름으로 띄운 세션도)

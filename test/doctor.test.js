@@ -70,6 +70,8 @@ function makePc(name, { home: homeName = 'home' } = {}) {
     if (cmd === 'code' && args[0] === '--list-extensions') return ok(state.extensions.join('\n') + '\n');
     if (cmd === 'claude' && args[0] === '--version') return ok('2.1.292 (Claude Code)\n');
     if (cmd === 'claude' && args[0] === 'plugin') return ok(JSON.stringify(state.plugins));
+    // 호스트 점검(lib/host.js probe, -EncodedCommand): 기본은 호스트가 아닌 PC(sshd 없음)
+    if (cmd === 'powershell' && args.includes('-EncodedCommand')) return ok(JSON.stringify({ admin: false, sshd: null, tailscale: null, ...state.host }));
     if (cmd === 'powershell') return ok('5.1.19041.1\n');
     if (cmd === 'node' && args.includes('--check') && String(args[0]).endsWith('gen-agents.js')) return { status: state.genAgents, stdout: state.genAgents ? 'X-commit.md가 다름\n' : '' };
     if (cmd === 'node' && args[0] === '--check') return ok();
@@ -403,6 +405,27 @@ try {
   }
 
   extrasCases();
+
+  // 호스트 줄(0.8.0 P5): sshd 없음은 해당 없음(통과), 호스트로 설정했으면 어긋난 항목을 주의로, 원격 창용 껍데기 확장도 본다
+  {
+    const pc = makePc('host');
+    let r = byId(doctor.checkAll(pc.opts)).host;
+    assert.ok(r.level === 'ok' && r.detail.includes('해당 없음'), JSON.stringify(r));
+    const ac = (sec) => `현재 AC 전원 설정 인덱스: 0x${sec.toString(16)}\n`;
+    pc.state.host = {
+      sshd: { status: 'Running', start: 'Automatic' }, tailscale: { status: 'Running', start: 'Automatic' },
+      firewall: { enabled: 'True', remote: ['100.64.0.0/10'] }, standby: ac(0), hibernate: ac(0),
+    };
+    r = byId(doctor.checkAll(pc.opts)).host;
+    assert.ok(r.level === 'warn' && r.detail.includes('원격 확장') && r.fix.includes(' host'), JSON.stringify(r));
+    const { serverDir } = require('../lib/extensionTargets');
+    json(path.join(serverDir(pc.home), 'wy-ops.wy-ops-0.1.0', 'package.json'), { name: 'wy-ops', wyOpsStubHash: 'h1' }); // extensions.json 없으면 폴더 이름으로 찾음
+    r = byId(doctor.checkAll(pc.opts)).host;
+    assert.strictEqual(r.level, 'ok', JSON.stringify(r));
+    pc.state.host.standby = ac(1800);
+    r = byId(doctor.checkAll(pc.opts)).host;
+    assert.ok(r.level === 'warn' && r.detail.includes('AC 대기 1800초'), JSON.stringify(r));
+  }
   console.log('doctor 검사 통과');
 } finally {
   rmTree(base);

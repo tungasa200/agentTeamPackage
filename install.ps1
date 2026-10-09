@@ -1,6 +1,7 @@
 ﻿# WY Ops 설치 진입점(Windows PowerShell 5.1). 본체는 lib/install.js다.
 # 사용(패키지 저장소 clone 폴더나 설치본에서):
-#   powershell -ExecutionPolicy Bypass -File install.ps1 global | setup | init … | doctor | update | deploy [--dev] | rollback [버전] | export | import <zip> | restore <zip>
+#   powershell -ExecutionPolicy Bypass -File install.ps1 global | setup | init … | doctor | update | deploy [--dev] | rollback [버전] | export | import <zip> | restore <zip> | host | connect <별칭> …
+#   host는 관리자 PowerShell에서 실행한다(원격 호스트 준비, lib/host.js)
 # 시작할 때 필수 환경(Node LTS, Git, GitHub CLI, Claude Code, VS Code)을 확인한다. 빠진 것은 목록을 보여 주고
 # 한 번 확인받은 뒤 winget(Claude Code는 npm)으로 설치한다. Node가 없으면 lib/*.js를 돌릴 수 없어서 이 단계는 PowerShell에서 한다.
 #   --yes            확인 없이 설치

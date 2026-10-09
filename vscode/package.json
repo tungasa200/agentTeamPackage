@@ -9,6 +9,9 @@
     "vscode": "^1.85.0"
   },
   "main": "./extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onWebviewPanel:wyApprovals",
@@ -64,7 +67,24 @@
         "wyOps.approvals.sound": {
           "type": "boolean",
           "default": true,
-          "description": "WY 승인 센터에 새 카드가 들어오면 소리로 알립니다(여러 장이 한꺼번에 와도 한 번)."
+          "description": "WY 승인 센터에 새 카드가 들어오면 알립니다(여러 장이 한꺼번에 와도 한 번). 끄면 소리·알림 모두 없음."
+        },
+        "wyOps.approvals.alert": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "sound",
+            "notification",
+            "both"
+          ],
+          "enumDescriptions": [
+            "로컬 창은 소리, 원격 창(Remote-SSH)은 VS Code 알림 — 원격 창의 소리는 호스트 스피커에서 나므로",
+            "늘 소리(원격 창이면 호스트에서 울림)",
+            "늘 VS Code 알림",
+            "소리와 알림 모두"
+          ],
+          "default": "auto",
+          "description": "새 카드를 알리는 방법."
         }
       }
     },

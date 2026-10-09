@@ -41,7 +41,9 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 
 상태 표시줄의 '승인 대기 N'을 누르거나 명령 팔레트에서 `WY: 승인 센터 열기`를 실행한다. VS Code를 다시 열면 탭이 되살아난다. N은 대기 중인 카드(git·결정·권한·할 일)를 합친 수이고, 마우스를 올리면 종류별로 나눠서 보인다.
 
-새 카드가 들어오면 OS 기본 알림음을 한 번 낸다(탭이 닫혀 있어도). 여러 장이 5초 안에 몰려도 한 번이고, VS Code를 켤 때 이미 쌓여 있던 카드로는 울리지 않는다. 끄려면 설정 `wyOps.approvals.sound`를 끈다. 창을 여러 개 열면 창마다 울린다.
+새 카드가 들어오면 OS 기본 알림음을 한 번 낸다(탭이 닫혀 있어도). 여러 장이 5초 안에 몰려도 한 번이고, VS Code를 켤 때 이미 쌓여 있던 카드로는 울리지 않는다. 끄려면 설정 `wyOps.approvals.sound`를 끈다(소리·알림 모두). 창을 여러 개 열면 창마다 울린다.
+원격 창(Remote-SSH, `vscode.env.remoteName`이 있음)에서는 확장이 호스트에서 돌아 소리가 호스트 스피커로 나가므로, 대신 VS Code 알림(카드 제목과 `승인 센터 열기` 버튼)을 띄운다. 설정 `wyOps.approvals.alert`: `auto`(기본, 로컬 창 소리·원격 창 알림) · `sound` · `notification` · `both`.
+원격 창에서 이 확장이 보이려면 껍데기 확장이 호스트의 `~/.vscode-server/extensions`에도 있어야 한다(`extensionKind: ["workspace"]`). `install.ps1 setup`·`deploy`·`update`는 `~/.vscode-server`가 있는 PC면 그쪽에도 설치하고, `install.ps1 host`는 첫 접속 전에 폴더를 만들어 설치해 둔다.
 
 - **git 명령 카드**: 커밋·푸시(파랑)와 PM 결정(노랑: 병합·`gh pr merge`, 브랜치 생성·삭제, reset, 강제 푸시, rebase, 태그 삭제). 제목 바로 아래 큰 글씨 한 줄이 무엇이 바뀌고 어떻게 되돌리는지다(요청의 `effect`, 없으면 자동 문구). 매번 [승인] 또는 [거부]를 누른다. 자동 승인은 없다. 거부할 때는 사유를 적어야 한다.
 - **결정 요청 카드**(보라): 질문 1~4개, 질문마다 선택지 2~4개(추천 표시), 하나만 또는 여러 개 고르기, '기타' 직접 입력, 메모. 모든 질문에 답해야 [응답 전송]이 된다.
@@ -237,5 +239,7 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
 - 커밋 역할이라도 같은 종류·같은 명령의 승인 결정(결정 후 60분 이내, 아직 안 씀)이 없으면 거부하고, 요청 파일을 쓰라는 사유를 돌려준다.
 - `merge --abort`, `rebase --abort`처럼 되돌리는 명령은 잠그지 않는다.
 - 승인 파일(모든 namespace의 decisions·decisions.log·used·sessions·message-blocks.log), 설치 폴더(`~/.wy-tools`), 프로젝트 설정(`.claude/wy-ops.json`·`wy-ops.local.json`·`settings.local.json`)에 쓰는 셸 명령을 막는다: 그 경로로의 리다이렉트(`>`·`>>`), 쓰기 명령(cp·mv·rm·tee·Set-Content·Out-File·Remove-Item 등, `sed -i`, `find -delete`/`-exec`), 그 경로가 나오는 명령 안의 다른 리다이렉트·쓰기 명령(변수 경로 우회 방지), 쓰기 API(writeFileSync·appendFile·rename·unlink, open(…, 'w'/'a'), os.remove, Set-Content 등)나 난독화(eval·계산된 이름·getattr 등)를 쓰는 인터프리터 코드. 읽기 API(readFileSync·require·JSON.parse, json.load(open(…)), Get-Content·ConvertFrom-Json)만 쓰는 node·python·PowerShell 코드와 cat·ls·tail·test·`git add/diff` 같은 읽기, 설정을 안에서 읽는 스크립트 실행(`session.ps1`, `gen-agents.js`, `deploy.js`)은 통과한다. 판단할 수 없는 코드는 막는다. 설정 변경은 내용을 pm 역할에 보내 사용자가 직접 고친다.
+- node·python 등의 코드(`-e`·`-c` 인자와 `<<EOF` 본문)는 쓰기 호출(writeFileSync·renameSync·rmSync, open(…, 'w'/'a'), Path(…).write_text, os.replace, shutil.* 등)마다 대상 경로를 풀어 본다(문자열·`+`·`/`·path.join·os.path.join·Path·홈 디렉터리·코드 안에서 정한 변수). 대상이 모두 보호 경로 밖이면 내용에 보호 경로 이름이 들어 있어도 통과한다(예: 결정기록 문서에 덧붙이는 python). 대상을 풀 수 없거나(반복문 변수·환경 변수·인자), 알아보지 못한 쓰기 API(별칭·subprocess)가 남으면 막는다. `cat`·`tee`의 here-doc 본문은 데이터라 명령으로 보지 않는다(bash 등 셸의 본문은 명령으로 본다).
+- 요청 폴더(`requests/`)는 보호 대상이 아니다. 셸에서 임시 이름(`<id>.json.part`)으로 쓰고 `mv`·renameSync·os.replace로 `<id>.json`으로 바꾸는 절차, `cd …/requests` 뒤 상대 경로로 쓰는 것도 통과한다(`..`로 거슬러 오르면 막는다).
 - 승인 폴더는 명령의 cwd가 속한 프로젝트 것을 쓴다(위 '파일' 참고).
 - 훅은 오류·시간 초과 때 통과시키는 특성이 있어서, 이 스크립트는 판단하지 못하면 종료 코드 2로 막는다. 다만 설정에 적힌 스크립트 경로가 없거나 `node`를 못 찾으면 Claude Code가 훅을 건너뛴다(통과).
