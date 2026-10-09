@@ -6,7 +6,7 @@
 
 {{parallelRules}}
 
-- 역할 세션은 `{{pmRole}}`이 백그라운드 세션으로 실행하고 멈춘다: `.claude/skills/pm-ops/scripts/session.ps1 list | health | start <역할> [지시] | stop <역할> | prep <역할> | rotate <역할> [경로]`. 사용자가 늘 보는 세션은 `{{pmRole}}`과 `{{commitRole}}`(커밋 승인)이다.
+- 역할 세션은 `{{pmRole}}`이 백그라운드 세션으로 실행하고 멈춘다: `.claude/skills/pm-ops/scripts/session.ps1 list | health | start <역할> [지시] | stop <역할> | prep <역할> | rotate <역할> [경로]`. 사용자가 늘 보는 곳은 `{{pmRole}}` 창과 승인 센터(커밋·푸시 등 승인 카드)다. `{{commitRole}}`도 백그라운드로 돌고, 사용자 승인은 승인 센터 카드로 받는다.
 - 쉬는 세션은 `stop`으로 멈춰 메모리를 돌려준다. 대화는 남아서 `start`로 이어진다.
 - 세션 간 메시지(`ListAgents`/`SendMessage`)는 같은 PC 안의 세션끼리만 오간다. 메시지를 보내기 전에는 매번 `ListAgents`로 대상 세션이 있는지 확인한다. 대상이 없거나 불분명하면 짐작해서 보내지 말고 사용자에게 알린다.
 

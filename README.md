@@ -8,7 +8,7 @@
 - **역할 생성**: 역할 파일(`.claude/agents/<역할>.md`), pm 운영 스킬(`pm-ops`), 세션 실행·세션 교체 스크립트(`session.ps1`)를 만듭니다.
 - **점검·이전**: `doctor`로 설치 상태를 확인하고, `export`·`restore`로 개인 상태를 새 PC로 옮깁니다.
 
-사용법은 [MANUAL.md](MANUAL.md), 새 PC 체크리스트는 [NEW-PC.md](NEW-PC.md), 카드 요청 파일 형식은 [vscode/README.md](vscode/README.md)에 있습니다.
+사용법(팀이 일하는 흐름·설치·매일 쓰기·역할 바꾸기·패키지 고치기와 배포)은 [MANUAL.md](MANUAL.md), 새 PC 체크리스트는 [NEW-PC.md](NEW-PC.md), 카드 요청 파일 형식은 [vscode/README.md](vscode/README.md)에 있습니다.
 
 ## 요구 환경
 
@@ -17,21 +17,22 @@
 
 ## 빠른 시작
 
-1. 이 저장소를 받습니다(경로에 공백·한글이 없는 곳 권장).
+1. 이 저장소를 `C:\tools\wy-ops`에 받습니다(git이 없으면 먼저 `winget install -e --id Git.Git`, 새 PowerShell 창을 엽니다).
    ```powershell
    git clone <이 저장소 주소> C:\tools\wy-ops
    ```
-2. 이 PC에 설치합니다(한 번만). 설치본은 `%USERPROFILE%\.wy-tools\wy-ops\`에 버전별로 들어가고 `current`가 지금 버전을 가리킵니다.
+2. 아래 한 줄을 PowerShell에 붙여 넣습니다. 이것으로 끝입니다.
    ```powershell
-   powershell -ExecutionPolicy Bypass -File C:\tools\wy-ops\install.ps1 global
+   powershell -ExecutionPolicy Bypass -File C:\tools\wy-ops\install.ps1 quickstart
    ```
-3. 운영 도구를 붙일 프로젝트 폴더에서(먼저 `git init`):
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" init --name <프로젝트 이름> --prefix <역할 접두사, 예: AB->
-   ```
-   스택(`--stack`)·역할 수·담당 영역을 묻습니다. 출력 끝의 **CLAUDE.md에 넣을 절**을 프로젝트 `CLAUDE.md`에 붙입니다.
-4. 그 폴더 터미널에서 `claude`를 한 번 실행해 폴더 신뢰에 Yes → `/exit`. VS Code로 폴더를 열고 `Developer: Reload Window`.
-5. 왼쪽 활동 막대에 **WY Ops** 아이콘이 보이면 됩니다. 확인은 `install.ps1 doctor`.
+   - 묻는 것은 **프로젝트 폴더**와 **이름** 둘뿐입니다(Enter = 보이는 기본값). 경로는 따옴표째 붙여 넣어도 되고 `~`도 됩니다. 없는 폴더는 만들고, git 저장소가 아니면 `git init`을 합니다.
+   - 필요한 프로그램(Node.js·Git·GitHub CLI·VS Code·Claude Code)이 없으면 설치를 한 번 묻습니다.
+   - 나머지는 기본값입니다: 스택은 폴더의 파일로 추정(모르면 `custom`), 역할은 아래 기본 구성, 역할 접두사는 이름 앞 두 글자(`my-app` → `MY-`).
+   - `CLAUDE.md`가 없으면 운영 도구 절을 넣어 만들고, 있으면 고치지 않고 붙일 내용을 보여 줍니다.
+   - 로그인(Claude Code·GitHub)과 폴더 신뢰는 대신할 수 없어서, 그 자리에서 할 일을 한 줄로 알리고 Enter를 누르면 같은 창에서 엽니다. 이미 된 것은 건너뜁니다.
+   - 끝에 점검(doctor) 결과를 "됐음 / 이것만 남음"으로 요약하고 VS Code로 프로젝트를 엽니다. 왼쪽 활동 막대에 **WY Ops** 아이콘이 보이면 됩니다.
+
+스택·역할 수·담당 영역을 직접 고르고 싶으면 `quickstart` 대신 `global` → `init`을 씁니다([MANUAL.md](MANUAL.md) 3장 '직접 고르고 싶을 때').
 
 같은 프로젝트를 다른 PC에서 이어 갈 때는 프로젝트를 clone한 뒤 그 폴더에서 `install.ps1 setup`을 실행합니다. 원래 PC의 개인 상태(메모리·승인 이력·전역 설정)까지 옮기려면 `export` → 새 PC에서 `restore <zip>`을 씁니다([NEW-PC.md](NEW-PC.md)).
 
@@ -73,6 +74,7 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 
 | 명령 | 하는 일 |
 |---|---|
+| `quickstart` | 한 줄 설치: `global` + 폴더·git 준비 + `init`(기본값) + CLAUDE.md + 로그인·신뢰 안내 + 점검 요약 |
 | `global` | 설치본·VS Code 확장·함께 까는 도구. 어느 프로젝트도 건드리지 않음 |
 | `setup` | `global` + 이 프로젝트의 훅 설정(`settings.local.json`, 차이를 보여 주고 확인) + doctor |
 | `init` | 새 프로젝트에 설정·역할 파일·스킬 만들기 |
@@ -83,6 +85,8 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 | `export` / `import` / `restore` | 개인 이전 묶음 만들기 / 들여오기 / 새 PC 한 번에 복원 |
 
 ## 개발
+
+고치기 → 시험 → 커밋 → deploy → 프로젝트 갱신 순서는 [MANUAL.md](MANUAL.md) 10장에 있습니다.
 
 - 작업 사본을 바로 쓰려면 `install.ps1 deploy --dev`(설치본 `current`가 이 폴더를 가리킵니다. doctor가 '개발 연결 중'으로 알립니다). 풀려면 `install.ps1 deploy`.
 - 시험: 저장소 루트에서 `node test/<이름>.test.js`, `node vscode/test/<이름>.test.js`. npm 의존성은 없습니다. 시험은 임시 폴더·가짜 명령으로 돌고 실제 홈 폴더와 설치본은 건드리지 않습니다.
