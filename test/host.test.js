@@ -48,7 +48,7 @@ function fakePc(name, over = {}) {
           admin: s.admin, sshd: s.sshd, tailscale: s.tailscale, defaultShell: s.defaultShell,
           firewall: s.firewall, standby: powercfg(s.standby), hibernate: powercfg(s.hibernate), keysAcl: s.keysAcl,
           tailscaleState: s.tailscaleState, autoLogon: s.autoLogon,
-          sshdPath: s.sshdPath, sshdExe: s.sshdExe, sshdVersion: s.sshdVersion, builtin: s.builtin, fwOthers: s.fwOthers,
+          sshdPath: s.sshdPath, sshdExe: s.sshdExe, sshdVersion: s.sshdVersion, builtin: s.builtin, fwOthers: s.fwOthers, denied: s.denied,
         }));
       }
       if (script.includes('Remove-WindowsCapability')) Object.assign(s, { builtin: false, sshd: null, sshdPath: null, sshdExe: null, sshdVersion: null });
@@ -256,6 +256,35 @@ try {
     let script = '';
     host.probe((cmd, args) => ((script = Buffer.from(args[args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le')), { status: 1 }));
     assert.ok(script.includes("GetValueNames()) -contains 'DefaultPassword'") && !/GetValue\('DefaultPassword'\)|-Name DefaultPassword/.test(script), script);
+    // 항목마다 따로 잡음(하나가 권한 거부돼도 나머지는 보고). 방화벽 cmdlet은 모듈 함수라 호출자 오류 설정을 안 따라 -ErrorAction Stop을 직접
+    for (const k of ['sshd', 'sshdVersion', 'fwOthers', 'firewall', 'autoLogon', 'defaultShell', 'standby', 'keysAcl']) assert.ok(script.includes(`\nT ${k} {`), k);
+    assert.ok(script.includes("Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction Stop"), script);
+    // 경로의 역슬래시가 템플릿 리터럴에서 사라지지 않음(\O 등)
+    assert.ok(script.includes("'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon'") && script.includes("'System32\\OpenSSH\\sshd.exe'"), script);
+  }
+  // 일반 권한 doctor: 방화벽을 못 읽으면 '확인 못 함'만 적고 주의로 세지 않음. 키 권한 거부는 doctor 줄에 영향 없음
+  {
+    const good = {
+      sshd: { status: 'Running', start: 'Automatic' }, tailscale: { status: 'Running', start: 'Automatic' }, standby: 0, hibernate: 0,
+      sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2', firewall: null, keysAcl: null,
+      denied: ['fwOthers', 'firewall', 'keysAcl'],
+    };
+    const r = host.check(fakePc('denied', good).run, { platform: 'win32' });
+    assert.strictEqual(r.level, 'ok', JSON.stringify(r));
+    assert.ok(r.detail.includes('방화벽 확인 못 함(관리자 권한 필요)') && !r.detail.includes('규칙 없음'), r.detail);
+    // 다른 항목이 어긋나면 그건 그대로 주의
+    const w = host.check(fakePc('denied2', { ...good, standby: 1800 }).run, { platform: 'win32' });
+    assert.ok(w.level === 'warn' && w.detail.includes('AC 대기 1800초') && w.detail.includes('확인 못 함'), w.detail);
+    // --dry-run(일반 권한) 계획: 방화벽은 '확인 못 함'으로 단계에 남음
+    const steps = host.plan({ ...good, standbyAc: 0, hibernateAc: 0, defaultShell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' }, { programData: path.join(base, 'denied-plan') });
+    assert.ok(steps.find((s) => s.key === 'firewall').detail.includes('확인 못 함(관리자 권한 필요)'));
+  }
+  // 실제 powershell(Windows에서만): 일반 권한이어도 점검이 무너지지 않고 결과를 냄
+  if (process.platform === 'win32') {
+    const { spawnSync } = require('child_process');
+    const st = host.probe((c, a) => spawnSync(c, a, { encoding: 'utf8' }));
+    assert.ok(st && Array.isArray(st.denied), '실제 점검 결과');
+    if (!st.admin && st.sshd) assert.ok(st.denied.includes('firewall') || st.firewall, '일반 권한에서 방화벽은 권한 거부로 표시');
   }
 
   // --dry-run: 관리자가 아니어도 목록만 보여 주고 아무것도 부르지 않음
