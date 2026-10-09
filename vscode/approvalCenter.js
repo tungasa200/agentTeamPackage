@@ -11,6 +11,7 @@ const { loadOpsConfig } = require('./opsConfig');
 
 const VIEW_TYPE = 'wyApprovals';
 const OPEN_COMMAND = 'wyApprovals.open';
+const RESET_ANCHORS_COMMAND = 'wyApprovals.resetTrustAnchors';
 const POLL = 15000; // 파일 감시가 놓친 변경을 잡는 느린 주기
 const ROLE_POLL = 30000; // 커밋 세션 역할 확인 주기(claude agents)
 
@@ -50,6 +51,7 @@ class ApprovalCenter {
       this.status,
       // 인자 { id }(요청 id)를 주면 탭을 열고 그 카드를 고른다(활동 탭의 "카드 열기", 계획 2.2)
       vscode.commands.registerCommand(OPEN_COMMAND, (arg) => this.open(arg)),
+      vscode.commands.registerCommand(RESET_ANCHORS_COMMAND, () => this.resetAnchors()),
       vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, {
         // VS Code를 다시 열면 탭을 되살린다
         deserializeWebviewPanel: async (panel) => this.attach(panel),
@@ -131,10 +133,33 @@ class ApprovalCenter {
     this.anchorsKey = `wyApprovals.anchors:${this.root.toLowerCase()}`;
     const anchors = state && state.get(this.anchorsKey);
     this.anchors = Array.isArray(anchors) ? anchors : [];
-    if (trust.ensureRoot(this.root, key, deviceName())) {
-      this.anchors = [{ fp: trust.fingerprint(key.pub), pub: key.pub }];
+    this.ensureRoot();
+  }
+
+  // 명부가 없으면 이 기기가 뿌리가 된다. 원격 창(Remote-SSH)은 뿌리를 만들지 않는다: 원격 창 키는 호스트의
+  // ~/.vscode-server에 있고 접속하는 노트북 모두가 함께 써서, 뿌리는 호스트 로컬 창이 맡는다
+  ensureRoot() {
+    if (vscode.env && vscode.env.remoteName) return;
+    if (trust.ensureRoot(this.root, this.key, deviceName())) {
+      this.anchors = [{ fp: trust.fingerprint(this.key.pub), pub: this.key.pub }];
       this.saveAnchors();
     }
+  }
+
+  // 명령 'WY: 기기 신뢰 고정 초기화': 이 기기에 고정한 뿌리를 비운다(명부를 새로 만든 뒤 옛 뿌리를 버릴 때).
+  // 확인을 한 번 받는다. 비우면 지금 명부의 뿌리 지문을 비교해 다시 등록을 요청하는 안내가 뜬다
+  async resetAnchors() {
+    const pick = await vscode.window.showWarningMessage(
+      '이 기기에 고정한 뿌리 기기를 지웁니다. 이 창은 미등록 상태가 되고, 기기 명부의 뿌리 지문을 확인해 다시 등록을 요청해야 합니다. 명부를 새로 만든 경우에만 하세요.',
+      { modal: true },
+      '초기화',
+    );
+    if (pick !== '초기화') return false;
+    this.anchors = [];
+    this.saveAnchors();
+    this.ensureRoot();
+    this.reload();
+    return true;
   }
 
   saveAnchors() {
@@ -165,6 +190,7 @@ class ApprovalCenter {
       selfShort: trust.shortFp(ev.selfFp),
       selfName: deviceName(),
       selfStatus: ev.selfStatus,
+      remote: !!(vscode.env && vscode.env.remoteName),
       root: root && { fp: root.fp, short: trust.shortFp(root.fp), name: root.name },
       list: ev.devices.map((d) => ({ ...d, lastSig: last.get(d.fp) || null })),
       // 등록 요청은 신뢰된 기기에서만 승인할 수 있다

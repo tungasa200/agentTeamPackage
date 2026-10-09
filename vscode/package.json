@@ -50,6 +50,11 @@
         "icon": "$(shield)"
       },
       {
+        "command": "wyApprovals.resetTrustAnchors",
+        "title": "기기 신뢰 고정 초기화",
+        "category": "WY"
+      },
+      {
         "command": "wyOps.revealSession",
         "title": "세션 현황에서 보기",
         "category": "세션 현황"

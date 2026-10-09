@@ -25,9 +25,10 @@ const forge = (id, extra = {}) => {
 
 // 기기 하나 = 따로 된 globalState를 가진 가짜 VS Code 하나. memento를 주면 같은 기기의 다른 창
 const centers = [];
-function device(name, memento) {
+function device(name, memento, { remote = false } = {}) {
   const fake = install({ workspace: proj });
   fake.vscode.env.machineId = name;
+  if (remote) fake.vscode.env.remoteName = 'ssh-remote';
   if (memento) for (const [k, v] of memento) fake.globalState.set(k, v);
   const file = path.join(EXT, 'agentsReader.js');
   require.cache[require.resolve(file)] = { id: file, filename: file, loaded: true, exports: { readSessionStatus: async () => [] } };
@@ -53,7 +54,18 @@ function device(name, memento) {
 (async () => {
   const trust = require(path.join(EXT, 'approvalTrust.js'));
 
-  // 1) 첫 기기: 명부가 없으면 자기가 뿌리(사용자 손 없음)
+  // 0) 원격 창(Remote-SSH)은 명부가 없어도 뿌리가 되지 않는다(키가 호스트에 있고 노트북 모두가 함께 씀)
+  const R = device('dddd4444', null, { remote: true });
+  let sr = R.state();
+  assert.strictEqual(sr.devices.selfStatus, 'unpaired', '원격 창은 뿌리가 안 됨');
+  assert.strictEqual(sr.devices.root, null, '명부 없음');
+  assert.strictEqual(sr.devices.remote, true, '화면에 원격 창 안내');
+  assert.ok(!fs.existsSync(dir('decisions', 'trust', 'devices.json')), '원격 창은 명부를 만들지 않음');
+  R.fake.nextChoice = '초기화';
+  await R.fake.commands['wyApprovals.resetTrustAnchors']();
+  assert.ok(!fs.existsSync(dir('decisions', 'trust', 'devices.json')), '초기화 명령도 원격 창에서는 뿌리를 만들지 않음');
+
+  // 1) 첫 기기(호스트 로컬 창): 명부가 없으면 자기가 뿌리(사용자 손 없음)
   const A = device('aaaa1111');
   let sa = A.state();
   assert.strictEqual(sa.devices.selfStatus, 'member', '첫 기기는 자동 뿌리');
@@ -169,8 +181,42 @@ function device(name, memento) {
   forge('f1', { note: '또 바꿈' });
   assert.deepStrictEqual(A.state().untrusted, ['f1'], '확인 뒤 바뀌면 다시 경고');
 
+  // 원격 창은 호스트 창이 뿌리를 만든 뒤 지문을 비교해 등록 요청
+  sr = R.state();
+  assert.strictEqual(sr.devices.root.fp, sa.devices.selfFp, '원격 창에 호스트 뿌리 지문');
+  assert.strictEqual(sr.devices.selfStatus, 'unpaired');
+
   // doctor 요약
   assert.deepStrictEqual(trust.summary(root), { devices: 2, revoked: 1, unknown: 1, joins: 0 }, 'doctor 요약(가짜 키는 확인 안 됨)');
+
+  // 6) 뿌리 옮기기: 명부를 지우고 C 기기 창을 다시 열면 C가 새 뿌리. 옛 뿌리를 고정한 A는 고정 초기화 명령으로 다시 등록
+  fs.rmSync(dir('decisions', 'trust', 'devices.json'));
+  const C2 = device('cccc3333', C.fake.globalState);
+  const s2 = C2.state();
+  assert.strictEqual(s2.devices.root.fp, s2.devices.selfFp, 'C가 새 뿌리');
+  writeReq('r1');
+  C2.send({ type: 'decide', id: 'r1', decision: 'approved' });
+  sa = A.state();
+  assert.strictEqual(sa.devices.selfStatus, 'member', '옛 고정(자기 자신)이 남아 있으면 등록된 것처럼 보임');
+  assert.ok(sa.untrusted.includes('r1'), '새 뿌리의 결정은 출처 불명');
+  // 확인 창에서 취소하면 그대로
+  A.fake.nextChoice = undefined;
+  assert.strictEqual(await A.fake.commands['wyApprovals.resetTrustAnchors'](), false, '취소');
+  assert.strictEqual(A.state().devices.selfStatus, 'member', '취소하면 고정 유지');
+  assert.ok(A.fake.messages.some((m) => m[0] === 'warning' && m[2] && m[2].modal), '확인은 모달로');
+  A.fake.nextChoice = '초기화';
+  assert.strictEqual(await A.fake.commands['wyApprovals.resetTrustAnchors'](), true, '초기화');
+  sa = A.state();
+  assert.strictEqual(sa.devices.selfStatus, 'unpaired', '고정 초기화 → 미등록(뿌리 지문 비교 안내)');
+  assert.strictEqual(sa.devices.root.fp, s2.devices.selfFp, '안내에 새 뿌리 지문');
+  A.send({ type: 'pinRoot', fp: sa.devices.root.fp, name: '노트북' });
+  assert.deepStrictEqual(A.state().untrusted.filter((id) => id === 'r1'), [], '새 뿌리 고정 → 새 뿌리 결정 신뢰');
+  writeReq('r2');
+  A.send({ type: 'decide', id: 'r2', decision: 'approved' });
+  assert.ok(C2.state().untrusted.includes('r2'), '등록 전 A의 결정은 새 뿌리 창에서 출처 불명');
+  C2.send({ type: 'approveJoin', fp: sa.devices.selfFp });
+  assert.strictEqual(A.state().devices.selfStatus, 'member', '새 뿌리가 승인 → 다시 등록');
+  assert.ok(!C2.state().untrusted.includes('r2'), '등록 뒤 A의 결정 신뢰');
 
   for (const c of centers) c.dispose();
   fs.rmSync(base, { recursive: true, force: true });

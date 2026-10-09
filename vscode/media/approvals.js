@@ -237,6 +237,8 @@
     if (dv) {
       if (dv.selfStatus === 'revoked') {
         add('err', '이 기기는 신뢰 해제됨', `다른 기기에서 이 기기(지문 ${dv.selfShort})의 신뢰를 해제했습니다. 이 창에서 내린 결정은 다른 기기에서 출처 불명으로 보입니다. 다시 쓰려면 pm에 알려 기기 등록을 새로 하세요.`);
+      } else if (dv.selfStatus === 'unpaired' && !dv.root && dv.remote) {
+        add('err', '기기 명부가 아직 없습니다', '원격 창은 뿌리 기기가 되지 않습니다. 호스트 PC의 로컬 VS Code 창에서 승인 센터를 먼저 여세요(그 창이 뿌리가 됩니다). 그 뒤 이 창에 뿌리 지문과 등록 요청 안내가 뜹니다. 이미 열었는데도 이 문구가 보이면 pm에 알리세요.');
       } else if (dv.selfStatus === 'unpaired' && !dv.root) {
         add('err', '기기 명부를 읽지 못했습니다', 'decisions/trust/devices.json에 뿌리 기기가 없습니다. 위조나 손상일 수 있으니 pm에 알리세요.');
       } else if (dv.selfStatus === 'unpaired') {
