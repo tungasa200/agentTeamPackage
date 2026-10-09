@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const store = require('./approvalStore');
+const trust = require('./approvalTrust');
 const { ArrivalBell, alertMode, notifyText, playSystemSound } = require('./arrivalBell');
 
 const { loadOpsConfig } = require('./opsConfig');
@@ -12,6 +13,15 @@ const VIEW_TYPE = 'wyApprovals';
 const OPEN_COMMAND = 'wyApprovals.open';
 const POLL = 15000; // 파일 감시가 놓친 변경을 잡는 느린 주기
 const ROLE_POLL = 30000; // 커밋 세션 역할 확인 주기(claude agents)
+
+const KEY_STATE = 'wyApprovals.deviceKey'; // 이 기기의 서명 키(globalState, 기기 단위)
+
+// 기기 기본 이름: 확장은 늘 작업 폴더가 있는 쪽(호스트)에서 돌아 os.hostname()이 호스트 이름이다. 창 종류와 기기 id로 구분한다
+function deviceName() {
+  const env = vscode.env || {};
+  const id = String(env.machineId || '').replace(/[^0-9a-f]/gi, '').slice(0, 4);
+  return `${env.remoteName ? '원격 창' : '이 PC'}${id ? ' ' + id : ''}`;
+}
 
 // 세션 상태 읽기(agentsReader). 아직 없으면 역할 경고를 건너뛴다
 function sessionStatusReader() {
@@ -53,6 +63,7 @@ class ApprovalCenter {
     this.ops = folder ? loadOpsConfig(folder.uri.fsPath) : null;
     store.ensureDirs(this.root);
     this.loadLedger();
+    this.loadTrust();
     this.roleWarnings = [];
     this.endedSessions = [];
     // 새 카드 알림(설정 wyOps.approvals.sound로 끄기, 기본 켜짐). 로컬 창은 소리, 원격 창은 VS Code 알림(wyOps.approvals.alert)
@@ -96,16 +107,69 @@ class ApprovalCenter {
 
   remember(id) {
     const file = path.join(store.paths(this.root).decisions, `${id}.json`);
-    this.ledger.entries[id] = store.decisionDigest(fs.readFileSync(file, 'utf8'));
+    const digest = store.decisionDigest(fs.readFileSync(file, 'utf8'));
+    this.ledger.entries[id] = digest;
     if (this.context.globalState) this.context.globalState.update(this.ledgerKey, this.ledger);
+    // 다른 기기의 승인 센터도 이 결정을 믿을 수 있게 이 기기 키로 서명한다
+    try {
+      trust.signDecision(this.root, this.key, id, digest);
+    } catch {
+      // 서명을 못 쓰면 이 기기 원장만으로 신뢰한다(다른 기기에는 출처 불명으로 보인다)
+    }
   }
 
-  // 원장에 없거나 내용이 바뀐 결정 파일. 사용자가 '확인함'을 누른 것(ack)은 같은 내용이면 다시 띄우지 않는다
-  untrustedDecisions() {
+  // 기기 신뢰(접속 기기 N대): 키는 기기 단위(globalState는 기기의 VS Code마다 하나라 같은 기기의 창은 함께 쓴다).
+  // 뿌리 고정(anchors)은 승인 폴더마다. 명부가 없으면 이 기기가 뿌리가 된다.
+  loadTrust() {
+    const state = this.context.globalState;
+    let key = state && state.get(KEY_STATE);
+    if (!key || typeof key.pub !== 'string' || typeof key.priv !== 'string') {
+      key = trust.newKey();
+      if (state) state.update(KEY_STATE, key);
+    }
+    this.key = key;
+    this.anchorsKey = `wyApprovals.anchors:${this.root.toLowerCase()}`;
+    const anchors = state && state.get(this.anchorsKey);
+    this.anchors = Array.isArray(anchors) ? anchors : [];
+    if (trust.ensureRoot(this.root, key, deviceName())) {
+      this.anchors = [{ fp: trust.fingerprint(key.pub), pub: key.pub }];
+      this.saveAnchors();
+    }
+  }
+
+  saveAnchors() {
+    if (this.context.globalState) this.context.globalState.update(this.anchorsKey, this.anchors);
+  }
+
+  evaluateTrust() {
+    return trust.evaluate(trust.readRoster(this.root), this.key, this.anchors);
+  }
+
+  // 원장에 없거나 내용이 바뀐 결정 파일. 신뢰하는 기기가 서명한 결정은 믿는다.
+  // 사용자가 '확인함'을 누른 것(ack)은 같은 내용이면 다시 띄우지 않는다
+  untrustedDecisions(ev = this.evaluateTrust()) {
+    const sigs = trust.readSigs(this.root);
     return store
       .listDecisionDigests(this.root)
-      .filter((d) => this.ledger.entries[d.id] !== d.digest && this.ledger.ack[d.id] !== d.digest)
+      .filter((d) => this.ledger.entries[d.id] !== d.digest && this.ledger.ack[d.id] !== d.digest && !trust.sigTrusted(sigs.get(d.id), d.digest, ev))
       .map((d) => d.id);
+  }
+
+  // 화면에 보낼 기기 목록·등록 요청
+  devicesState(ev) {
+    const last = new Map();
+    for (const s of trust.readSigs(this.root).values()) if (s.at && (!last.has(s.fp) || s.at > last.get(s.fp))) last.set(s.fp, s.at);
+    const root = trust.rosterRoot(trust.readRoster(this.root));
+    return {
+      selfFp: ev.selfFp,
+      selfShort: trust.shortFp(ev.selfFp),
+      selfName: deviceName(),
+      selfStatus: ev.selfStatus,
+      root: root && { fp: root.fp, short: trust.shortFp(root.fp), name: root.name },
+      list: ev.devices.map((d) => ({ ...d, lastSig: last.get(d.fp) || null })),
+      // 등록 요청은 신뢰된 기기에서만 승인할 수 있다
+      joins: ev.selfStatus === 'member' ? trust.readJoins(this.root).filter((j) => !ev.trusted.has(j.fp) && !ev.revoked.has(j.fp)).map((j) => ({ ...j, short: trust.shortFp(j.fp) })) : [],
+    };
   }
 
   // 커밋 세션 역할 누락(OPS-06 2): 커밋 세션 이름인데 --agent 없이 뜬 세션
@@ -152,7 +216,9 @@ class ApprovalCenter {
     try {
       state = store.readState(this.root);
       state.notice = this.legacyNotice();
-      state.untrusted = this.untrustedDecisions();
+      const ev = this.evaluateTrust();
+      state.untrusted = this.untrustedDecisions(ev);
+      state.devices = this.devicesState(ev);
       state.roleWarnings = this.roleWarnings;
       const ended = new Set(this.endedSessions || []);
       for (const r of state.pending) if (r.sessionId && ended.has(r.sessionId)) r.sessionEnded = true;
@@ -179,14 +245,15 @@ class ApprovalCenter {
   }
 
   renderStatus() {
-    const n = this.state.pending.length;
+    const joins = (this.state.devices && this.state.devices.joins.length) || 0;
+    const n = this.state.pending.length + joins;
     const count = (k) => this.state.pending.filter((r) => r.kind === k).length;
     const choices = count('choice');
     const perms = count('permission');
     const todos = count('todo');
     const broken = this.state.pending.filter((r) => r.broken).length;
-    const git = n - choices - perms - todos - broken;
-    const parts = [git && `승인 ${git}건`, perms && `권한 요청 ${perms}건`, choices && `결정 요청 ${choices}건`, todos && `할 일 ${todos}건`, broken && `형식 오류 ${broken}건`].filter(Boolean).join(' · ');
+    const git = n - joins - choices - perms - todos - broken;
+    const parts = [git && `승인 ${git}건`, joins && `기기 등록 ${joins}건`, perms && `권한 요청 ${perms}건`, choices && `결정 요청 ${choices}건`, todos && `할 일 ${todos}건`, broken && `형식 오류 ${broken}건`].filter(Boolean).join(' · ');
     this.status.text = n ? `$(bell-dot) 승인 대기 ${n}` : '$(check) 승인 대기 없음';
     this.status.tooltip = n ? `WY 승인 센터: ${parts} — 눌러서 열기` : 'WY 승인 센터 열기';
     this.status.backgroundColor = n ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
@@ -246,6 +313,35 @@ class ApprovalCenter {
           if (this.context.globalState) this.context.globalState.update(this.ledgerKey, this.ledger);
         }
         this.reload();
+      } else if (msg.type === 'ackAllUntrusted') {
+        // 지금 목록을 한 번에 확인함(기기 신뢰 도입 전에 다른 창이 쓴 결정 정리용). 지금 내용만, 바뀌면 다시 뜬다
+        const now = new Map(store.listDecisionDigests(this.root).map((d) => [d.id, d.digest]));
+        for (const id of this.untrustedDecisions()) this.ledger.ack[id] = now.get(id);
+        if (this.context.globalState) this.context.globalState.update(this.ledgerKey, this.ledger);
+        this.reload();
+      } else if (msg.type === 'pinRoot' && typeof msg.fp === 'string') {
+        // 새 기기: 화면에 보인 뿌리 지문이 지금 명부의 뿌리와 같을 때만 고정하고 등록을 요청한다
+        const root = trust.rosterRoot(trust.readRoster(this.root));
+        if (!root || root.fp !== msg.fp) throw new Error('명부의 뿌리가 바뀌었습니다. 지문을 다시 확인하세요');
+        if (!this.anchors.some((a) => a.fp === root.fp)) this.anchors.push({ fp: root.fp, pub: root.pub });
+        this.saveAnchors();
+        trust.requestJoin(this.root, this.key, String(msg.name || '').trim().slice(0, 60) || deviceName());
+        this.reload();
+      } else if ((msg.type === 'approveJoin' || msg.type === 'rejectJoin') && typeof msg.fp === 'string') {
+        const ev = this.evaluateTrust();
+        if (ev.selfStatus !== 'member') throw new Error('등록된 기기에서만 승인할 수 있습니다');
+        const join = trust.readJoins(this.root).find((j) => j.fp === msg.fp);
+        if (!join) throw new Error('등록 요청이 없습니다');
+        if (msg.type === 'approveJoin') trust.approveJoin(this.root, this.key, join);
+        else trust.removeJoin(this.root, join.fp);
+        this.reload();
+      } else if (msg.type === 'revokeDevice' && typeof msg.fp === 'string') {
+        const ev = this.evaluateTrust();
+        if (ev.selfStatus !== 'member') throw new Error('등록된 기기에서만 해제할 수 있습니다');
+        if (msg.fp === ev.selfFp) throw new Error('이 기기는 다른 기기에서 해제하세요');
+        if (!ev.devices.some((d) => d.fp === msg.fp) || ev.revoked.has(msg.fp)) throw new Error('해제할 기기가 없습니다');
+        trust.revokeDevice(this.root, this.key, msg.fp, store.listDecisionDigests(this.root));
+        this.reload();
       } else if (msg.type === 'reveal' && typeof msg.sessionId === 'string') {
         // 카드의 '세션 현황에서 보기'(B2-5)
         vscode.commands.executeCommand('wyOps.revealSession', msg.sessionId);
@@ -257,6 +353,8 @@ class ApprovalCenter {
       }
     } catch (err) {
       this.post({ type: 'error', id: msg.id, message: String(err.message || err) });
+      // 카드에 붙지 않는 오류(기기 등록·해제 등)는 화면 읽기 알림만으로는 안 보이므로 VS Code 알림으로도
+      if (!msg.id) Promise.resolve(vscode.window.showErrorMessage(`WY 승인 센터: ${err.message || err}`)).catch(() => {});
       this.reload();
     }
   }

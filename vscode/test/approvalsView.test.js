@@ -209,7 +209,42 @@ function screenBehavior(jsdom) {
   assert.ok(order.indexOf('what') < order.indexOf('code') && order.indexOf('todo-steps') < order.indexOf('code'), '판단 안내가 명령 블록보다 위');
   assert.ok(s4.txt('.row .mc').includes('Bash'), '목록에 셸 칩');
 
-  assert.deepStrictEqual([...s.errors, ...s2.errors, ...s3.errors, ...s4.errors], [], '화면 오류 없음');
+  // 기기 신뢰(접속 기기 N대): 머리의 '기기 n대', 목록·해제 두 단계, 등록 요청 승인, 미등록 기기의 등록 요청, 모두 확인함
+  const fp = (c) => c.repeat(64);
+  const dev = (c, o) => ({ fp: fp(c), short: `${c}${c}${c}${c} ${c}${c}${c}${c}`, name: c, at: iso(60), by: fp('a'), byName: 'a', self: false, state: 'trusted', lastSig: iso(3), ...o });
+  const DEV = { selfFp: fp('a'), selfShort: 'aaaa aaaa', selfName: '이 PC aaaa', selfStatus: 'member', root: { fp: fp('a'), short: 'aaaa aaaa', name: 'a' },
+    list: [dev('a', { self: true }), dev('b'), dev('c', { state: 'revoked' })], joins: [{ fp: fp('d'), short: 'dddd dddd', name: '노트북2', at: iso(1) }] };
+  const s5 = screen(jsdom, 1000);
+  s5.send({ type: 'state', state: { ...STATE, roleWarnings: [], untrusted: ['f1', 'f2'], devices: DEV } });
+  const chipEl = s5.id('open-devices');
+  assert.strictEqual(chipEl.textContent, '기기 2대', '신뢰하는 기기 수');
+  assert.ok(chipEl.classList.contains('warn'), '등록 요청이 있으면 경고색');
+  assert.ok(s5.txt('.alert b')[0] === '새 기기 등록 요청' && s5.txt('.alert .tx')[0].includes('dddd dddd'), '등록 요청 카드가 맨 위, 지문 표시');
+  s5.id('join-ok-' + fp('d').slice(0, 16)).click();
+  assert.deepStrictEqual(s5.posted.pop(), { type: 'approveJoin', fp: fp('d') }, '등록 승인');
+  s5.id('alerts-more').click();
+  s5.id('ack-all').click();
+  assert.deepStrictEqual(s5.posted.pop(), { type: 'ackAllUntrusted' }, '모두 확인함');
+  s5.id('open-devices').click();
+  assert.strictEqual(s5.id('open-devices').getAttribute('aria-expanded'), 'true');
+  assert.deepStrictEqual(s5.txt('.dev b'), ['a (이 기기)', 'b', 'c'], '기기 목록');
+  assert.ok(!s5.id('revoke-' + fp('a').slice(0, 16)) && !s5.id('revoke-' + fp('c').slice(0, 16)), '이 기기·해제된 기기는 해제 단추 없음');
+  s5.id('revoke-' + fp('b').slice(0, 16)).click();
+  assert.strictEqual(s5.d.activeElement.id, 'revoke-yes-' + fp('b').slice(0, 16), '해제는 두 단계(정말 해제로 포커스)');
+  s5.id('revoke-yes-' + fp('b').slice(0, 16)).click();
+  assert.deepStrictEqual(s5.posted.pop(), { type: 'revokeDevice', fp: fp('b') }, '해제 보냄');
+  // 미등록 기기: 뿌리 지문과 이름 칸, 등록 요청
+  const s6 = screen(jsdom, 400);
+  s6.send({ type: 'state', state: { ...STATE, roleWarnings: [], untrusted: [], devices: { ...DEV, selfFp: fp('e'), selfShort: 'eeee eeee', selfName: '원격 창 eeee', selfStatus: 'unpaired', joins: [] } } });
+  assert.ok(s6.txt('.alert .tx')[0].includes('aaaa aaaa'), '뿌리 지문 표시');
+  const nm = s6.id('join-name');
+  assert.strictEqual(nm.value, '원격 창 eeee', '기본 이름');
+  nm.value = '노트북';
+  nm.dispatchEvent(new s6.w.Event('input'));
+  s6.id('join-request').click();
+  assert.deepStrictEqual(s6.posted.pop(), { type: 'pinRoot', fp: fp('a'), name: '노트북' }, '신뢰하고 등록 요청');
+
+  assert.deepStrictEqual([...s.errors, ...s2.errors, ...s3.errors, ...s4.errors, ...s5.errors, ...s6.errors], [], '화면 오류 없음');
 }
 
 try {

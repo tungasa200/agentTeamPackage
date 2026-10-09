@@ -178,7 +178,20 @@
       row.append(b);
     }
     row.append(el('span', 'hd-sp'));
-    const act = button('icon-btn', null, () => vscode.postMessage({ type: 'openActivity' }), { icon: 'i-activity', id: 'open-activity', title: '활동 탭 열기 (g a)' });
+    const dv = state.devices;
+    if (dv) {
+      // 기기 n대(신뢰하는 기기 수). 이 기기가 미등록·해제이거나 등록 요청이 있으면 경고색
+      const warn = dv.selfStatus !== 'member' || dv.joins.length > 0;
+      const c = button('chip dev-chip' + (warn ? ' warn' : ''), `기기 ${dv.list.filter((d) => d.state === 'trusted').length}대`, () => {
+        ui.devicesOpen = !ui.devicesOpen;
+        focusAfter = 'open-devices';
+        render();
+      }, { id: 'open-devices', title: '승인 센터를 띄운 기기 목록(지문 비교·신뢰 해제)' });
+      c.setAttribute('aria-expanded', String(!!ui.devicesOpen));
+      c.setAttribute('aria-controls', 'devices');
+      row.append(c);
+    }
+    const act =button('icon-btn', null, () => vscode.postMessage({ type: 'openActivity' }), { icon: 'i-activity', id: 'open-activity', title: '활동 탭 열기 (g a)' });
     act.setAttribute('aria-label', '활동 탭 열기');
     const folder = button('icon-btn', null, () => vscode.postMessage({ type: 'openFolder' }), { icon: 'i-folder', id: 'open-folder', title: '요청 폴더 열기' });
     folder.setAttribute('aria-label', '요청 폴더 열기');
@@ -220,6 +233,40 @@
       box.append(a);
     };
     if (state.error) add('err', '승인 파일을 읽지 못했습니다', state.error);
+    const dv = state.devices;
+    if (dv) {
+      if (dv.selfStatus === 'revoked') {
+        add('err', '이 기기는 신뢰 해제됨', `다른 기기에서 이 기기(지문 ${dv.selfShort})의 신뢰를 해제했습니다. 이 창에서 내린 결정은 다른 기기에서 출처 불명으로 보입니다. 다시 쓰려면 pm에 알려 기기 등록을 새로 하세요.`);
+      } else if (dv.selfStatus === 'unpaired' && !dv.root) {
+        add('err', '기기 명부를 읽지 못했습니다', 'decisions/trust/devices.json에 뿌리 기기가 없습니다. 위조나 손상일 수 있으니 pm에 알리세요.');
+      } else if (dv.selfStatus === 'unpaired') {
+        const sp = el('span', 'dev-act');
+        const inp = el('input', 'dev-name');
+        inp.type = 'text';
+        inp.id = 'join-name';
+        inp.maxLength = 60;
+        inp.value = ui.joinName != null ? ui.joinName : dv.selfName;
+        inp.setAttribute('aria-label', '이 기기 이름');
+        inp.addEventListener('input', () => (ui.joinName = inp.value));
+        sp.append(inp, button('btn primary', '신뢰하고 등록 요청', () => vscode.postMessage({ type: 'pinRoot', fp: dv.root.fp, name: inp.value }), { id: 'join-request' }));
+        add('', '이 기기는 아직 등록되지 않았습니다', `기기 명부의 뿌리: ${dv.root.name || '이름 없음'} · 지문 ${dv.root.short}. 이미 쓰던 승인 센터 창의 '기기' 목록에 보이는 지문과 같을 때만 신뢰하고 등록을 요청하세요. 다르면 누르지 말고 pm에 알리세요.`, sp);
+      } else if (dv.selfStatus === 'pending') {
+        add('', '기기 등록 승인 대기', `이 기기(${dv.selfName}) 지문 ${dv.selfShort}. 이미 등록된 기기의 승인 센터에서 같은 지문의 등록 요청을 승인하세요.`);
+      }
+      for (const j of dv.joins) {
+        const k = j.fp.slice(0, 16);
+        const sp = el('span', 'dev-act');
+        sp.append(
+          button('btn primary', '승인', () => vscode.postMessage({ type: 'approveJoin', fp: j.fp }), { id: 'join-ok-' + k }),
+          button('btn secondary', '거절', () => vscode.postMessage({ type: 'rejectJoin', fp: j.fp }), { id: 'join-no-' + k }),
+        );
+        add('', '새 기기 등록 요청', `${j.name || '이름 없음'} · 지문 ${j.short}. 새 기기 창에 보이는 '이 기기' 지문과 같을 때만 승인하세요.`, sp);
+      }
+    }
+    if ((state.untrusted || []).length > 1) {
+      const all = button('btn secondary', '모두 확인함', () => vscode.postMessage({ type: 'ackAllUntrusted' }), { id: 'ack-all', title: '지금 목록의 내용만 확인합니다. 내용이 바뀌면 다시 표시합니다(신뢰하는 것은 아님)' });
+      add('err', `출처 불명 결정 ${state.untrusted.length}건`, '기기 신뢰를 들이기 전에 다른 기기의 승인 센터에서 내린 결정이면 한 번에 확인할 수 있습니다.', all);
+    }
     for (const id of state.untrusted || []) {
       const ack = button('btn secondary', '확인', () => vscode.postMessage({ type: 'ackUntrusted', id }), { id: 'ack-' + id, title: '내용을 확인했습니다. 같은 내용이면 다시 표시하지 않습니다(신뢰하는 것은 아님)' });
       add('err', '출처 불명 결정', `decisions/${id}.json — 승인 센터가 쓰지 않은 결정입니다. 위조일 수 있으니 열어 확인하세요.`, ack);
@@ -245,6 +292,60 @@
         render();
       }, { id: 'alerts-less' }));
     }
+    return box;
+  }
+
+  // 기기 목록(머리의 '기기 n대'로 연다): 지문 비교와 신뢰 해제
+  function devicesPanel() {
+    const dv = state.devices;
+    if (!dv || !ui.devicesOpen) return null;
+    const box = el('section', 'devices');
+    box.id = 'devices';
+    box.setAttribute('aria-label', '승인 센터 기기');
+    const self = { member: '', pending: ' · 등록 승인 대기', unpaired: ' · 미등록', revoked: ' · 신뢰 해제됨' }[dv.selfStatus] || '';
+    box.append(el('p', 'dev-self', `이 기기: ${dv.selfName} · 지문 ${dv.selfShort}${self}`));
+    const ul = el('ul', 'dev-list');
+    for (const d of dv.list) {
+      const k = d.fp.slice(0, 16);
+      const li = el('li', 'dev ' + d.state);
+      const tx = el('div', 'tx');
+      tx.append(el('b', null, (d.name || '이름 없음') + (d.self ? ' (이 기기)' : '')));
+      const bits = [
+        `지문 ${d.short}`,
+        { trusted: '신뢰', revoked: '해제됨', unknown: '확인 안 됨' }[d.state],
+        d.at && `등록 ${fullTime(d.at)}`,
+        d.byName && d.by !== d.fp && `보증 ${d.byName}`,
+        `마지막 서명 ${d.lastSig ? ago(minutesSince(d.lastSig)) + ' 전' : '없음'}`,
+      ].filter(Boolean);
+      tx.append(el('span', 'dim', bits.join(' · ')));
+      li.append(tx);
+      if (dv.selfStatus === 'member' && !d.self && d.state === 'trusted') {
+        if (ui.revoking === d.fp) {
+          const sp = el('span', 'dev-act');
+          sp.append(
+            button('btn danger solid', '정말 해제', () => {
+              ui.revoking = null;
+              focusAfter = 'open-devices';
+              vscode.postMessage({ type: 'revokeDevice', fp: d.fp });
+            }, { id: 'revoke-yes-' + k }),
+            button('btn secondary', '취소', () => {
+              ui.revoking = null;
+              focusAfter = 'revoke-' + k;
+              render();
+            }, { id: 'revoke-no-' + k }),
+          );
+          li.append(sp);
+        } else {
+          li.append(button('btn danger', '신뢰 해제', () => {
+            ui.revoking = d.fp;
+            focusAfter = 'revoke-yes-' + k;
+            render();
+          }, { id: 'revoke-' + k, title: '잃어버렸거나 더 안 쓰는 기기. 지금까지 그 기기가 서명한 결정은 그대로 믿고, 이후 서명은 출처 불명으로 경고합니다' }));
+        }
+      }
+      ul.append(li);
+    }
+    box.append(ul);
     return box;
   }
 
@@ -1042,6 +1143,8 @@
     focusAfter = null;
 
     const parts = [head()];
+    const dp = devicesPanel();
+    if (dp) parts.push(dp);
     const al = alerts();
     if (al) parts.push(al);
     const view = el('div', 'body');
