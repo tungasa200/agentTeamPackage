@@ -15,7 +15,19 @@
 - Windows 10 이상, Windows PowerShell 5.1, winget(앱 설치 관리자)
 - `install.ps1`이 시작할 때 Node.js LTS(18 이상)·Git·GitHub CLI·VS Code·Claude Code가 있는지 확인합니다. 없는 것은 목록을 보여 주고 한 번 확인받은 뒤 winget으로 설치합니다(Claude Code는 npm). `--yes`는 확인 없이 설치, `--skip-install`은 확인만 합니다.
 
-## 빠른 시작
+## WY Ops 설치하기
+
+1. Git을 설치합니다. git-scm.com/download/win에서 받아 실행하고, 묻는 화면은 모두 그대로 두고 [Next] → [Install]을 누릅니다. 이미 있으면 건너뜁니다.
+2. PowerShell을 엽니다. 시작 메뉴에서 'PowerShell'을 찾아 엽니다. 방금 Git을 설치했다면 새로 엽니다.
+3. 아래 한 줄을 붙여 넣고 Enter를 누릅니다. GitHub 로그인 창이 뜨면 로그인합니다.
+   ```powershell
+   git clone <이 저장소 주소> C:\tools\wy-ops
+   ```
+4. `C:\tools\wy-ops` 폴더의 `setup.cmd`를 더블클릭합니다. 이후는 설치 창이 안내합니다.
+
+설치 창(마법사, 0.9.0)은 아래 `quickstart`를 창으로 보여 주는 것입니다: 시작 → 프로젝트 폴더 → 설치 → Claude 로그인 → GitHub 로그인(나중에 해도 됨) → 폴더 사용 허락 → 마침. 자세한 것은 [MANUAL.md](MANUAL.md) 3-0.
+
+## 빠른 시작(터미널)
 
 1. 이 저장소를 `C:\tools\wy-ops`에 받습니다(git이 없으면 먼저 `winget install -e --id Git.Git`, 새 PowerShell 창을 엽니다).
    ```powershell
@@ -79,6 +91,7 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 | `setup` | `global` + 이 프로젝트의 훅 설정(`settings.local.json`, 차이를 보여 주고 확인) + doctor |
 | `init` | 새 프로젝트에 설정·역할 파일·스킬 만들기 |
 | `doctor` | 설치 상태 점검(읽기만). FAIL 줄의 '고치기'를 따름 |
+| `trust` | 폴더 사용 허락을 `~/.claude.json`에 기록(설치 마법사가 씀, `--check`는 확인만) |
 | `update` | 이 저장소를 pull하고 새 버전 설치, 생성 파일 다시 만들기(사람이 고친 파일은 덮지 않고 차이만) |
 | `gen` | `.claude/ops`의 역할 원본을 고친 뒤 역할 파일·스킬 다시 만들기 |
 | `deploy` / `rollback` | 설치본만 갱신 / 이전 버전으로 |

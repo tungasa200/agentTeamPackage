@@ -80,4 +80,30 @@ const calls = (log) => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim()
   fs.rmSync(bin, { recursive: true, force: true });
 }
 
+// 5) --progress(설치 마법사): 있는 것은 have, 설치하면 installing → installed|failed <코드>, node로 --progress도 넘김
+{
+  const { bin } = fakeBin(['winget', 'npm', 'node', 'git', 'code']);
+  const r = run(bin, ['--yes', '--progress', 'quickstart']);
+  const lines = r.stdout.split(/\r?\n/).filter((l) => l.startsWith('@@'));
+  for (const k of ['node', 'git', 'code']) assert.ok(lines.includes(`@@tool ${k} have`), `${k}: ${lines.join(' | ')}`);
+  // 가짜 winget·npm은 0으로 끝나도 도구가 생기지 않으므로 failed 0
+  assert.ok(lines.indexOf('@@tool gh installing') >= 0 && lines.indexOf('@@tool gh installing') < lines.indexOf('@@tool gh failed 0'), lines.join(' | '));
+  assert.ok(lines.includes('@@tool claude installing') && lines.includes('@@tool claude failed 0'), lines.join(' | '));
+  assert.strictEqual(r.status, 1, r.stdout);
+  fs.rmSync(bin, { recursive: true, force: true });
+}
+{
+  const { bin, log } = fakeBin(['node', 'git', 'gh', 'code', 'claude']);
+  const r = run(bin, ['--progress', 'quickstart']);
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  const n = calls(log).find((l) => l.startsWith('node '));
+  assert.ok(n && /install\.js --progress quickstart$/.test(n), n);
+  fs.rmSync(bin, { recursive: true, force: true });
+  // winget 없음 + 빠진 것: fail nowinget
+  const g = fakeBin(['node', 'git', 'gh', 'code']);
+  const r2 = run(g.bin, ['--yes', '--progress', 'quickstart']);
+  assert.ok(r2.stdout.includes('@@fail nowinget') && r2.status === 1, r2.stdout);
+  fs.rmSync(g.bin, { recursive: true, force: true });
+}
+
 console.log('install.ps1 검사 통과');

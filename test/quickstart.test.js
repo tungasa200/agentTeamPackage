@@ -92,6 +92,17 @@ try {
   assert.strictEqual(fs.readFileSync(path.join(Q, 'CLAUDE.md'), 'utf8'), '# 내 규칙\n', '있는 CLAUDE.md는 고치지 않음');
   assert.ok(r3.out.includes('붙여 넣으세요') && r3.out.includes(qs.SECTION_MARK), r3.out);
 
+  // 2-3b. 설치 마법사용(--progress --no-finish): 진행 줄, 폴더 준비까지만(5·6단계는 마법사가 따로). --progress가 없으면 진행 줄 없음
+  assert.ok(!r1.out.includes('@@'), '진행 줄은 --progress일 때만');
+  const W = path.join(tmp, 'work', 'wiz');
+  put(path.join(W, 'README.md'), '');
+  const r5 = cli(['--project', W, '--progress', '--no-finish']);
+  const at = (s) => r5.out.indexOf(`@@${s}`);
+  for (const s of ['step global start', 'step global done', 'step folder start', 'claudemd create', 'step folder done']) assert.ok(at(s) >= 0, `${s}\n${r5.out}`);
+  assert.ok(at('step global done') < at('step folder start') && at('claudemd create') < at('step folder done'), r5.out);
+  assert.ok(!r5.out.includes('[5/6]') && r5.out.includes('--no-finish'), r5.out);
+  assert.strictEqual(r5.status, 0, r5.out);
+
   // 2-4. 패키지 폴더 안은 거부
   const r4 = cli(['--project', path.join(pkgRepo, 'x')]);
   assert.notStrictEqual(r4.status, 0);

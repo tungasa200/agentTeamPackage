@@ -112,7 +112,26 @@ pm 자신:
 
 ## 3. 설치
 
-### 3-0. 한 줄 설치(처음이면 이것)
+### 3-0. 설치 마법사(처음이면 이것, 0.9.0)
+
+패키지 저장소를 `git clone`한 뒤(README '설치하기') 그 폴더의 `setup.cmd`를 더블클릭합니다. 터미널 없이 창 하나로 끝납니다. 마법사(`scripts/setup-wizard.ps1`, PowerShell + WinForms)는 아래 한 줄 설치를 대신 돌리는 앞단이라 하는 일과 결과는 같습니다.
+
+| 단계 | 하는 일 | 사람이 할 것 |
+|---|---|---|
+| 1 시작 | 무엇을 하는지·걸리는 시간 안내 | 다음 |
+| 2 프로젝트 폴더 | 폴더와 이름(폴더 이름에서 자동). 고급(접힘): 역할 이름 앞글자, 프로젝트 종류, 역할 수. 이미 설정이 있는 폴더면 그 값을 읽어 옵니다 | 폴더 고르기 |
+| 3 설치 | `install.ps1 quickstart --yes --progress --no-finish`를 창 없이 돌리고 줄마다 진행을 보여 줍니다. 실패하면 그 줄에 쉬운 말 원인과 [다시 시도]·[로그 저장…] | "변경을 허용할까요?" 창에서 [예] |
+| 4 Claude 로그인 | `claude auth login`이 브라우저를 열고, 마법사가 2초마다 로그인 여부를 확인합니다. 건너뛸 수 없음 | 브라우저에서 로그인 |
+| 5 GitHub 로그인 | 확인 코드를 크게 보여 주고 github.com/login/device를 엽니다. 로그인되면 `gh auth setup-git`. [나중에 하기] 가능(마침 화면 노랑 + 할 일 카드) | 코드 입력 |
+| 6 폴더 사용 허락 | [허락하기] → `install.js trust`가 `~/.claude.json`에 그 폴더의 허락을 기록(쓰기 전 `~/.claude.json.wy-ops-backup`). 실패하면 [Claude 창 열기]로 사람이 Yes를 고르고, 마법사가 기록을 확인하면 넘어갑니다 | (실패 때만) Yes |
+| 7 마침 | `doctor --json --todos` 결과를 프로그램 설치·프로젝트 폴더 준비·Claude 로그인·GitHub 로그인·폴더 사용 허락 다섯 줄로 요약. 남은 것은 줄마다 [지금 하기]. [VS Code 열기] | 남은 것만 |
+
+- 기록은 `%TEMP%\wy-ops-setup-<시각>.log`에 남고 [로그 저장…]으로 바탕화면에 복사합니다.
+- 설치 중 [취소]는 지금 설치하던 프로그램이 끝난 뒤 닫습니다. 다시 실행하면 빠진 것만 채웁니다.
+- 화면 배율(125·150%)을 따라 커집니다. 화면 확인용: `powershell -STA -File scripts\setup-wizard.ps1 -Shots <폴더> [-Scale 1.5]`(가짜 출력으로 화면 상태를 PNG로 저장), `-Demo`(가짜 출력으로 창을 띄움, 아무것도 설치·기록하지 않음).
+- 마법사가 쓰는 명령: `install.js trust --project <폴더> [--check]`(허락 기록·확인, JSON 한 줄), `doctor --json --todos`, `quickstart --progress --no-finish`.
+
+### 3-0b. 한 줄 설치(터미널)
 
 1. 패키지 저장소를 `C:\tools\wy-ops`에 받습니다. git이 없으면 먼저 `winget install -e --id Git.Git` 후 새 PowerShell 창.
    ```powershell
@@ -325,13 +344,14 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 
 | 명령 | 언제 | 예시 |
 |---|---|---|
-| `doctor` | 뭔가 이상할 때 먼저. 읽기만 함 | `<설치> doctor` (`--json`) |
+| `doctor` | 뭔가 이상할 때 먼저. 읽기만 함 | `<설치> doctor` (`--json`, `--todos`는 남은 손일을 할 일 카드로) |
+| `trust` | 폴더 사용 허락을 `~/.claude.json`에 기록(설치 마법사 6단계, 3-0) | `<설치> trust --project <폴더>` (`--check`는 확인만) |
 | `update` | 운영 도구를 새 버전으로. 패키지 저장소를 pull(확인)하고 설치본을 갱신한 뒤 생성 파일을 다시 만듦. 사람이 고친 생성 파일은 덮지 않고 차이만 보여 줌 | `<설치> update` (미리 보기 `--dry-run`, pull 생략 `--no-pull`) → Reload |
 | `gen` | `.claude/ops`의 역할 원본·pm-ops 부록을 고친 뒤 역할 파일·스킬 다시 만들기 | `<설치> gen` |
 | `deploy` | 설치본만 패키지 저장소의 HEAD로 갱신. `--dev`는 작업 사본을 바로 연결(개발용) | `<설치> deploy` |
 | `rollback` | 새 버전에 문제가 있을 때 이전 버전으로 | `<설치> rollback` → Reload |
 | `export` / `import` / `restore` | 개인 상태 옮기기([NEW-PC.md](NEW-PC.md) 3장) | `<설치> export --out D:\move.zip` |
-| `quickstart` | 한 줄 설치: 이 PC 설치 + 프로젝트 붙이기 + 로그인·신뢰 안내 + 점검 요약(3-0) | `C:\tools\wy-ops\install.ps1 quickstart` |
+| `quickstart` | 한 줄 설치: 이 PC 설치 + 프로젝트 붙이기 + 로그인·신뢰 안내 + 점검 요약(3-0b) | `C:\tools\wy-ops\install.ps1 quickstart` |
 | `global` / `setup` / `init` | 설치를 단계별로 직접(3-1~3-3) | — |
 | `host` | 이 PC를 원격 호스트로(관리자 PowerShell, 3-5). `--dry-run`은 목록만. `--add-key`는 접속 PC 공개키 등록 | `<설치> host`, `<설치> host --add-key 'ssh-ed25519 AAAA… 주석'` |
 | `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기·호스트 제어 창(3-5) | `<설치> connect <별칭> --host <Tailscale 이름>` |

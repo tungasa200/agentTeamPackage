@@ -6,11 +6,16 @@
 # 한 번 확인받은 뒤 winget(Claude Code는 npm)으로 설치한다. Node가 없으면 lib/*.js를 돌릴 수 없어서 이 단계는 PowerShell에서 한다.
 #   --yes            확인 없이 설치
 #   --skip-install   확인만 하고 설치하지 않음(빠진 것이 있으면 멈춤)
+#   --progress       설치 마법사용 진행 줄('@@…')도 출력(lib/install.js에도 그대로 넘김)
+# 설치 마법사: setup.cmd → scripts/setup-wizard.ps1(이 파일을 quickstart --yes --progress --no-finish로 창 없이 부른다)
 # 이 파일은 UTF-8(BOM 포함)로 저장한다. PowerShell 5.1은 BOM 없는 .ps1을 ANSI 코드 페이지로 읽어 한글이 깨진다.
 $ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 $yes = $args -contains '--yes'
 $skipInstall = $args -contains '--skip-install'
+# --progress: 설치 마법사(scripts/setup-wizard.ps1)가 읽는 진행 줄 '@@tool <키> have|installing|installed|failed [코드]'
+$progress = $args -contains '--progress'
+function Write-ProgressLine([string]$s) { if ($progress) { Write-Output "@@$s" } }
 
 function Update-PathFromRegistry {
   # 방금 설치한 도구가 이 창에서 바로 보이게 PATH를 레지스트리에서 다시 읽는다
@@ -34,14 +39,15 @@ function Test-NodeOk {
 
 # 이름, 있는지 확인, 설치 방법(winget id 또는 npm 패키지)
 $tools = @(
-  @{ Name = 'Node.js LTS(18 이상)'; Ok = { Test-NodeOk }; Winget = 'OpenJS.NodeJS.LTS' },
-  @{ Name = 'Git'; Ok = { Test-Tool 'git' }; Winget = 'Git.Git' },
-  @{ Name = 'GitHub CLI(gh)'; Ok = { Test-Tool 'gh' }; Winget = 'GitHub.cli' },
-  @{ Name = 'VS Code(code)'; Ok = { Test-Tool 'code' }; Winget = 'Microsoft.VisualStudioCode' },
-  @{ Name = 'Claude Code(claude)'; Ok = { Test-Tool 'claude' }; Npm = '@anthropic-ai/claude-code' }
+  @{ Key = 'node'; Name = 'Node.js LTS(18 이상)'; Ok = { Test-NodeOk }; Winget = 'OpenJS.NodeJS.LTS' },
+  @{ Key = 'git'; Name = 'Git'; Ok = { Test-Tool 'git' }; Winget = 'Git.Git' },
+  @{ Key = 'gh'; Name = 'GitHub CLI(gh)'; Ok = { Test-Tool 'gh' }; Winget = 'GitHub.cli' },
+  @{ Key = 'code'; Name = 'VS Code(code)'; Ok = { Test-Tool 'code' }; Winget = 'Microsoft.VisualStudioCode' },
+  @{ Key = 'claude'; Name = 'Claude Code(claude)'; Ok = { Test-Tool 'claude' }; Npm = '@anthropic-ai/claude-code' }
 )
 
 $missing = @($tools | Where-Object { -not (& $_.Ok) })
+foreach ($t in ($tools | Where-Object { $missing -notcontains $_ })) { Write-ProgressLine "tool $($t.Key) have" }
 if ($missing.Count -gt 0) {
   Write-Output '필수 환경 중 없는 것:'
   foreach ($t in $missing) {
@@ -53,6 +59,7 @@ if ($missing.Count -gt 0) {
     exit 1
   }
   if (-not (Test-Tool 'winget')) {
+    Write-ProgressLine 'fail nowinget'
     Write-Output 'winget이 없습니다. Microsoft Store에서 "앱 설치 관리자"를 설치하거나 위 도구를 직접 설치한 뒤 다시 실행하세요.'
     exit 1
   }
@@ -66,15 +73,21 @@ if ($missing.Count -gt 0) {
   # winget 먼저(Node가 있어야 npm으로 Claude Code를 깐다)
   foreach ($t in ($missing | Where-Object { $_.Winget })) {
     Write-Output "설치: $($t.Name)"
+    Write-ProgressLine "tool $($t.Key) installing"
     & winget install -e --id $t.Winget --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE -ne 0) { Write-Output "  설치 실패($LASTEXITCODE): $($t.Name)" }
+    $code = $LASTEXITCODE
+    if ($code -ne 0) { Write-Output "  설치 실패($code): $($t.Name)" }
+    if ($progress) { Update-PathFromRegistry; Write-ProgressLine ("tool $($t.Key) " + $(if (& $t.Ok) { 'installed' } else { "failed $code" })) }
   }
   Update-PathFromRegistry
   foreach ($t in ($missing | Where-Object { $_.Npm })) {
-    if (-not (Test-Tool 'npm')) { Write-Output "  npm이 없어 $($t.Name)을 설치하지 못했습니다(Node.js 설치 확인)"; continue }
+    if (-not (Test-Tool 'npm')) { Write-Output "  npm이 없어 $($t.Name)을 설치하지 못했습니다(Node.js 설치 확인)"; Write-ProgressLine "tool $($t.Key) failed nonpm"; continue }
     Write-Output "설치: $($t.Name)"
+    Write-ProgressLine "tool $($t.Key) installing"
     & npm install -g $t.Npm
-    if ($LASTEXITCODE -ne 0) { Write-Output "  설치 실패($LASTEXITCODE): $($t.Name)" }
+    $code = $LASTEXITCODE
+    if ($code -ne 0) { Write-Output "  설치 실패($code): $($t.Name)" }
+    if ($progress) { Update-PathFromRegistry; Write-ProgressLine ("tool $($t.Key) " + $(if (& $t.Ok) { 'installed' } else { "failed $code" })) }
   }
   Update-PathFromRegistry
   $still = @($tools | Where-Object { -not (& $_.Ok) })
