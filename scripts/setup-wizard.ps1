@@ -20,6 +20,7 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 # 고해상도: 시스템 배율을 아는 프로세스로(흐림 방지). 배치는 아래 Px()로 배율만큼 키우고, 글꼴은 포인트라 Windows가 키운다
 Add-Type -Namespace WyOps -Name Native -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, string l);
 '@
 [void][WyOps.Native]::SetProcessDPIAware()
 [Windows.Forms.Application]::EnableVisualStyles()
@@ -48,7 +49,7 @@ function Update-PathFromRegistry {
 if (-not $Demo) { Update-PathFromRegistry }
 
 # ── 창 없는 프로세스: 출력은 줄 단위로 타이머에서 읽는다(ReadLineAsync, 다른 스레드에서 스크립트를 돌리지 않음) ──
-function Start-Hidden([string]$cmdLine, [string]$cwd = $env:USERPROFILE) {
+function Start-Hidden([string]$cmdLine, [string]$cwd = $env:USERPROFILE, [switch]$KeepInput) {
   $psi = New-Object Diagnostics.ProcessStartInfo
   $psi.FileName = $env:ComSpec
   $psi.Arguments = '/d /s /c "' + $cmdLine + ' 2>&1"'
@@ -58,7 +59,7 @@ function Start-Hidden([string]$cmdLine, [string]$cwd = $env:USERPROFILE) {
   $psi.WorkingDirectory = $cwd
   Write-Log "실행: $cmdLine"
   $p = [Diagnostics.Process]::Start($psi)
-  $p.StandardInput.Close()
+  if (-not $KeepInput) { $p.StandardInput.Close() }  # claude auth login은 붙여 넣은 코드를 stdin으로 받으므로 열어 둔다
   return @{ P = $p; Task = $p.StandardOutput.ReadLineAsync(); Lines = New-Object Collections.Generic.List[string]; Eof = $false; Exit = $null; Cmd = $cmdLine }
 }
 # 새 줄을 돌려준다. 끝나면 $r.Exit가 채워진다
@@ -90,7 +91,7 @@ $St = @{
   Step = 1; Done = @{}; Project = 'C:\projects\my-app'; Name = 'my-app'; NameTouched = $false; Existing = $null
   Prefix = 'MY-'; PrefixTouched = $false; Stack = ''; Counts = [ordered]@{ planner = 1; backend = 2; frontend = 2; qa = 1; design = 1 }
   AdvOpen = $false; Installed = $false; Rows = $null; Run = $null; FailMsg = $null; CancelPending = $false
-  ClaudeOk = $false; ClaudeWasOk = $false; GhOk = $false; GhWasOk = $false; GhSkipped = $false; GhCode = $null
+  ClaudeOk = $false; ClaudeWasOk = $false; ClaudeUrl = $null; PasteOpen = $false; PasteText = ''; PasteBusy = $false; PasteBad = $false; GhOk = $false; GhWasOk = $false; GhSkipped = $false; GhCode = $null
   TrustOk = $false; TrustWasOk = $false; TrustFail = $false; TrustWindow = $false; ClaudeMd = $null
   Poll = $null; PollAt = [DateTime]::MinValue; Waiting = $null; WaitSince = $null; Doctor = $null; Final = $null; ReturnTo7 = $false
 }
@@ -161,10 +162,26 @@ $form.AcceptButton = $btnNext
 $btnNext.Add_EnabledChanged({ Set-Primary $btnNext ($btnNext.Enabled -and $btnNext.Text -ne '마침') })
 
 # ── 본문 만들기 도우미 ──
-function Clear-Body { $flow.SuspendLayout(); foreach ($c in @($flow.Controls)) { $c.Dispose() }; $flow.Controls.Clear() }
+function Clear-Body { $script:FocusCtl = $null; $flow.SuspendLayout(); foreach ($ctl in @($flow.Controls)) { $ctl.Dispose() }; $flow.Controls.Clear() }
 function Add-Ctl($ctl, [int]$top = 0) { $ctl.Margin = New-Object Windows.Forms.Padding(0, (Px $top), 0, 0); $flow.Controls.Add($ctl); return $ctl }
+# 한국어는 Windows 기본 줄바꿈이 글자 단위라 어절 중간에서 끊긴다('두었|습니다') → 띄어쓰기 자리에서 미리 줄을 나눈다.
+# 공백을 줄바꿈 한 글자로 바꾸므로 글자 수(LinkArea 위치)는 그대로다. 한 어절이 폭보다 길면 그대로 둔다(Windows가 끊음)
+function Format-Wrap([string]$text, $font, [int]$w) {
+  if (-not $text -or $w -le 0 -or $text -notmatch '[가-힣]') { return $text }
+  $flags = [Windows.Forms.TextFormatFlags]::NoPadding -bor [Windows.Forms.TextFormatFlags]::SingleLine
+  $max = $w - (Px 6)  # Label 안쪽 여백·글꼴 오차
+  $out = foreach ($para in ($text -split "`n")) {
+    $line = ''
+    $lines = foreach ($word in ($para -split ' ')) {
+      $try = if ($line) { "$line $word" } else { $word }
+      if ($line -and [Windows.Forms.TextRenderer]::MeasureText($try, $font, (New-Object Drawing.Size(0, 0)), $flags).Width -gt $max) { $line; $line = $word } else { $line = $try }
+    }
+    (@($lines) + $line) -join "`n"
+  }
+  return (@($out) -join "`n")
+}
 function New-Label([string]$text, $font = $F.Body, $color = $C.Text, [int]$w = 0) {
-  $l = New-Object Windows.Forms.Label; $l.Text = $text; $l.Font = $font; $l.ForeColor = $color; $l.AutoSize = $true
+  $l = New-Object Windows.Forms.Label; $l.Text = Format-Wrap $text $font $(if ($w) { $w } else { $ContentW }); $l.Font = $font; $l.ForeColor = $color; $l.AutoSize = $true
   $l.MaximumSize = New-Object Drawing.Size($(if ($w) { $w } else { $ContentW }), 0); $l.UseMnemonic = $false
   return $l
 }
@@ -174,14 +191,14 @@ function Add-Lead([string]$t, [int]$top = 8) { [void](Add-Ctl (New-Label $t) $to
 function New-HelpButton([string]$term, $panel) {
   $q = New-Object Windows.Forms.Button; $q.Text = '?'; $q.Size = New-Object Drawing.Size((Px 22), (Px 22)); $q.FlatStyle = 'Flat'
   $q.Font = New-Font 8 'Bold' 'Segoe UI'; $q.FlatAppearance.BorderColor = [Drawing.Color]::FromArgb(138, 138, 138); $q.BackColor = [Drawing.Color]::White
-  $q.AccessibleName = "$term 도움말"; $q.Tag = $panel; $q.Margin = New-Object Windows.Forms.Padding((Px 4), 0, 0, 0); $q.TabStop = $true
+  $q.AccessibleName = "$term 도움말"; $q.Tag = $panel; $q.Margin = New-Object Windows.Forms.Padding((Px 8), 0, 0, 0); $q.TabStop = $true
   $q.Add_Click({ param($s) $p = $s.Tag; $p.Visible = -not $p.Visible
       if ($p.Visible) { $s.BackColor = $C.Accent; $s.ForeColor = [Drawing.Color]::White } else { $s.BackColor = [Drawing.Color]::White; $s.ForeColor = $C.Text } })
   return $q
 }
 function New-HelpPanel([string]$text) {
   $p = New-Object Windows.Forms.Panel; $p.BackColor = $C.HelpLine; $p.Padding = New-Object Windows.Forms.Padding(1); $p.AutoSize = $true; $p.Visible = $false
-  $in = New-Object Windows.Forms.Label; $in.BackColor = $C.Help; $in.AutoSize = $true; $in.Font = $F.Small; $in.Text = $text; $in.UseMnemonic = $false
+  $in = New-Object Windows.Forms.Label; $in.BackColor = $C.Help; $in.AutoSize = $true; $in.Font = $F.Small; $in.Text = Format-Wrap $text $F.Small ($ContentW - 2 - (Px 20)); $in.UseMnemonic = $false
   $in.Padding = New-Object Windows.Forms.Padding((Px 10), (Px 7), (Px 10), (Px 7)); $in.MaximumSize = New-Object Drawing.Size(($ContentW - 2), 0); $in.MinimumSize = New-Object Drawing.Size(($ContentW - 2), 0)
   $p.Controls.Add($in); $p.Margin = New-Object Windows.Forms.Padding(0, (Px 6), 0, (Px 4))
   return $p
@@ -208,7 +225,8 @@ function Add-Status([string]$kind, [string]$main, [string]$sub, [string]$link = 
   $col.Controls.Add((New-Label $main $F.Bold $C.Text $tw))
   if ($link) {
     $ll = New-Object Windows.Forms.LinkLabel; $ll.AutoSize = $true; $ll.Font = $F.Small; $ll.LinkColor = $C.Accent; $ll.ForeColor = $C.Muted; $ll.MaximumSize = New-Object Drawing.Size($tw, 0)
-    $t = ($sub + ' ' + $link).TrimStart(); $ll.Text = $t; $ll.LinkArea = New-Object Windows.Forms.LinkArea(($t.Length - $link.Length), $link.Length); $ll.Add_LinkClicked($onLink)
+    $t = Format-Wrap ($sub + ' ' + $link).TrimStart() $F.Small ($tw - (Px 24));  # LinkLabel은 링크 위치를 GDI+로 재서 글이 더 넓게 잡히므로 여유를 둔다
+    $ll.Text = $t; $ll.LinkArea = New-Object Windows.Forms.LinkArea(($t.Length - $link.Length), $link.Length); $ll.Add_LinkClicked($onLink)
     $col.Controls.Add($ll)
   } elseif ($sub) { $col.Controls.Add((New-Label $sub $F.Small $C.Muted $tw)) }
   $in.Controls.Add($sym); $in.Controls.Add($col)
@@ -253,9 +271,9 @@ function Test-InsidePkg([string]$dir) {
   try { $a = [IO.Path]::GetFullPath($dir).TrimEnd('\').ToLower(); $b = [IO.Path]::GetFullPath($Pkg).TrimEnd('\').ToLower(); return ($a -eq $b -or $a.StartsWith($b + '\')) } catch { return $true }
 }
 function Read-Existing([string]$dir) {
-  $f = Join-Path $dir '.claude\wy-ops.json'
-  if (-not (Test-Path -LiteralPath $f)) { return $null }
-  try { return ([IO.File]::ReadAllText($f, [Text.Encoding]::UTF8).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
+  $file = Join-Path $dir '.claude\wy-ops.json'
+  if (-not (Test-Path -LiteralPath $file)) { return $null }
+  try { return ([IO.File]::ReadAllText($file, [Text.Encoding]::UTF8).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
 }
 function Set-ProjectFolder([string]$dir) {
   $St.Project = $dir
@@ -287,7 +305,7 @@ function Update-Step2Valid {
   elseif (Test-InsidePkg $St.Project) { $ok = $false; $msg = '이 폴더에는 설치할 수 없습니다. 다른 폴더를 고르세요.' }
   $nameOk = Test-Name $St.Name
   $script:ui.FolderErr.Text = $msg; $script:ui.FolderErr.Visible = [bool]$msg
-  $script:ui.NameErr.Visible = -not $nameOk
+  $script:ui.NameErr.Visible = -not $nameOk; $script:ui.NameHint.Visible = $nameOk  # 오류 줄만 보이게
   $script:ui.NameBox.BackColor = [Drawing.Color]::White
   $btnNext.Enabled = $ok -and $nameOk
 }
@@ -305,7 +323,7 @@ function Show-Step2 {
   $nb = New-Object Windows.Forms.TextBox; $nb.Width = Px 240; $nb.Text = $St.Name; $nb.AccessibleName = '프로젝트 이름'
   [void](Add-Ctl $nb 5)
   $script:ui.NameErr = Add-Ctl (New-Label '이름은 영문·숫자로 적어 주세요. 예: my-app' $F.Small $C.Bad) 4
-  [void](Add-Ctl (New-Label '영문·숫자로 적습니다. 폴더 이름으로 채워 두었습니다.' $F.Small $C.Muted) 4)
+  $script:ui.NameHint = Add-Ctl (New-Label '영문·숫자로 적습니다. 폴더 이름으로 채워 두었습니다.' $F.Small $C.Muted) 4
   if ($St.Existing) { [void](Add-Ctl (New-Label '이미 설정이 있어 빠진 것만 채웁니다.' $F.Small $C.Accent) 6) }
   $script:ui.NameBox = $nb
   # 고급(접힘)
@@ -334,7 +352,7 @@ function Show-Step2 {
     $cb.SelectedIndex = [Math]::Max(0, [array]::IndexOf(@($Stacks | ForEach-Object { $_[0] }), $St.Stack))
     $cb.Add_SelectedIndexChanged({ param($s) $St.Stack = $Stacks[$s.SelectedIndex][0] })
     $sr.Controls.AddRange(@($sl, $sq, $cb)); $flow.Controls.Add($sr); $flow.Controls.Add($hp2)
-    $cr = New-Object Windows.Forms.FlowLayoutPanel; $cr.AutoSize = $true; $cr.WrapContents = $true; $cr.MaximumSize = New-Object Drawing.Size($ContentW, 0); $cr.Margin = New-Object Windows.Forms.Padding(0, (Px 8), 0, 0)
+    $cr = New-Object Windows.Forms.FlowLayoutPanel; $cr.AutoSize = $true; $cr.WrapContents = $true; $cr.MaximumSize = New-Object Drawing.Size($ContentW, 0); $cr.Margin = New-Object Windows.Forms.Padding(0, (Px 8), 0, (Px 14))  # 바닥에 붙지 않게
     $cl = New-Label '역할 수' $F.Body $C.Text (Px 140); $cl.MinimumSize = New-Object Drawing.Size((Px 150), 0); $cl.Margin = New-Object Windows.Forms.Padding(0, (Px 3), 0, 0); $cr.Controls.Add($cl)
     foreach ($k in $CountLabels.Keys) {
       $l = New-Label $CountLabels[$k][0] $F.Small; $l.Margin = New-Object Windows.Forms.Padding(0, (Px 4), (Px 3), 0)
@@ -514,7 +532,7 @@ function Get-StatusCmd([string]$what) {
   if ($Demo) {
     $DemoTick[$what]++
     switch ($what) {
-      'claude' { if ($DemoTick.claude -gt 3) { return Get-DemoCmd @('{"loggedIn": true}') 0.1 } else { return Get-DemoCmd @('{"loggedIn": false}') 0.1 } }
+      'claude' { if ($env:WY_SETUP_DEMO_PASTE -and -not $St.DemoPasted) { return Get-DemoCmd @('{"loggedIn": false}') 0.1 }; if ($DemoTick.claude -gt 3) { return Get-DemoCmd @('{"loggedIn": true}') 0.1 } else { return Get-DemoCmd @('{"loggedIn": false}') 0.1 } }
       'gh' { if ($DemoTick.gh -gt 3) { return Get-DemoCmd @('Logged in') 0.1 0 } else { return Get-DemoCmd @('not logged in') 0.1 1 } }
       'trust' { if ($DemoTick.trust -gt 3) { return Get-DemoCmd @('{"ok":true}') 0.1 0 } else { return Get-DemoCmd @('{"ok":false}') 0.1 1 } }
     }
@@ -537,17 +555,68 @@ function Show-Step4 {
     if ($St.Waiting -eq 'claude') {
       $late = ((Get-Date) - $St.WaitSince).TotalMinutes -ge 5
       Add-Status 'run' $(if ($late) { '아직 로그인이 확인되지 않았습니다. 브라우저에서 로그인을 마쳤나요?' } else { '브라우저에서 로그인을 기다리는 중입니다.' }) $(if ($late) { '' } else { '로그인을 마치면 자동으로 다음으로 넘어갈 수 있습니다. 브라우저가 안 열렸으면' }) '다시 열기' { Start-ClaudeLogin }
+      # W4-d~f: 브라우저가 결과를 이 창에 못 돌려주고 코드를 보여 주는 경우(카드 20261011-0430). 1분 뒤 또는 '아직 확인 안 됨'
+      if ($St.PasteOpen) { Add-PasteBox }
+      elseif ($late -or ((Get-Date) - $St.WaitSince) -ge $CodeLinkAfter) {
+        $pl = New-Object Windows.Forms.LinkLabel; $pl.AutoSize = $true; $pl.Font = $F.Small; $pl.LinkColor = $C.Accent; $pl.Text = '브라우저에 코드가 보이나요?'
+        $pl.Add_LinkClicked({ $St.PasteOpen = $true; Show-Step }); [void](Add-Ctl $pl 10)
+      }
     } else {
       $b = New-BigBtn '브라우저 열기'; $b.Add_Click({ Start-ClaudeLogin }); [void](Add-Ctl $b 18)
-      $ll = New-Object Windows.Forms.LinkLabel; $ll.AutoSize = $true; $ll.Font = $F.Small; $ll.ForeColor = $C.Muted; $ll.LinkColor = $C.Accent; $ll.Text = '계정이 없나요? 계정 만들기'; $ll.LinkArea = New-Object Windows.Forms.LinkArea(9, 5)
+      $ll = New-Object Windows.Forms.LinkLabel; $ll.AutoSize = $true; $ll.Font = $F.Small; $ll.ForeColor = $C.Muted; $ll.LinkColor = $C.Accent; $ll.Text = '계정이 없나요? 계정 만들기'; $ll.LinkArea = New-Object Windows.Forms.LinkArea(9, 6)
       $ll.Add_LinkClicked({ Open-Url 'https://claude.ai/signup' }); [void](Add-Ctl $ll 10)
     }
   }
   $btnPrev.Enabled = $true; $btnNext.Enabled = $St.ClaudeOk
 }
+$CodeLinkAfter = [TimeSpan]::FromSeconds($(if ($Demo -and $env:WY_SETUP_DEMO_PASTE) { 3 } else { 60 }))  # 시험에서 붙여넣기 흐름을 볼 때만 3초
+# 코드 입력 칸(W4-e), 틀리면 빨간 테두리·값 유지·오류 한 줄 + [다시 열기](W4-f)
+function Add-PasteBox {
+  [void](Add-Ctl (New-Label '브라우저에 보이는 코드를 붙여 넣으세요' $F.Bold) 14)
+  $r = New-Row 6
+  $box = New-Object Windows.Forms.Panel; $box.AutoSize = $true; $pad = $(if ($St.PasteBad) { 2 } else { 0 }); $box.Padding = New-Object Windows.Forms.Padding($pad); $box.BackColor = $C.Bad; $box.Margin = New-Object Windows.Forms.Padding(0)
+  $tb = New-Object Windows.Forms.TextBox; $tb.Width = $ContentW - (Px 110); $tb.Text = $St.PasteText; $tb.AccessibleName = '로그인 코드'; $tb.Margin = New-Object Windows.Forms.Padding(0); $tb.Location = New-Object Drawing.Point($pad, $pad)  # Panel은 Padding으로 자식을 옮기지 않으므로 직접(빨간 테두리가 네 변에)
+  $box.Controls.Add($tb)
+  $tb.Add_HandleCreated({ param($s) [void][WyOps.Native]::SendMessage($s.Handle, 0x1501, [IntPtr]1, '코드 붙여 넣기') })  # 자리표시 글(창에 붙기 전에 걸어야 함)
+  $ok = New-Btn $(if ($St.PasteBusy) { '확인 중…' } else { '확인' }) $true; $ok.Margin = New-Object Windows.Forms.Padding((Px 8), 0, 0, 0)
+  if ($St.PasteBusy) { $ok.Enabled = $false; Set-Primary $ok $false; $tb.ReadOnly = $true }
+  $r.Controls.AddRange(@($box, $ok)); $flow.Controls.Add($r)
+  $tb.Add_TextChanged({ param($s) $St.PasteText = $s.Text })
+  $tb.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq 'Enter') { $e.SuppressKeyPress = $true; Submit-ClaudeCode } })
+  $ok.Add_Click({ Submit-ClaudeCode })
+  if ($St.PasteBad) {
+    [void](Add-Ctl (New-Label '코드가 맞지 않습니다. [다시 열기]를 눌러 새 코드를 받으세요.' $F.Small $C.Bad) 6)
+    $again = New-Btn '다시 열기'; $again.Add_Click({ $St.PasteText = ''; Start-ClaudeLogin }); [void](Add-Ctl $again 8)
+  } else {
+    $ll = New-Object Windows.Forms.LinkLabel; $ll.AutoSize = $true; $ll.Font = $F.Small; $ll.ForeColor = $C.Muted; $ll.LinkColor = $C.Accent
+    $t = '코드가 안 보이면 코드 받는 주소 열기'; $ll.Text = $t; $ll.LinkArea = New-Object Windows.Forms.LinkArea(10, ($t.Length - 10))
+    $ll.Add_LinkClicked({ Open-ClaudeUrl }); [void](Add-Ctl $ll 8)
+  }
+  $script:FocusCtl = $(if ($St.PasteBusy) { $null } else { $tb })
+}
+# 같은 로그인 과정의 주소를 다시 연다(과정이 끝났으면 처음부터)
+function Open-ClaudeUrl {
+  if ($St.ClaudeUrl -and $St.LoginRun -and $null -eq $St.LoginRun.Exit) { Open-Url $St.ClaudeUrl } else { Start-ClaudeLogin }
+}
+# 붙여 넣은 코드를 claude auth login의 stdin으로. 결과는 타이머가 출력('Login failed')·종료 코드로 본다
+function Submit-ClaudeCode {
+  $code = $St.PasteText.Trim()
+  if (-not $code -or $St.PasteBusy) { return }
+  if (-not $St.LoginRun -or $null -ne $St.LoginRun.Exit) { $St.PasteBad = $true; Show-Step; return }  # 과정이 이미 끝나 옛 코드는 못 씀
+  Write-Log '로그인 코드를 넘김(값은 적지 않음)'
+  if ($Demo) {
+    # 시험: 'x9Z'로 끝나면 틀린 코드, 아니면 맞는 코드
+    Stop-Hidden $St.LoginRun
+    $St.LoginRun = Start-Hidden $(if ($code -match 'x9Z$') { Get-DemoCmd @('Login failed: Request failed with status code 400') 0.8 1 } else { $St.DemoPasted = $true; Get-DemoCmd @('Login successful') 0.8 0 })
+  } else {
+    try { $St.LoginRun.P.StandardInput.WriteLine($code); $St.LoginRun.P.StandardInput.Flush() } catch { Write-Log "  넘기지 못함: $($_.Exception.Message)"; $St.PasteBad = $true; Show-Step; return }
+  }
+  $St.PasteBusy = $true; $St.PasteBad = $false; Show-Step
+}
 function Start-ClaudeLogin {
   Stop-Hidden $St.LoginRun
-  $St.LoginRun = Start-Hidden $(if ($Demo) { Get-DemoCmd @('Opening browser to sign in') 5 } else { 'claude auth login' })
+  $St.ClaudeUrl = $null; $St.PasteBusy = $false; $St.PasteBad = $false
+  $St.LoginRun = Start-Hidden $(if ($Demo) { '(echo Opening browser to sign in...& echo If the browser did not open, visit: https://claude.com/cai/oauth/authorize?demo=1& ping -n 1 -w 600000 10.255.255.1 >nul& exit /b 0)' } else { 'claude auth login' }) -KeepInput
   if ($St.Waiting -ne 'claude') { $St.WaitSince = Get-Date }
   $St.Waiting = 'claude'; Show-Step
 }
@@ -564,9 +633,12 @@ function Show-Step5 {
     $code.Padding = New-Object Windows.Forms.Padding((Px 12), (Px 8), (Px 12), (Px 8)); $code.AccessibleName = '확인 코드'
     $cp = New-Btn '코드 복사'; $cp.Margin = New-Object Windows.Forms.Padding((Px 12), (Px 12), 0, 0)
     $cp.Add_Click({ param($s) try { [Windows.Forms.Clipboard]::SetText($St.GhCode) } catch { }; $s.Text = '복사함'; $script:CopyReset = (Get-Date).AddSeconds(2); $script:CopyBtn = $s })
-    $nc = New-Btn '새 코드 받기'; $nc.Margin = New-Object Windows.Forms.Padding((Px 8), (Px 12), 0, 0); $nc.Add_Click({ Start-GhLogin })
-    $r.Controls.AddRange(@($code, $cp, $nc)); $flow.Controls.Add($r)
-    Add-Status 'run' '브라우저에서 로그인을 기다리는 중입니다.' '브라우저가 안 열렸으면' '다시 열기' { Open-Url 'https://github.com/login/device' }
+    $r.Controls.AddRange(@($code, $cp))
+    # 코드가 만료(gh가 실패로 끝남)된 뒤에만 [새 코드 받기]
+    if ($St.GhExpired) { $nc = New-Btn '새 코드 받기' $true; $nc.Margin = New-Object Windows.Forms.Padding((Px 8), (Px 12), 0, 0); $nc.Add_Click({ Start-GhLogin }); $r.Controls.Add($nc) }
+    $flow.Controls.Add($r)
+    if ($St.GhExpired) { Add-Status 'warn' '코드가 만료되었습니다.' '[새 코드 받기]를 눌러 새 코드를 받으세요.' }
+    else { Add-Status 'run' '브라우저에서 로그인을 기다리는 중입니다.' '브라우저가 안 열렸으면' '다시 열기' { Open-Url 'https://github.com/login/device' } }
   } else {
     [void](Add-TextWithHelp '만든 작업을 GitHub에 안전하게 보관합니다.' 'GitHub' 'GitHub는 프로젝트 파일과 바뀐 기록을 인터넷에 보관하는 서비스입니다. PC가 고장 나도 작업이 남고, 다른 PC에서 이어서 할 수 있습니다. 무료 계정으로 충분합니다.')
     if ($St.Waiting -eq 'gh') { Add-Status 'run' '확인 코드를 받는 중입니다.' '잠시 기다려 주세요.' }
@@ -580,7 +652,7 @@ function Show-Step5 {
 }
 function Start-GhLogin {
   Stop-Hidden $St.LoginRun
-  $St.GhCode = $null; $St.GhFail = $false; $St.GhOpened = $false
+  $St.GhCode = $null; $St.GhFail = $false; $St.GhOpened = $false; $St.GhExpired = $false
   $St.LoginRun = Start-Hidden $(if ($Demo) { Get-DemoCmd @('! First copy your one-time code: 4F2A-9C1B', 'Open this URL to continue in your web browser: https://github.com/login/device') 6 } else { 'gh auth login --web --git-protocol https --hostname github.com' })
   $St.Waiting = 'gh'; $St.WaitSince = Get-Date; Show-Step
 }
@@ -694,7 +766,7 @@ function Show-Step7 {
     $b = New-Btn $x.Btn; $b.Tag = $x
     $b.Add_Click({ param($s) $x = $s.Tag
         if ($x.Go) { $St.ReturnTo7 = $true; Go-Step $x.Go }
-        elseif ($x.Note) { $f = Join-Path $St.Project '.claude\ops\CLAUDE.part.md'; if (-not $Demo) { Start-Process notepad.exe -ArgumentList (Q $f) } }
+        elseif ($x.Note) { $file = Join-Path $St.Project '.claude\ops\CLAUDE.part.md'; if (-not $Demo) { Start-Process notepad.exe -ArgumentList (Q $file) } }
         elseif ($x.Detail) { [void][Windows.Forms.MessageBox]::Show($form, $x.Detail, 'WY Ops 설치') } })
     Add-ResultRow 'warn' $x.Text $b $x.Help
   }
@@ -711,6 +783,12 @@ function Show-Step7 {
   $btnPrev.Enabled = $false; $btnNext.Enabled = $true
 }
 
+# LinkLabel은 글꼴이 커지면(150% 이상) 밑줄을 엉뚱한 줄·자리에 긋거나 아예 빼먹는다(.NET Framework, 실제 창에서도 같음).
+# 그때는 밑줄을 끄고 파란 글자·손 모양 커서로만 링크를 보인다
+$NoLinkUnderline = $DpiScale -ge 1.4  # 글꼴의 실제 배율(-Scale 흉내도 같음)
+function Set-NoUnderline($root) { foreach ($x in $root.Controls) { if ($x -is [Windows.Forms.LinkLabel]) { $x.LinkBehavior = 'NeverUnderline' }; Set-NoUnderline $x } }
+if ($NoLinkUnderline) { $lnkLater.LinkBehavior = 'NeverUnderline' }
+
 # ── 단계 이동 ──
 function Show-Step {
   Clear-Body
@@ -721,7 +799,9 @@ function Show-Step {
   Set-Primary $btnNext ($btnNext.Enabled -and $St.Step -ne 7)
   if ($St.ReturnTo7 -and $St.Step -in 4, 5, 6) { $btnNext.Text = '마침으로 >' }
   Update-Side
+  if ($NoLinkUnderline) { Set-NoUnderline $flow }
   $flow.ResumeLayout()
+  if ($script:FocusCtl) { $fc = $script:FocusCtl; $script:FocusCtl = $null; if ($form.Visible) { [void]$fc.Focus() } }
 }
 function Go-Step([int]$n) {
   Stop-Hidden $St.LoginRun; $St.LoginRun = $null
@@ -761,7 +841,7 @@ $btnPrev.Add_Click({
 $lnkLater.Add_LinkClicked({ $St.GhSkipped = $true; $St.Done[5] = $true; if ($St.ReturnTo7) { $St.ReturnTo7 = $false; Go-Step 7 } else { Go-Step 6 } })
 
 # 취소 확인(버튼 글자를 바꿔야 해서 작은 창)
-function Confirm-Cancel {
+function New-CancelDialog {
   $d = New-Object Windows.Forms.Form; $d.Text = 'WY Ops 설치'; $d.FormBorderStyle = 'FixedDialog'; $d.MaximizeBox = $false; $d.MinimizeBox = $false; $d.ShowInTaskbar = $false
   $d.StartPosition = 'CenterParent'; $d.ClientSize = New-Object Drawing.Size((Px 420), (Px 150)); $d.Font = $F.Body; $d.BackColor = [Drawing.Color]::White; $d.AutoScaleMode = 'None'
   $qi = New-Object Windows.Forms.Label; $qi.Text = '?'; $qi.Font = New-Font 12 'Bold' 'Segoe UI'; $qi.ForeColor = [Drawing.Color]::White; $qi.BackColor = $C.Accent; $qi.TextAlign = 'MiddleCenter'
@@ -770,9 +850,14 @@ function Confirm-Cancel {
   $t2 = New-Label '이미 설치한 프로그램은 그대로 남습니다. setup을 다시 실행하면 이어서 합니다.' $F.Small $C.Muted (Px 330); $t2.Location = New-Object Drawing.Point((Px 66), (Px 46))
   $ft = New-Object Windows.Forms.Panel; $ft.Dock = 'Bottom'; $ft.Height = Px 50; $ft.BackColor = $C.Foot
   $go = New-Btn '계속 설치' $true; $go.DialogResult = 'Cancel'; $stop = New-Btn '멈추기'; $stop.DialogResult = 'OK'
-  $go.Location = New-Object Drawing.Point((Px 420) - (Px 100), (Px 11)); $stop.Location = New-Object Drawing.Point((Px 420) - (Px 194), (Px 11))
+  $x1 = (Px 420) - (Px 100); $x2 = (Px 420) - (Px 194); $y = Px 11
+  $go.Location = New-Object Drawing.Point($x1, $y); $stop.Location = New-Object Drawing.Point($x2, $y)  # 인자 안에서 빼기를 하면 배열로 넘어가 실패
   $ft.Controls.AddRange(@($go, $stop)); $d.Controls.AddRange(@($qi, $t1, $t2, $ft)); $d.AcceptButton = $go; $d.CancelButton = $go
   $d.Add_Shown({ $go.Focus() }.GetNewClosure())
+  return $d
+}
+function Confirm-Cancel {
+  $d = New-CancelDialog
   $r = $d.ShowDialog($form); $d.Dispose()
   return $r -eq 'OK'
 }
@@ -797,9 +882,16 @@ $tick.Add_Tick({
       # 로그인 명령 출력(gh 확인 코드)
       if ($St.LoginRun) {
         foreach ($line in (Read-Hidden $St.LoginRun)) {
+          if ($St.Step -eq 4 -and $line -match 'visit:\s*(https://\S+)') { $St.ClaudeUrl = $Matches[1] }
+          if ($St.Step -eq 4 -and $St.PasteBusy -and $line -match 'Login failed') { $St.PasteBusy = $false; $St.PasteBad = $true; Show-Step }
           if ($St.Step -eq 5 -and $line -match 'one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})') { $St.GhCode = $Matches[1]; Show-Step; if (-not $St.GhOpened) { $St.GhOpened = $true; Open-Url 'https://github.com/login/device' } }
         }
-        if ($null -ne $St.LoginRun.Exit -and $St.Step -eq 5 -and -not $St.GhCode -and -not $St.GhOk) { $St.LoginRun = $null; $St.Waiting = $null; $St.GhFail = $true; Show-Step }
+        if ($St.LoginRun -and $null -ne $St.LoginRun.Exit -and $St.Step -eq 4 -and $St.PasteBusy) {
+          # 코드를 넘긴 뒤 끝남: 0이면 바로 로그인 확인, 아니면 틀린 코드
+          if ($St.LoginRun.Exit -eq 0) { $St.Checking = 'claude'; $St.LoginRun = $null; $St.PasteBusy = $false } else { $St.PasteBusy = $false; $St.PasteBad = $true; Show-Step }
+        }
+        if ($St.LoginRun -and $null -ne $St.LoginRun.Exit -and $St.Step -eq 5 -and -not $St.GhCode -and -not $St.GhOk) { $St.LoginRun = $null; $St.Waiting = $null; $St.GhFail = $true; Show-Step }
+        elseif ($null -ne $St.LoginRun.Exit -and $St.Step -eq 5 -and $St.GhCode -and -not $St.GhOk -and $St.LoginRun.Exit -ne 0) { $St.LoginRun = $null; $St.GhExpired = $true; Show-Step }  # 코드 만료
       }
       Read-Poll
       # 2초마다: 들어온 순간 한 번(이미 됐는지), 기다리는 중이면 계속
@@ -812,7 +904,7 @@ $tick.Add_Tick({
         if ($what) {
           $first = [bool]$St.Checking; $St.Checking = $null
           $cb = switch ($what) {
-            'claude' { { param($code, $out) if ($St.Step -ne 4) { return }; if (Test-ClaudeOut $out) { $St.ClaudeOk = $true; $St.ClaudeWasOk = ($St.Waiting -ne 'claude'); $St.Done[4] = $true; Stop-Hidden $St.LoginRun; $St.LoginRun = $null; $St.Waiting = $null; Show-Step; $btnNext.Focus() } elseif ($St.Waiting -eq 'claude' -and ((Get-Date) - $St.WaitSince).TotalMinutes -ge 5 -and -not $St.LateShown) { $St.LateShown = $true; Show-Step } } }
+            'claude' { { param($code, $out) if ($St.Step -ne 4) { return }; if (Test-ClaudeOut $out) { $St.ClaudeOk = $true; $St.ClaudeWasOk = ($St.Waiting -ne 'claude'); $St.Done[4] = $true; Stop-Hidden $St.LoginRun; $St.LoginRun = $null; $St.Waiting = $null; Show-Step; $btnNext.Focus() } elseif ($St.Waiting -eq 'claude' -and ((Get-Date) - $St.WaitSince).TotalMinutes -ge 5 -and -not $St.LateShown) { $St.LateShown = $true; if (-not $St.PasteOpen) { Show-Step } } elseif ($St.Waiting -eq 'claude' -and ((Get-Date) - $St.WaitSince) -ge $CodeLinkAfter -and -not $St.CodeLinkShown) { $St.CodeLinkShown = $true; if (-not $St.PasteOpen) { Show-Step } } } }
             'gh' { { param($code, $out) if ($St.Step -ne 5) { return }; if ($code -eq 0) { $St.GhOk = $true; $St.GhWasOk = ($St.Waiting -ne 'gh'); $St.GhSkipped = $false; $St.Done[5] = $true; Stop-Hidden $St.LoginRun; $St.LoginRun = $null; $St.Waiting = $null; if (-not $Demo -and -not $St.GhWasOk) { $null = Start-Hidden 'gh auth setup-git' }; Show-Step; $btnNext.Focus() } } }
             'trust' { { param($code, $out) if ($St.Step -ne 6) { return }; if ($code -eq 0) { $St.TrustOk = $true; $St.TrustWasOk = ($St.Waiting -ne 'trust'); $St.Done[6] = $true; $St.Waiting = $null; Show-Step; $btnNext.Focus() } } }
           }
@@ -827,14 +919,17 @@ function Save-Shot([string]$name) {
   $form.Refresh(); [Windows.Forms.Application]::DoEvents()
   $bmp = New-Object Drawing.Bitmap($form.Width, $form.Height)
   $form.DrawToBitmap($bmp, (New-Object Drawing.Rectangle(0, 0, $form.Width, $form.Height)))
-  $f = Join-Path $Shots ("$name-" + [int]($DpiScale * 100) + '.png'); $bmp.Save($f, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
-  Write-Output "캡처: $f"
+  $file = Join-Path $Shots ("$name-" + [int]($DpiScale * 100) + '.png'); $bmp.Save($file, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+  Write-Output "캡처: $file"
 }
 function Open-Help([int]$idx = 0) { $qs = @(); $stack = New-Object Collections.Stack; $stack.Push($flow); while ($stack.Count) { $ctl = $stack.Pop(); foreach ($x in $ctl.Controls) { if ($x -is [Windows.Forms.Button] -and $x.Text -eq '?') { $qs += $x }; $stack.Push($x) } }; $qs = @($qs | Sort-Object { $_.PointToScreen([Drawing.Point]::Empty).Y }); if ($qs.Count -gt $idx) { $qs[$idx].PerformClick() } }
 function Invoke-Shots {
   New-Item -ItemType Directory -Force -Path $Shots | Out-Null
   $form.Show(); [Windows.Forms.Application]::DoEvents()
   $St.Step = 1; Show-Step; Save-Shot 'W1'
+  $d = New-CancelDialog; $d.StartPosition = 'Manual'; $d.Location = $form.Location; $d.Show($form); $d.Refresh(); [Windows.Forms.Application]::DoEvents()
+  $bmp = New-Object Drawing.Bitmap($d.Width, $d.Height); $d.DrawToBitmap($bmp, (New-Object Drawing.Rectangle(0, 0, $d.Width, $d.Height)))
+  $cf = Join-Path $Shots ('C-cancel-' + [int]($DpiScale * 100) + '.png'); $bmp.Save($cf, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose(); $d.Close(); $d.Dispose(); Write-Output "캡처: $cf"  # 글꼴 표(F)와 이름이 겹치지 않게
   $St.Done[1] = $true; $St.Step = 2; Show-Step; Save-Shot 'W2-a'
   $St.AdvOpen = $true; $St.Project = 'C:\projects\내 앱'; $St.Name = ''; $St.NameTouched = $true; Show-Step; Open-Help 0; Save-Shot 'W2-b'
   $St.Project = 'C:\projects\my-app'; $St.Name = 'my-app'; $St.AdvOpen = $false; $St.Done[2] = $true
@@ -847,6 +942,11 @@ function Invoke-Shots {
   $St.FailMsg = $null; foreach ($r in $St.Rows) { $r.State = 'installed' }; $St.Installed = $true; $St.Done[3] = $true
   $St.Step = 4; Show-Step; Save-Shot 'W4-a'
   $St.Waiting = 'claude'; $St.WaitSince = Get-Date; Show-Step; Open-Help 0; Save-Shot 'W4-b'
+  $St.WaitSince = (Get-Date).AddMinutes(-2); Show-Step; Save-Shot 'W4-d'
+  $St.PasteOpen = $true; Show-Step; Save-Shot 'W4-e'
+  $St.PasteText = 'a1B2c3' + [char]0x2026 + 'x9Z'; $St.PasteBusy = $true; Show-Step; Save-Shot 'W4-e-busy'  # [확인] 뒤 '확인 중…'
+  $St.PasteBusy = $false; $St.PasteBad = $true; Show-Step; Save-Shot 'W4-f'
+  $St.PasteOpen = $false; $St.PasteBad = $false; $St.PasteText = ''
   $St.ClaudeOk = $true; $St.Waiting = $null; Show-Step; Save-Shot 'W4-c'
   $St.Done[4] = $true; $St.Step = 5; Show-Step; Open-Help 0; Save-Shot 'W5-a'
   $St.Waiting = 'gh'; $St.GhCode = '4F2A-9C1B'; Show-Step; Save-Shot 'W5-b'
@@ -861,7 +961,7 @@ function Invoke-Shots {
   $St.Installed = $false; $St.ClaudeMd = $null; Show-Step7Shot; Save-Shot 'W7-c-fail'
   $script:Closing = $true; $form.Close()
 }
-function Show-Step7Shot { Clear-Body; $btnNext.Text = '마침'; $btnCancel.Visible = $false; Set-Primary $btnNext $false; $lnkLater.Visible = $false; Show-Step7; Update-Side; $flow.ResumeLayout() }
+function Show-Step7Shot { Clear-Body; $btnNext.Text = '마침'; $btnCancel.Visible = $false; $btnNext.Enabled = $true; Set-Primary $btnNext $false; $lnkLater.Visible = $false; Show-Step7; Update-Side; $flow.ResumeLayout() }
 
 if ($Shots) { Invoke-Shots; return }
 Show-Step

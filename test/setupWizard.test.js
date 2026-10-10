@@ -28,6 +28,14 @@ for (const f of ps1) {
   });
 }
 
+// 2b. 마법사: 글꼴 $F·색 $C와 대소문자만 다른 변수($f·$c) 금지. PowerShell 변수는 대소문자를 안 가리고 동적 범위라
+//     함수 안의 $f가 그 함수에서 부르는 화면 함수의 $F.Title까지 덮는다(0.9.0 캡처에서 제목 글꼴이 작아짐)
+fs.readFileSync(WIZ, 'utf8').split(/\r?\n/).forEach((l, i) => {
+  if (/^\$(F|C) = /.test(l)) return;
+  const m = l.match(/\$(f|c|F|C)\b(?![.\w])/);
+  assert.ok(!m, `setup-wizard.ps1:${i + 1}: '${m && m[0]}'는 $F(글꼴)·$C(색)를 덮음 → 다른 이름`);
+});
+
 // 3. 구문: PowerShell 파서 오류 없음
 const parse = `$e = $null; [void][Management.Automation.Language.Parser]::ParseFile('${WIZ}', [ref]$null, [ref]$e); $e | ForEach-Object { $_.Extent.StartLineNumber.ToString() + ': ' + $_.Message }`;
 const r = spawnSync(POWERSHELL, ['-NoProfile', '-Command', `[Console]::OutputEncoding = [Text.Encoding]::UTF8; ${parse}`], { encoding: 'utf8' });
