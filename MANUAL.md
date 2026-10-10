@@ -208,6 +208,8 @@ pm 자신:
 
 한 PC(호스트)에서 역할 세션·빌드·브라우저를 모두 돌리고, 다른 PC(접속 PC)는 VS Code Remote-SSH로 붙어 제어만 합니다. 연결은 Tailscale 사설망 위의 OpenSSH(공개키 로그인만)이고 공개 포트는 열지 않습니다. 접속하면 승인 센터·세션 현황은 호스트 쪽에서 돌고, 역할 세션은 VS Code 창을 닫아도 호스트에서 계속 돕니다.
 
+원격은 선택 기능입니다. `host`·`connect`를 실행하지 않으면 원격 설정은 아무것도 바뀌지 않습니다(`global`·`setup`·`quickstart`·`restore`는 이 둘을 부르지 않음). 원격을 쓰지 않는 PC에서 doctor '호스트' 줄은 OpenSSH 서버가 없으면 '해당 없음'(통과)입니다. 모든 PC에 들어가지만 조건이 맞을 때만 움직이는 것은 둘입니다: `session.ps1`의 daemon 점검(로그온 작업 `wy-ops-claude-daemon`이 있을 때만 시작하고, daemon이 ssh 같은 바탕화면이 아닌 로그온일 때만 경고), 원격 창용 껍데기 확장 설치(`~\.vscode-server`가 있을 때만).
+
 호스트(한 번, **관리자 PowerShell**):
 1. `<설치> host --dry-run`으로 바꿀 목록을 봅니다(관리자가 아니어도 됨).
 2. `<설치> host` → 목록 확인 후 `y`. 하는 일: OpenSSH 서버 설치·자동 시작(Win32-OpenSSH를 winget `Microsoft.OpenSSH.Preview`로 `C:\Program Files\OpenSSH`에. Windows 선택적 기능판이 8.1 미만이거나 실행되지 않으면 먼저 제거. winget이 없으면 MSI 설치 안내), SSH 기본 셸 PowerShell, `sshd_config` 공개키 로그인만(비밀번호 로그인 끔, 고치기 전 백업·`sshd -t` 검사 실패 시 되돌림), `C:\ProgramData\ssh\administrators_authorized_keys` 권한(Administrators·SYSTEM만), 방화벽 OpenSSH 규칙을 Tailscale 대역(`100.64.0.0/10`)만(규칙이 없으면 만들고, 이름이 다른 OpenSSH 허용 규칙도 같은 대역으로 좁힘), 전원 AC 대기·최대 절전 끔(화면 끄기는 그대로), claude daemon 로그온 작업 `wy-ops-claude-daemon`(로그온 때 바탕화면에서 `claude daemon run`, 대화형·일반 권한. 등록만 하고 지금 시작하지 않음 — 아래 'claude daemon은 바탕화면 로그온에서'), 원격 창용 껍데기 확장(`~\.vscode-server\extensions`). 이미 된 것은 건너뛰므로 여러 번 실행해도 됩니다.

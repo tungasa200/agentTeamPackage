@@ -43,7 +43,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 
 새 카드가 들어오면 OS 기본 알림음을 한 번 낸다(탭이 닫혀 있어도). 여러 장이 5초 안에 몰려도 한 번이고, VS Code를 켤 때 이미 쌓여 있던 카드로는 울리지 않는다. 끄려면 설정 `wyOps.approvals.sound`를 끈다(소리·알림 모두). 창을 여러 개 열면 창마다 울린다.
 원격 창(Remote-SSH, `vscode.env.remoteName`이 있음)에서는 확장이 호스트에서 돌아 소리가 호스트 스피커로 나가므로, 대신 VS Code 알림(카드 제목과 `승인 센터 열기` 버튼)을 띄운다. 설정 `wyOps.approvals.alert`: `auto`(기본, 로컬 창 소리·원격 창 알림) · `sound` · `notification` · `both`.
-원격 창에서 이 확장이 보이려면 껍데기 확장이 호스트의 `~/.vscode-server/extensions`에도 있어야 한다(`extensionKind: ["workspace"]`). `install.ps1 setup`·`deploy`·`update`는 `~/.vscode-server`가 있는 PC면 그쪽에도 설치하고, `install.ps1 host`는 첫 접속 전에 폴더를 만들어 설치해 둔다.
+원격 창에서 이 확장이 보이려면 껍데기 확장이 호스트의 `~/.vscode-server/extensions`에도 있어야 한다(`extensionKind: ["workspace"]`). `install.ps1 setup`·`deploy`·`update`는 `~/.vscode-server`가 있는 PC면 그쪽에도 설치하고, `install.ps1 host`는 첫 접속 전에 폴더를 만들어 설치해 둔다. 원격은 선택 기능이라 `host`·`connect`를 실행하지 않은 PC는 `~/.vscode-server`가 없으면 로컬에만 설치된다(MANUAL 3-5).
 
 - **git 명령 카드**: 커밋·푸시(파랑)와 PM 결정(노랑: 병합·`gh pr merge`, 브랜치 생성·삭제, reset, 강제 푸시, rebase, 태그 삭제). 제목 바로 아래 큰 글씨 한 줄이 무엇이 바뀌고 어떻게 되돌리는지다(요청의 `effect`, 없으면 자동 문구). 매번 [승인] 또는 [거부]를 누른다. 자동 승인은 없다. 거부할 때는 사유를 적어야 한다.
 - **결정 요청 카드**(보라): 질문 1~4개, 질문마다 선택지 2~4개(추천 표시), 하나만 또는 여러 개 고르기, '기타' 직접 입력, 메모. 모든 질문에 답해야 [응답 전송]이 된다.
