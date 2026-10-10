@@ -1,5 +1,6 @@
 // session.ps1 attach <역할>·start-pm·pm-cmd: attach는 이름으로 실행 중인 백그라운드 세션 id를 찾아 claude attach(pm 역할 agent:false도 됨), start-pm은 pm을 백그라운드로
 //   node test/sessionAttach.test.js   임시 저장소·가짜 claude(PATH 앞에 둔 claude.cmd)만. 실제 세션은 건드리지 않음
+//   WY_OPS_DIRECT=1: ssh(세션 0)에서 돌려도 작업 스케줄러를 거치지 않고 가짜 claude를 바로 부른다
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -32,7 +33,7 @@ try {
   const ps = (args) => {
     const cmd = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; & '${path.join(scripts, 'session.ps1')}' ${args.join(' ')}`;
     const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], {
-      encoding: 'utf8', windowsHide: true, timeout: 60000, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH },
+      encoding: 'utf8', windowsHide: true, timeout: 60000, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, WY_OPS_DIRECT: '1' },
     });
     return (r.stdout || '') + (r.stderr || '');
   };

@@ -99,11 +99,46 @@ function Get-Handoff($name) {
     if ($f) { return $f }
   }
 }
+# ssh로 붙으면 이 스크립트가 세션 0(sshd 아래)에서 돈다. 거기서 띄운 claude는 Windows 자격 증명 관리자를 못 읽어 git push·gh 인증이 실패한다.
+# 그래서 세션 0이면 자동 로그인된 바탕화면 로그온(세션 1 이상)에서 작업 스케줄러 Interactive 작업(현재 사용자, 로그온한 경우에만 실행,
+# 비밀번호 저장 없음)으로 claude를 띄우고 작업은 끝나는 대로 지운다. 세션 1 이상이면 바로 띄운다. WY_OPS_DIRECT=1이면 늘 바로(시험용)
+function Start-Bg([string[]]$argv) {
+  if ($env:WY_OPS_DIRECT -or (Get-Process -Id $PID).SessionId -ne 0) {
+    Push-Location $Repo; try { claude @argv } finally { Pop-Location }
+    return
+  }
+  if (-not (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -ne 0 })) {
+    throw '바탕화면 로그온이 없어 띄우지 않았습니다(세션 0에서 띄운 claude는 자격 증명 관리자를 못 읽어 git push·gh가 실패). 호스트 PC 자동 로그인을 확인하세요.'
+  }
+  $exe = (Get-Command claude.cmd -ErrorAction SilentlyContinue).Source
+  if (-not $exe) { throw 'claude.cmd를 찾지 못했습니다.' }
+  $log = Join-Path $env:TEMP "wy-ops-bg-$PID.log"
+  # 작업 인자는 한 줄 명령이라 인자마다 큰따옴표로 감싼다. 인자 안의 큰따옴표는 작은따옴표로
+  $line = (@($exe) + $argv | ForEach-Object { '"' + ($_ -replace '"', "'") + '"' }) -join ' '
+  $task = "wy-ops-bg-$PID"
+  $a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/d /s /c `"$line > `"$log`" 2>&1`"" -WorkingDirectory $Repo
+  $p = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
+  $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+  try {
+    Register-ScheduledTask -TaskName $task -Action $a -Principal $p -Settings $set -ErrorAction Stop | Out-Null
+    Start-ScheduledTask -TaskName $task -ErrorAction Stop
+    # 0x41303 = 아직 실행 안 됨(이 사용자의 바탕화면 로그온이 없으면 그대로 남는다)
+    $deadline = (Get-Date).AddSeconds(120)
+    do { Start-Sleep -Milliseconds 500; $info = Get-ScheduledTaskInfo -TaskName $task }
+    while ((Get-Date) -lt $deadline -and ((Get-ScheduledTask -TaskName $task).State -eq 'Running' -or $info.LastTaskResult -eq 0x41303))
+    if ($info.LastTaskResult -eq 0x41303) { throw "바탕화면 로그온에서 실행되지 않았습니다($env:USERNAME 로그온 확인)." }
+    if (Test-Path $log) { [IO.File]::ReadAllText($log) }
+    if ($info.LastTaskResult -ne 0) { "claude 종료 코드: $($info.LastTaskResult)" }
+  } finally {
+    Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
+    Remove-Item $log -ErrorAction SilentlyContinue
+  }
+}
 # 새 세션: 역할 파일(.claude/agents/<역할>.md)을 --agent로 싣는다. 인수인계 경로가 있으면 그것부터 불러온다
 function Start-New($name, $handoff) {
   $first = if ($handoff) { "/ecc:resume-session $($handoff -replace '\\','/')" }
            else { "[$PmRole] 새 세션입니다. 역할 파일 지시대로 CLAUDE.md와 $($ProgressDoc)(역할별 다음 할 일의 내 줄)를 읽고, $($PmRole)에 SendMessage로 '$name 시작, 다음 할 일: …' 한 줄을 보낸 뒤 지시를 기다리세요." }
-  Push-Location $Repo; try { claude --bg --agent $name --name $name $first } finally { Pop-Location }
+  Start-Bg @('--bg', '--agent', $name, '--name', $name, $first)
 }
 
 switch ($Cmd) {
@@ -146,7 +181,7 @@ switch ($Cmd) {
     # 지시를 넘겨 이어 띄운다. 지시 없이 띄우면 빈 사본이 생겨 다음에 실패한다
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $Prompt = $Prompt -replace '"', "'"
-    Push-Location $Repo; try { claude --bg --resume $s.sessionId --name $Role $Prompt } finally { Pop-Location }
+    Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $Prompt)
     $n = Get-Bg $Role
     if ($n -and $n.sessionId -ne $s.sessionId) { claude rm $s.id | Out-Null }
   }
@@ -166,7 +201,7 @@ switch ($Cmd) {
     $s = Get-Bg $Role
     if ($s -and (Test-Running $s)) { "실행 중인 세션입니다. 이 문구를 SendMessage로 보내세요:"; $msg; break }
     if (-not $s) { "$Role 세션이 없습니다. 세션 교체 없이 start 하세요."; break }
-    Push-Location $Repo; try { claude --bg --resume $s.sessionId --name $Role $msg } finally { Pop-Location }
+    Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $msg)
   }
   'rotate' {
     $s = Get-Bg $Role
@@ -180,7 +215,7 @@ switch ($Cmd) {
     if (-not $Prompt) { throw '세션ID가 필요합니다.' }
     # 지시 없이 이어 띄우면 빈 사본이 생기므로 한 줄 지시를 넘긴다. 끝나면 stop
     $hello = "[$PmRole] 이 세션을 $Role 이름의 백그라운드 세션으로 옮겼습니다. 답은 '옮김 확인' 한 줄만 하고 다른 작업은 하지 마세요."
-    Push-Location $Repo; try { claude --bg --resume $Prompt --name $Role $hello } finally { Pop-Location }
+    Start-Bg @('--bg', '--resume', $Prompt, '--name', $Role, $hello)
     "옮겼습니다. 답을 마치면 session.ps1 stop $Role 로 멈추세요."
   }
   'pm-cmd' {
@@ -210,7 +245,7 @@ switch ($Cmd) {
              $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요."
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $first = $first -replace '"', "'"
-    Push-Location $Repo; try { claude --bg --name $PmRole $first } finally { Pop-Location }
+    Start-Bg @('--bg', '--name', $PmRole, $first)
     "백그라운드 $PmRole 을 띄웠습니다. 붙기: session.ps1 attach $PmRole"
     foreach ($o in $live) {
       if ($o.kind -eq 'background') { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" } else { "이전 $PmRole 대화형 세션($($o.id))의 창을 닫으세요" }
