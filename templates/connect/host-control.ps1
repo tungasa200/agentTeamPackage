@@ -3,6 +3,8 @@
 # 추가 설치 없음(Windows PowerShell 5.1 + WinForms). ssh는 connect가 준비한 공개키 로그인만(BatchMode, 암호를 묻지 않음) 쓴다.
 #   -DryRun    창은 띄우되 버튼이 명령을 실행하지 않고 아래 기록 칸에 명령 문자열만 적는다
 #   -SelfTest  창 없이 각 버튼의 명령 문자열을 출력하고 끝낸다(시험용)
+#   -AttachOnly 창 없이 '⑥ pm에 붙기'만 하고 끝낸다('<별칭> <역할>' 바로가기, 0.8.5). 실패하면 메시지 상자
+#   -Code      VS Code 실행 파일(기본: code.cmd 옆 Code.exe)
 # 깨우기(매직 패킷, UDP 9 브로드캐스트)는 호스트와 같은 네트워크(집 안)에서만 닿는다. MAC·브로드캐스트 주소는 호스트가 깨어 있을 때
 # 상태 확인이 읽어 <별칭>.json에 저장해 두고, 잠든 동안은 그 값을 쓴다.
 # ssh 명령은 모두 따로 프로세스로 돌리고 타이머로 끝을 확인한다(재우기처럼 ssh가 응답 없이 멈춰도 창이 굳지 않게, 시간 제한이 지나면 끊음).
@@ -12,6 +14,8 @@ param(
   [Parameter(Mandatory)][string]$Role,
   [string]$Ssh = "$env:SystemRoot\System32\OpenSSH\ssh.exe",
   [string]$ConfigPath,
+  [string]$Code,
+  [switch]$AttachOnly,
   [switch]$DryRun,
   [switch]$SelfTest
 )
@@ -87,15 +91,35 @@ $h = if ($f) { $f.FullName } else { 'none' }
 try { & '__SCRIPT__' start-pm $h 2>&1 | Out-String -Width 200 } catch { "실패: $($_.Exception.Message)" }
 '@ -replace '__ROLE__', $Role -replace '__RX__', [regex]::Escape($Role).Replace('$', '$$') -replace '__SCRIPT__', $SessionPs1.Replace("'", "''").Replace('$', '$$')
 
+# pm에 붙기(0.8.5): 새 콘솔 창 대신 VS Code 원격 창 통합 터미널에서. 호스트에 붙기 요청 파일을 쓰고(이 단계) 원격 창을 연다(Open-VsCode).
+# 원격 창의 wy-ops 확장(vscode/attachRequest.js)이 요청을 가져가 '<역할> 붙기' 터미널을 띄우거나, 살아 있으면 그 터미널을 보여 준다. 시각은 호스트 시계(UTC)
+$AttachReqBody = @'
+$base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $env:USERPROFILE 'AppData\Local' }
+$d = Join-Path $base 'wy-ops'
+[void](New-Item -ItemType Directory -Force $d)
+$j = [ordered]@{ folder = '__REPO__'; role = '__ROLE__'; at = (Get-Date).ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $d 'attach-request.json'), $j)
+'붙기 요청을 남겼습니다'
+'@.Replace('__ROLE__', $Role.Replace("'", "''")).Replace('__REPO__', $Repo.Replace("'", "''"))
+$Parts = ($Repo -replace '\\', '/').Split('/')
+$FolderUri = "vscode-remote://ssh-remote+$Alias/" + $Parts[0].ToLower() + '/' + (($Parts | Select-Object -Skip 1 | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/')
+# 바로가기와 같은 Code.exe(code.cmd 옆, 콘솔 창이 뜨지 않음). 못 찾으면 code.cmd
+function Get-CodeExe {
+  if ($Code) { return $Code }
+  $c = Get-Command code.cmd -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $c) { return $null }
+  $exe = Join-Path (Split-Path (Split-Path $c.Source)) 'Code.exe'
+  if (Test-Path $exe) { $exe } else { $c.Source }
+}
+
 $Remote = [ordered]@{
   status   = @{ cmd = (Get-RemotePs $StatusBody); timeout = 25 }
   sleep    = @{ cmd = 'rundll32.exe powrprof.dll,SetSuspendState 0,1,0'; timeout = 15 }
   reboot   = @{ cmd = 'shutdown /r /t 0'; timeout = 20 }
   shutdown = @{ cmd = 'shutdown /s /t 0'; timeout = 20 }
   startpm  = @{ cmd = (Get-RemotePs $StartPmBody); timeout = 240 }
+  attach   = @{ cmd = (Get-RemotePs $AttachReqBody); timeout = 20 }
 }
-# pm에 붙기: install.ps1 connect --attach 바로가기와 같은 인수(새 콘솔 창)
-$AttachArgs = "-t $Alias `"" + ("powershell -NoProfile -ExecutionPolicy Bypass -File `"$SessionPs1`" attach $Role" -replace '"', '\"') + '"'
 
 function Get-Cfg {
   if (Test-Path $ConfigPath) { try { return [IO.File]::ReadAllText($ConfigPath) | ConvertFrom-Json } catch { } }
@@ -117,10 +141,25 @@ function Get-WakePacket([string]$mac) {
 if ($SelfTest) {
   [Console]::OutputEncoding = [Text.Encoding]::UTF8
   foreach ($k in $Remote.Keys) { "${k}: $Ssh $(Get-SshArgs $Remote[$k].cmd)" }
-  "attach: $Ssh $AttachArgs"
+  "open: $(Get-CodeExe) --folder-uri $FolderUri"
   "rotate: $RotateText"
   $c = Get-Cfg
   if ($c) { "wake: UDP $($c.broadcast):9 $((Get-WakePacket $c.mac).Length)바이트" } else { 'wake: MAC 모름' }
+  return
+}
+
+# 원격 창 열기: 같은 폴더 창이 이미 열려 있으면 VS Code가 그 창을 앞으로 가져온다. 실패하면 오류 문구, 되면 $null
+function Open-VsCode {
+  $exe = Get-CodeExe
+  if (-not $exe) { return 'VS Code(code 명령)를 찾지 못했습니다' }
+  try { Start-Process -FilePath $exe -ArgumentList '--folder-uri', $FolderUri; $null } catch { "VS Code 열기 실패: $($_.Exception.Message)" }
+}
+
+if ($AttachOnly) {
+  Add-Type -AssemblyName System.Windows.Forms
+  $p = Start-Process -FilePath $Ssh -ArgumentList (Get-SshArgs $Remote.attach.cmd) -Wait -PassThru -WindowStyle Hidden
+  $err = if ($p.ExitCode -ne 0) { "호스트에 붙기 요청을 보내지 못했습니다(ssh 종료 코드 $($p.ExitCode)). 호스트가 깨어 있는지 '$Alias 제어' 창에서 확인하세요" } else { Open-VsCode }
+  if ($err) { [void][Windows.Forms.MessageBox]::Show($err, "$Alias $Role", 'OK', 'Warning') }
   return
 }
 
@@ -188,7 +227,7 @@ function Update-Status {
       if ($script:WakeUntil) { Write-Log '호스트가 깨어났습니다'; $script:WakeUntil = $null }
       if ($script:RotateUntil -and $s.pmId -and $s.pmId -ne $script:RotateFrom -and $s.pmCount -eq 1) {
         $script:RotateUntil = $null
-        Write-Log "새 pm이 떴고 이전 pm은 멈췄습니다. 끊긴 붙기 창을 닫고 '⑥ pm에 붙기'를 누르세요"
+        Write-Log "새 pm이 떴고 이전 pm은 멈췄습니다. '⑥ pm에 붙기'를 누르세요(끊긴 붙기 터미널은 닫혀 새로 열림)"
       }
     } else {
       $lblHost.Text = "호스트: 응답 없음$(if ($DryRun) { '(시험 모드)' })"; $lblHost.ForeColor = 'DarkRed'
@@ -225,19 +264,26 @@ $btnStartPm.Add_Click({
   }
 })
 function Open-Attach {
-  if ($DryRun) { Write-Log "(시험) 붙기: $Ssh $AttachArgs"; return $true }
-  try { Start-Process -FilePath $Ssh -ArgumentList $AttachArgs; $true } catch { Write-Log "붙기 실패: $($_.Exception.Message)"; $false }
+  Write-Log '붙기 요청을 보내는 중…'
+  Start-Ssh 'attach' {
+    param($code, $out, $err)
+    if ($DryRun) { Write-Log "(시험) VS Code: $(Get-CodeExe) --folder-uri $FolderUri"; return }
+    if ($code -ne 0) { Write-Log "붙기 요청 실패: $($err.Trim()) $($out.Trim())"; return }
+    $e = Open-VsCode
+    Write-Log $(if ($e) { $e } else { "VS Code 원격 창의 통합 터미널 '$Role 붙기'에서 붙습니다(이미 있으면 그 터미널)" })
+  }
+  $true
 }
 $btnAttach.Add_Click({ [void](Open-Attach) })
-# ⑦ pm 교체(반자동): 붙기 창을 열고 입력할 문구를 클립보드에 넣는다. pm이 작업 중이면 그 일을 마친 뒤 처리한다.
+# ⑦ pm 교체(반자동): 붙기 터미널을 열고 입력할 문구를 클립보드에 넣는다. pm이 작업 중이면 그 일을 마친 뒤 처리한다.
 # 새 pm이 뜨고 이전 pm이 멈추면(실행 중 pm의 id가 바뀌고 1개) 상태 갱신이 알린다(10분까지 15초마다 확인)
 $btnRotate.Add_Click({
   $s = $script:Status
   if (-not $DryRun -and (-not $s -or -not $s.pmId)) { Write-Log "실행 중인 pm이 없습니다(새로고침으로 확인). pm이 없으면 '⑤ pm 새로 띄우기'를 쓰세요"; return }
-  if (-not (Confirm-Do "pm 세션을 교체할까요?`n`n붙기 창이 열립니다. 아래 문구가 클립보드에 들어 있으니 붙여 넣고 Enter:`n$RotateText`n`npm이 작업 중이면 그 일을 마친 뒤 교체합니다. 교체가 끝나면 붙기 창이 끊기고 이 창이 알려 줍니다.")) { return }
+  if (-not (Confirm-Do "pm 세션을 교체할까요?`n`nVS Code 원격 창의 붙기 터미널이 열립니다. 아래 문구가 클립보드에 들어 있으니 붙여 넣고 Enter:`n$RotateText`n`npm이 작업 중이면 그 일을 마친 뒤 교체합니다. 교체가 끝나면 붙기 터미널이 끊기고 이 창이 알려 줍니다.")) { return }
   try { if ($DryRun) { Write-Log '(시험) 클립보드에 넣을 문구' } else { [Windows.Forms.Clipboard]::SetText($RotateText) } } catch { Write-Log "클립보드에 넣지 못했습니다. 직접 입력하세요: $RotateText" }
   if (-not (Open-Attach)) { return }
-  Write-Log "붙기 창에 붙여 넣고 Enter: $RotateText"
+  Write-Log "붙기 터미널에 붙여 넣고 Enter: $RotateText"
   $script:RotateFrom = if ($s) { $s.pmId } else { $null }
   $script:RotateUntil = (Get-Date).AddMinutes(10); $script:NextRefresh = (Get-Date).AddSeconds(15)
 })
@@ -264,7 +310,7 @@ $timer.Add_Tick({
   }
   if ($script:RotateUntil -and $now -gt $script:RotateUntil) {
     $script:RotateUntil = $null
-    Write-Log "10분 안에 pm이 바뀌지 않았습니다. 붙기 창에서 pm의 답을 확인하세요(pm이 둘이면 위에 표시됩니다)"
+    Write-Log "10분 안에 pm이 바뀌지 않았습니다. 붙기 터미널에서 pm의 답을 확인하세요(pm이 둘이면 위에 표시됩니다)"
   }
   if ($now -ge $script:NextRefresh) { Update-Status; if ($script:RotateUntil) { $script:NextRefresh = $now.AddSeconds(15) } }
 })

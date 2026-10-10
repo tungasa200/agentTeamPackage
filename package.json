@@ -1,6 +1,6 @@
 {
   "name": "wy-ops",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "private": true,
   "description": "Claude Code 역할 세션 운영 도구 패키지(세션 현황·승인 센터 확장, 훅, 역할·스킬 생성기, 설치 명령). 설치: install.ps1"
 }
