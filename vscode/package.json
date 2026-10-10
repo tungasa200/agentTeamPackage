@@ -2,7 +2,7 @@
   "name": "wy-ops-core",
   "displayName": "WY Ops — 세션 현황·승인 센터",
   "description": "메모리·프로세스·Claude 역할 세션 상태를 사이드바에서 보고, WY 승인 센터에서 git 명령 요청을 승인하고 결정 요청에 답한다",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "publisher": "wy-ops",
   "private": true,
   "engines": {
@@ -83,8 +83,8 @@
             "both"
           ],
           "enumDescriptions": [
-            "로컬 창은 소리, 원격 창(Remote-SSH)은 VS Code 알림 — 원격 창의 소리는 호스트 스피커에서 나므로",
-            "늘 소리(원격 창이면 호스트에서 울림)",
+            "로컬 창은 소리, 원격 창(Remote-SSH)은 접속 PC 소리와 VS Code 알림 — 접속 PC 소리는 install.ps1 connect가 까는 wy-ops.wy-ops-local이 냄",
+            "늘 소리(원격 창이면 접속 PC에서, wy-ops.wy-ops-local 필요)",
             "늘 VS Code 알림",
             "소리와 알림 모두"
           ],

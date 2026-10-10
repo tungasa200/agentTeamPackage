@@ -29,12 +29,25 @@ function playSystemSound() {
   }
 }
 
-// 알리는 방법(0.8.0 P2): 원격 창(Remote-SSH 등, vscode.env.remoteName 있음)에서는 확장이 호스트에서 돌아 소리가 호스트 스피커에서 난다.
-// 그래서 원격 창은 VS Code 알림(접속 PC 화면에 뜸), 로컬 창은 소리. 설정 wyOps.approvals.alert: auto(기본)·sound·notification·both
+// 알리는 방법: 원격 창(Remote-SSH 등, vscode.env.remoteName 있음)에서는 확장이 호스트에서 돌아 여기서 소리를 내면 호스트 스피커에서 난다.
+// 그래서 원격 창의 소리는 접속 PC의 작은 확장(local-ext, wy-ops.wy-ops-local, install.ps1 connect가 설치)에 명령으로 맡긴다(0.8.4).
+// auto(기본): 로컬 창은 소리, 원격 창은 소리+VS Code 알림(접속 PC에 소리 확장이 없어도 알림은 뜸). 설정 wyOps.approvals.alert: auto·sound·notification·both
+const LOCAL_SOUND = 'wyOps.playLocalSound';
 function alertMode(setting, remoteName) {
   const s = ['sound', 'notification', 'both'].includes(setting) ? setting : 'auto';
-  if (s === 'auto') return remoteName ? { sound: false, notify: true } : { sound: true, notify: false };
+  if (s === 'auto') return remoteName ? { sound: true, notify: true } : { sound: true, notify: false };
   return { sound: s !== 'notification', notify: s !== 'sound' };
+}
+
+// 소리 내기: 로컬 창은 이 확장 호스트에서, 원격 창은 접속 PC 확장에 명령으로. 접속 PC에 그 확장이 없으면 명령이 실패하고 조용히 넘어간다
+function ring(remoteName, executeCommand, local = playSystemSound) {
+  if (!remoteName) return local();
+  try {
+    Promise.resolve(executeCommand(LOCAL_SOUND)).catch(() => {});
+  } catch {
+    // 소리는 덤이다
+  }
+  return undefined;
 }
 
 // 알림 문구: 새 카드 제목(없으면 id). 여러 장이면 '외 n장'
@@ -68,4 +81,4 @@ class ArrivalBell {
   }
 }
 
-module.exports = { ArrivalBell, soundCommand, playSystemSound, alertMode, notifyText, GAP };
+module.exports = { ArrivalBell, soundCommand, playSystemSound, alertMode, ring, notifyText, GAP, LOCAL_SOUND };

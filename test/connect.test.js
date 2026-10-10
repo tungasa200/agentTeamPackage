@@ -6,7 +6,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { rmTree } = require('../lib/fsx');
-const { plan, connect, updateConfig, folderUri, hostLine, attachArgs, REMOTE_SSH } = require('../lib/connect');
+const { plan, connect, updateConfig, folderUri, hostLine, attachArgs, REMOTE_SSH, LOCAL_EXT } = require('../lib/connect');
+const LOCAL_VER = require('../local-ext/package.json').version;
 
 // 1. updateConfig
 const add = updateConfig('', { alias: 'wy-host', host: 'wy-host' });
@@ -43,12 +44,19 @@ try {
   fs.mkdirSync(path.join(codeDir, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(codeDir, 'Code.exe'), '');
   const exts = new Set();
+  const vsixFiles = [];
   let tailscale = false;
   const calls = [];
   const run = (cmd, args) => {
     calls.push([cmd, ...args].join(' '));
     if (cmd === 'tailscale') return { status: tailscale ? 0 : null, stdout: '', stderr: '' };
     if (cmd === 'code' && args[0] === '--list-extensions') return { status: 0, stdout: [...exts].join('\n') + '\n', stderr: '' };
+    if (cmd === 'code' && args[0] === '--install-extension' && /\.vsix$/.test(args[1])) {
+      // 접속 PC 소리 확장(0.8.4): 임시 vsix를 --force로 설치
+      assert.ok(fs.existsSync(args[1]) && args.includes('--force'), '임시 vsix');
+      vsixFiles.push(args[1]);
+      return exts.add(`${LOCAL_EXT}@${LOCAL_VER}`), { status: 0, stdout: '', stderr: '' };
+    }
     if (cmd === 'code' && args[0] === '--install-extension') return exts.add(args[1].toLowerCase()), { status: 0, stdout: '', stderr: '' };
     if (cmd === 'where') return { status: 0, stdout: path.join(codeDir, 'bin', 'code') + '\r\n' + path.join(codeDir, 'bin', 'code.cmd') + '\r\n', stderr: '' };
     if (cmd === 'ssh-keygen') {
@@ -74,7 +82,7 @@ try {
 
   // 3-1. --dry-run: 아무것도 바꾸지 않음
   let r = connect({ ...opts, dryRun: true }, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'manual', key: 'todo', config: 'todo', 'remote-ssh': 'todo', shortcut: 'todo', control: 'skip' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'manual', key: 'todo', config: 'todo', 'remote-ssh': 'todo', 'local-sound': 'todo', shortcut: 'todo', control: 'skip' });
   assert.ok(!fs.existsSync(path.join(home, '.ssh')) && !fs.readdirSync(desktop).length, 'dry-run은 쓰지 않음');
   assert.strictEqual(r.hostLine, null);
   assert.ok(!calls.some((c) => /ssh-keygen|--install-extension|CreateShortcut/.test(c)));
@@ -90,11 +98,12 @@ try {
   out.length = 0;
   r = connect(opts, deps);
   assert.ok(r.ok, JSON.stringify(r.results));
-  assert.ok(r.results.every((x) => x.state === 'done') && r.results.length === 4);
+  assert.ok(r.results.every((x) => x.state === 'done') && r.results.length === 5);
   const cfg = fs.readFileSync(path.join(home, '.ssh', 'config'), 'utf8');
   assert.ok(cfg.startsWith(other.trimEnd()) && cfg.includes('Host wy-host\n    HostName wy-host\n    User dev\n    IdentityFile ~/.ssh/id_ed25519\n'));
   assert.strictEqual(fs.readFileSync(path.join(home, '.ssh', 'config.wy-bak'), 'utf8'), other, '원래 config 백업');
   assert.ok(exts.has(REMOTE_SSH) && fs.existsSync(path.join(desktop, 'wy-host.lnk')));
+  assert.ok(exts.has(`${LOCAL_EXT}@${LOCAL_VER}`) && vsixFiles.length === 1 && !fs.existsSync(vsixFiles[0]), '소리 확장 설치, 임시 vsix는 지움');
   assert.ok(r.hostLine.endsWith("host --add-key 'ssh-ed25519 AAAAC3fake wy-ops-connect-wy-host'"));
   assert.ok(out.includes('호스트의 관리자 PowerShell에서 실행할 한 줄(공개키 등록):'));
   assert.ok(out.some((s) => s.includes('ssh -N -L 19222:localhost:9222 wy-host')), 'Chrome 포트 전달은 접속 PC 쪽 다른 포트(0.8.0 실측)');
@@ -109,7 +118,7 @@ try {
 
   // 3-5. 호스트 주소가 바뀌면 그 블록만 갱신. 폴더가 없으면 바로가기 건너뜀
   r = connect({ alias: 'wy-host', host: '100.100.1.2', yes: true }, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'ok', config: 'todo', 'remote-ssh': 'ok', shortcut: 'skip', control: 'skip' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'ok', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'skip', control: 'skip' });
   assert.ok(fs.readFileSync(path.join(home, '.ssh', 'config'), 'utf8').includes('    HostName 100.100.1.2\n    User dev\n'));
 
   // 3-6. 개인 키만 있고 .pub이 없으면 손으로
@@ -142,7 +151,7 @@ try {
   const lnks = [];
   const run = (cmd, args) => {
     if (cmd === 'tailscale') return { status: 0, stdout: '', stderr: '' };
-    if (cmd === 'code') return { status: 0, stdout: REMOTE_SSH + '\n', stderr: '' };
+    if (cmd === 'code') return { status: 0, stdout: `${REMOTE_SSH}@0.120.0\r\n${LOCAL_EXT}@${LOCAL_VER}\r\n`, stderr: '' };
     if (cmd === 'where') return { status: 0, stdout: path.join(root2, 'bin', 'code.cmd') + '\r\n', stderr: '' };
     if (cmd === 'powershell' && /Get-Service ssh-agent/.test(args[2])) return { status: 0, stdout: agentRunning ? 'Running\r\n' : 'Stopped\r\n', stderr: '' };
     if (cmd === 'powershell' && /CreateShortcut/.test(args[2])) {
@@ -175,7 +184,7 @@ try {
   // 5-2. ssh-agent가 멈춰 있으면 안내(손으로)·ssh-add 건너뜀, 키는 대화형으로 만듦
   const opts = { alias: 'wy-host', host: 'wy-host', folder: 'C:\\projects\\my-project', attach: 'AB-pm', passphrase: true, yes: true };
   r = connect(opts, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'todo', agent: 'manual', 'ssh-add': 'skip', config: 'todo', 'remote-ssh': 'ok', shortcut: 'todo', attach: 'todo', control: 'todo' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'todo', agent: 'manual', 'ssh-add': 'skip', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'todo', attach: 'todo', control: 'todo' });
   assert.ok(!r.ok, '손으로 할 단계가 남음');
   assert.ok(r.results.every((x) => x.state === 'done'), JSON.stringify(r.results));
   assert.strictEqual(tty.length, 1);

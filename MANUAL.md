@@ -217,7 +217,7 @@ pm 자신:
 
 접속 PC(한 번):
 1. Tailscale을 설치하고 호스트와 같은 계정으로 로그인합니다.
-2. `<설치> connect <별칭> --host <호스트의 Tailscale 이름> [--user <호스트 계정>] [--folder <호스트의 프로젝트 폴더>] [--attach <역할>] [--passphrase]` → 키 생성, `~\.ssh\config` 별칭, Remote-SSH 확장, 바탕화면 바로가기. 끝에 '호스트에서 실행할 한 줄'이 나옵니다. `--attach <역할>`은 그 역할 세션에 바로 붙는 바로가기('<별칭> <역할>')를 하나 더 만들고(호스트 폴더 필요), `--passphrase`는 키에 암호를 걸고 ssh-agent에 한 번 올립니다.
+2. `<설치> connect <별칭> --host <호스트의 Tailscale 이름> [--user <호스트 계정>] [--folder <호스트의 프로젝트 폴더>] [--attach <역할>] [--passphrase]` → 키 생성, `~\.ssh\config` 별칭, Remote-SSH 확장, 접속 PC 소리 확장(`wy-ops.wy-ops-local` — 원격 창의 새 카드 소리를 접속 PC 스피커로, 0.8.4. 버전이 다르면 다시 설치), 바탕화면 바로가기. 끝에 '호스트에서 실행할 한 줄'이 나옵니다. `--attach <역할>`은 그 역할 세션에 바로 붙는 바로가기('<별칭> <역할>')를 하나 더 만들고(호스트 폴더 필요), `--passphrase`는 키에 암호를 걸고 ssh-agent에 한 번 올립니다.
 3. 그 한 줄(`… install.ps1 host --add-key '<공개키>'`)을 호스트의 관리자 PowerShell에서 실행합니다. 같은 키는 다시 넣지 않습니다.
 4. `ssh <별칭>`이 비밀번호 없이 되면 끝. 바로가기를 누르면 VS Code가 호스트의 프로젝트 폴더를 엽니다.
 

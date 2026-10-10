@@ -5,7 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const store = require('./approvalStore');
 const trust = require('./approvalTrust');
-const { ArrivalBell, alertMode, notifyText, playSystemSound } = require('./arrivalBell');
+const { ArrivalBell, alertMode, notifyText, ring } = require('./arrivalBell');
 
 const { loadOpsConfig } = require('./opsConfig');
 
@@ -68,7 +68,7 @@ class ApprovalCenter {
     this.loadTrust();
     this.roleWarnings = [];
     this.endedSessions = [];
-    // 새 카드 알림(설정 wyOps.approvals.sound로 끄기, 기본 켜짐). 로컬 창은 소리, 원격 창은 VS Code 알림(wyOps.approvals.alert)
+    // 새 카드 알림(설정 wyOps.approvals.sound로 끄기, 기본 켜짐). 로컬 창은 소리, 원격 창은 접속 PC 소리+VS Code 알림(wyOps.approvals.alert)
     const config = () => vscode.workspace.getConfiguration && vscode.workspace.getConfiguration('wyOps');
     this.bell = new ArrivalBell({
       enabled: () => {
@@ -78,7 +78,7 @@ class ApprovalCenter {
       play: (ids) => {
         const c = config();
         const mode = alertMode(c ? c.get('approvals.alert', 'auto') : 'auto', vscode.env && vscode.env.remoteName);
-        if (mode.sound) playSystemSound();
+        if (mode.sound) ring(vscode.env && vscode.env.remoteName, (id) => vscode.commands.executeCommand(id));
         if (!mode.notify) return;
         const byId = new Map((this.pendingRows || []).map((r) => [r.id, r]));
         Promise.resolve(vscode.window.showInformationMessage(notifyText(ids.map((id) => byId.get(id) || { id })), '승인 센터 열기'))

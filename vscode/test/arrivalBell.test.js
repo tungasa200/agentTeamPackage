@@ -18,7 +18,7 @@ const writeReq = (id) => {
 };
 
 const { install, EXT } = require('./fakeVscode');
-const { ArrivalBell, soundCommand, alertMode, notifyText } = require(path.join(EXT, 'arrivalBell.js'));
+const { ArrivalBell, soundCommand, alertMode, ring, notifyText, LOCAL_SOUND } = require(path.join(EXT, 'arrivalBell.js'));
 
 function bell(opts = {}) {
   const calls = [];
@@ -96,10 +96,10 @@ test('승인 센터: 켤 때 쌓인 카드는 조용히, 새 요청 파일이 �
   }
 });
 
-test('알림 방법(0.8.0 P2): auto는 로컬 창 소리·원격 창 알림, 나머지는 설정대로', () => {
+test('알림 방법(0.8.4): auto는 로컬 창 소리·원격 창 소리+알림, 나머지는 설정대로', () => {
   assert.deepStrictEqual(alertMode('auto', undefined), { sound: true, notify: false });
-  assert.deepStrictEqual(alertMode('auto', 'ssh-remote'), { sound: false, notify: true });
-  assert.deepStrictEqual(alertMode('이상한 값', 'ssh-remote'), { sound: false, notify: true });
+  assert.deepStrictEqual(alertMode('auto', 'ssh-remote'), { sound: true, notify: true });
+  assert.deepStrictEqual(alertMode('이상한 값', 'ssh-remote'), { sound: true, notify: true });
   assert.deepStrictEqual(alertMode('sound', 'ssh-remote'), { sound: true, notify: false });
   assert.deepStrictEqual(alertMode('notification', undefined), { sound: false, notify: true });
   assert.deepStrictEqual(alertMode('both', undefined), { sound: true, notify: true });
@@ -108,7 +108,42 @@ test('알림 방법(0.8.0 P2): auto는 로컬 창 소리·원격 창 알림, 나
   assert.strictEqual(notifyText([{ id: 'a', title: 'x'.repeat(200) }]).length, 'WY 승인 센터: 새 카드 — '.length + 80);
 });
 
-test('원격 창: 새 카드는 VS Code 알림(카드 제목·승인 센터 열기)으로, 버튼을 누르면 그 카드를 연다', async () => {
+test('소리 내기(0.8.4): 로컬 창은 여기서, 원격 창은 접속 PC 확장 명령으로, 그 확장이 없어 명령이 실패해도 조용히', async () => {
+  const local = [];
+  const executed = [];
+  ring(undefined, (id) => executed.push(id), () => local.push(1));
+  assert.deepStrictEqual([local.length, executed], [1, []]);
+  ring('ssh-remote', (id) => (executed.push(id), Promise.resolve()), () => local.push(1));
+  assert.deepStrictEqual([local.length, executed], [1, [LOCAL_SOUND]]);
+  assert.strictEqual(LOCAL_SOUND, 'wyOps.playLocalSound');
+  ring('ssh-remote', () => Promise.reject(new Error("command 'wyOps.playLocalSound' not found")));
+  ring('ssh-remote', () => {
+    throw new Error('동기 실패');
+  });
+  await new Promise((r) => setImmediate(r));
+  // 접속 PC 확장의 명령 id가 같아야 원격 창에서 넘어간다
+  const localPkg = require(path.join(EXT, '..', 'local-ext', 'package.json'));
+  assert.deepStrictEqual([localPkg.extensionKind, localPkg.activationEvents], [['ui'], [`onCommand:${LOCAL_SOUND}`]]);
+  const localExt = require(path.join(EXT, '..', 'local-ext', 'extension.js'));
+  const registered = {};
+  const sub = [];
+  const Module = require('module');
+  const load = Module._load;
+  Module._load = function (req) {
+    if (req === 'vscode') return { commands: { registerCommand: (id, fn) => ((registered[id] = fn), { dispose() {} }) } };
+    return load.apply(this, arguments);
+  };
+  try {
+    localExt.activate({ subscriptions: sub });
+  } finally {
+    Module._load = load;
+  }
+  assert.deepStrictEqual(Object.keys(registered), [LOCAL_SOUND]);
+  assert.strictEqual(sub.length, 1);
+  assert.deepStrictEqual(localExt.soundCommand('win32', { SystemRoot: 'C:\\Windows' }), soundCommand('win32', { SystemRoot: 'C:\\Windows' }), '같은 소리');
+});
+
+test('원격 창: 새 카드는 접속 PC 소리 명령과 VS Code 알림(카드 제목·승인 센터 열기)으로, 버튼을 누르면 그 카드를 연다', async () => {
   writeReq('old2');
   const fake = install({ workspace: proj });
   fake.settings['wyOps.approvals.sound'] = true;
@@ -126,6 +161,7 @@ test('원격 창: 새 카드는 VS Code 알림(카드 제목·승인 센터 열�
     await new Promise((r) => setImmediate(r));
     const info = fake.messages.slice(before).filter((m) => m[0] === 'info');
     assert.deepStrictEqual(info, [['info', 'WY 승인 센터: 새 카드 — remote1', '승인 센터 열기']]);
+    assert.ok(fake.executed.some((c) => c[0] === LOCAL_SOUND), '접속 PC 소리 명령');
     assert.deepStrictEqual(opened, [{ id: 'remote1' }]);
     center.dispose();
   } finally {

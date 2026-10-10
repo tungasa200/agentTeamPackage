@@ -1,0 +1,19 @@
+{
+  "name": "wy-ops-local",
+  "displayName": "WY Ops — 접속 PC 소리",
+  "description": "Remote-SSH 원격 창에서 WY 승인 센터 새 카드 소리를 이 PC 스피커로 냅니다. install.ps1 connect가 설치합니다",
+  "version": "0.8.4",
+  "publisher": "wy-ops",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onCommand:wyOps.playLocalSound"
+  ],
+  "contributes": {}
+}
