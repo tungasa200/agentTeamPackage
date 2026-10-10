@@ -7,6 +7,7 @@
 // - 승인 파일(decisions/·decisions.log·used/·sessions/·message-blocks.log), 설치본(~/.wy-tools), 프로젝트 설정(.claude/wy-ops.json·wy-ops.local.json·settings.local.json)에
 //   쓰는 셸 명령은 막는다. 읽기(cat·ls·tail·test, 감시 루프)와 읽기 API만 쓰는 node·python·PowerShell 코드는 통과한다.
 //   판단할 수 없으면(쓰기 API·난독화·알 수 없는 코드) 막는다.
+//   설치본 CLI는 읽기 전용 하위 명령(install.ps1 doctor·도움말)만 통과(허용 목록), PowerShell 내용 쓰기의 내용(here-string)은 데이터로 본다.
 // 훅은 오류·시간 초과 때 통과시키므로(fail open), 여기서는 어떤 오류든 종료 코드 2로 막는다.
 const fs = require('fs');
 const os = require('os');
@@ -325,6 +326,81 @@ function splitHeredocs(command) {
   return { command: out.join('\n'), bodies, code: code.join('\n') };
 }
 
+// ── 오탐 수정(2026-10-10 pm): 설치본 CLI의 읽기 전용 하위 명령, PowerShell 내용 쓰기의 데이터 ──────────
+// 설치본 경로가 명령에 있어도 읽기 전용 하위 명령(doctor·도움말)은 통과. deploy·gen·host·connect 등 나머지는 그대로 본다(허용 목록).
+//   powershell [-NoProfile …] -File <…>/install.ps1 doctor, & <…>/install.ps1 doctor, node <…>/lib/install.js doctor
+// --yes는 빠진 도구를 설치하므로 허용 인자에 넣지 않는다. 리디렉션은 버리는 것(2>&1, >$null 등)만
+const READONLY_SUBCMDS = new Set(['doctor', 'help', '--help', '-h', 'version', '--version']);
+const READONLY_FLAGS = new Set(['--json', '--todos', '--skip-install']);
+const NULL_REDIRECT = /^\d?>{1,2}(?:&\d|\/dev\/null|\$null|nul)$/i;
+function readOnlyCli(seg) {
+  const t0 = leadingTokens(seg);
+  if (t0.some((a) => /[`<>]|\$\(/.test(a) && !NULL_REDIRECT.test(a))) return false;
+  let t = t0.filter((a) => !NULL_REDIRECT.test(a));
+  const prog = t.length ? path.basename(t[0].replace(/\\/g, '/')).toLowerCase().replace(/\.exe$/, '') : '';
+  let want = 'install.ps1';
+  if (prog === 'powershell' || prog === 'pwsh') {
+    let i = 1;
+    for (; i < t.length && !/^-(?:file|f)$/i.test(t[i]); i++) {
+      if (/^-(?:executionpolicy|ep|ex|windowstyle|w)$/i.test(t[i])) i++;
+      else if (!/^-(?:noprofile|nop|noninteractive|noni|nologo)$/i.test(t[i])) return false;
+    }
+    t = t.slice(i + 1);
+  } else if (prog === 'node') {
+    want = 'install.js';
+    t = t.slice(1);
+  }
+  const script = (t[0] || '').replace(/\\/g, '/').toLowerCase();
+  if (path.posix.basename(script) !== want || (want === 'install.js' && !/(?:^|\/)lib\/install\.js$/.test(script))) return false;
+  const args = t.slice(1).map((a) => a.toLowerCase());
+  return args.length > 0 && READONLY_SUBCMDS.has(args[0]) && args.slice(1).every((a) => READONLY_FLAGS.has(a));
+}
+// 읽기 전용 CLI 조각을 아무것도 하지 않는 명령으로 바꾼다(나머지 조각은 그대로 판단)
+function neutralizeReadOnlyCli(command) {
+  let out = command;
+  for (const seg of segments(command)) if (readOnlyCli(seg)) out = out.replace(seg, 'true');
+  return out;
+}
+
+// PowerShell 내용 쓰기 명령: 대상은 -Path·첫 위치 인자, 내용(-Value·-InputObject·둘째 위치 인자)은 데이터다.
+// 문서에 덧붙이는 내용에 보호 파일 이름이 들어 있어도 대상만 본다(Add-Content docs/진행현황.md "… wy-ops.json …")
+const CONTENT_WRITERS = new Set(['set-content', 'sc', 'add-content', 'ac', 'out-file']);
+const PS_SWITCHES = new Set(['nonewline', 'force', 'passthru', 'append', 'noclobber', 'whatif', 'confirm', 'asbytestream']);
+function contentArgs(args) {
+  const target = [];
+  const data = [];
+  let pos = 0;
+  for (let i = 0; i < args.length; i++) {
+    const f = /^-([A-Za-z]+)(:?)([\s\S]*)$/.exec(args[i]);
+    if (!f) {
+      (pos++ === 0 ? target : data).push(args[i]);
+      continue;
+    }
+    const name = f[1].toLowerCase();
+    const isData = name.length >= 2 && ('value'.startsWith(name) || 'inputobject'.startsWith(name));
+    if (f[2]) (isData ? data : target).push(f[3]);
+    else if (!PS_SWITCHES.has(name) && i + 1 < args.length) (isData ? data : target).push(args[++i]);
+  }
+  return { target, data };
+}
+
+// PowerShell here-string(@'…'@, @"…"@)은 글자 그대로의 값이다. 내용 쓰기 명령의 내용 자리(-Value·둘째 위치 인자·파이프 입력)에
+// 쓰인 것만 빈 문자열로 바꿔 본문의 보호 이름·> 를 명령으로 보지 않는다. 변수에 담거나 경로·코드로 쓰일 수 있는 자리는 그대로 둔다
+const PS_HERE = /@(['"])[ \t]*\r?\n[\s\S]*?\r?\n\1@/g;
+function dataHereStrings(command) {
+  const found = [];
+  const ph = command.replace(PS_HERE, (m) => `__WYHS${found.push(m) - 1}__`);
+  if (!found.length) return command;
+  const safe = new Set();
+  for (const seg of segments(ph)) {
+    const t = leadingTokens(seg);
+    if (!t.length || !CONTENT_WRITERS.has(path.basename(t[0]).toLowerCase())) continue;
+    for (const a of contentArgs(t.slice(1)).data) for (const m of a.matchAll(/__WYHS(\d+)__/g)) safe.add(Number(m[1]));
+  }
+  for (const m of ph.matchAll(/(?:^|[;\n(]|&&|\|\|)\s*__WYHS(\d+)__\s*\|(?!\|)\s*([\w-]+)/g)) if (CONTENT_WRITERS.has(m[2].toLowerCase())) safe.add(Number(m[1]));
+  return ph.replace(/__WYHS(\d+)__/g, (_, i) => (safe.has(Number(i)) ? "''" : found[Number(i)]));
+}
+
 // s[i]의 여는 괄호에 맞는 닫는 괄호 위치(따옴표 안은 건너뜀). 없으면 -1
 function closeParen(s, i) {
   let depth = 0;
@@ -530,7 +606,7 @@ function codeWritesProtected(code, cwd, strict = true) {
 //    다른 파일에 쓰는 것은 통과(커밋 메시지 본문에 보호 파일 이름이 들어 있는 경우 등)
 //  - 인터프리터는 코드가 읽기 API만 쓸 때만 통과시키고, 판단할 수 없으면 막는다
 function writesApprovalFiles(command, cwd) {
-  command = resolveVars(command);
+  command = dataHereStrings(neutralizeReadOnlyCli(resolveVars(command)));
   // 보호 폴더로 cd 등을 했으면 그 뒤의 모든 쓰기(상대 경로)를 보호 경로 쓰기로 본다
   const moved = movesIntoProtected(command, cwd);
   // 와일드카드 인자를 펼쳐 보호 경로에 닿으면 보호 경로가 언급된 것으로 본다(인터프리터에 인자로 넘기는 우회 포함)
@@ -567,8 +643,13 @@ function writesApprovalFiles(command, cwd) {
     const prog = path.basename(t[0]).toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '');
     const rest = t.slice(1);
     // 쓰기 프로그램은 인자가 보호 경로로 갈 수 있을 때만 막는다(직접 언급·알 수 없는 값·와일드카드 펼친 결과)
-    const risky = moved || mentionsProtected(seg) || rest.some((a) => riskyTarget(a, cwd));
+    // PowerShell 내용 쓰기는 내용(데이터)을 빼고 대상 인자만 본다
+    // 남은 here-string(내용 자리가 아니라 dataHereStrings가 그대로 둔 것)은 토큰으로 나눌 수 없으니 조각 전체로 본다
+    const targets = CONTENT_WRITERS.has(prog) && !/@['"]\s*\n/.test(seg) ? contentArgs(rest).target : null;
+    const risky = moved || (targets ? mentionsProtected(targets.join(' ')) || targets.some((a) => riskyTarget(a, cwd)) : mentionsProtected(seg) || rest.some((a) => riskyTarget(a, cwd)));
     if (WRITERS.has(prog) && risky) return true;
+    // 문자열을 코드로 실행(파이프로 받는 iex): 실행할 코드가 앞 조각에 있으므로 명령 어디든 보호 이름이 나오면 막는다
+    if ((prog === 'iex' || prog === 'invoke-expression') && (mentioned || named)) return true;
     if (prog === 'sed' && rest.some((a) => a.startsWith('-i') || a.startsWith('--in-place')) && (moved || mentionsProtected(seg) || sedFiles(rest).some((a) => riskyTarget(a, cwd)))) return true;
     if (prog === 'find' && risky && rest.some((a) => ['-delete', '-exec', '-execdir', '-ok'].includes(a))) return true;
     if (CODE_INTERPRETERS.has(prog) && (sensitive || named || rest.some(unknownGlob))) {

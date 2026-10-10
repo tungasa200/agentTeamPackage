@@ -137,6 +137,28 @@ const deny = [
   // 요청 폴더로 이동해도 ..로 거슬러 오르거나, 요청 폴더가 아닌 승인 폴더로 이동하면 막는다
   'cd ~/.claude/wy-approvals/my-project/requests && mv a.part ../decisions/a.json',
   'cd ~/.claude/wy-approvals/my-project && mv requests/a.part decisions/a.json',
+  // 2026-10-10: 설치본 CLI는 읽기 전용 하위 명령만 통과 — 쓰는 하위 명령·설치(--yes)·리디렉션·다른 형식은 그대로 막는다
+  'powershell -NoProfile -ExecutionPolicy Bypass -File ~/.wy-tools/wy-ops/current/install.ps1 deploy',
+  'powershell -File ~/.wy-tools/wy-ops/current/install.ps1 gen',
+  W`& "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" host --dry-run`,
+  'node ~/.wy-tools/wy-ops/current/lib/install.js connect h',
+  'powershell -File ~/.wy-tools/wy-ops/current/install.ps1 doctor --yes',
+  'powershell -File ~/.wy-tools/wy-ops/current/install.ps1 doctor > ~/.wy-tools/wy-ops/x.txt',
+  'powershell -File ~/.wy-tools/wy-ops/current/install.ps1 doctor; rm -rf ~/.wy-tools/wy-ops/current',
+  'powershell -Command "& ~/.wy-tools/wy-ops/current/install.ps1 doctor; Remove-Item ~/.wy-tools/x"',
+  'node ~/.wy-tools/wy-ops/current/evil/install.js doctor',
+  'powershell -File ~/.wy-tools/wy-ops/current/install.ps1 doctor $(rm ~/.wy-tools/x)',
+  // PowerShell here-string: 내용 자리가 아닌 곳(경로·변수·코드 실행)은 그대로 본다
+  `Set-Content @'${NL}.claude/wy-ops.json${NL}'@ x`,
+  `$t = @'${NL}.claude/wy-ops.json${NL}'@${NL}Set-Content $t x`,
+  `@'${NL}Remove-Item .claude/wy-ops.json${NL}'@ | iex`,
+  `Add-Content .claude/wy-ops.json @'${NL}x${NL}'@`,
+  `Set-Content -Value @'${NL}x${NL}'@ -Path .claude/settings.local.json`,
+  // 내용 쓰기: 대상(첫 위치 인자·-Path·-FilePath)이 보호 경로이거나 알 수 없는 값이면 내용과 상관없이 막는다
+  'Add-Content .claude/wy-ops.json "docs 메모"',
+  'Set-Content -Value "{}" -LiteralPath .claude/settings.local.json',
+  'Out-File -InputObject x -FilePath:.claude/wy-ops.json',
+  'Add-Content $p "- .claude/wy-ops.json 정리"',
 ];
 const allow = [
   // 읽기
@@ -221,6 +243,21 @@ const allow = [
   `cat >> docs/진행현황.md <<'EOF'${NL}- wy-ops.json·sessions 정리: rm ~/.claude/wy-approvals/my-project/sessions/x.json > .claude/settings.local.json${NL}EOF`,
   // pm 보고(2026-10-10): 작업 폴더 변수로 스크립트를 쓰는 cat here-doc. 데이터 본문의 ?.·[]를 와일드카드로 보고 변수 대상을 막던 오탐
   `cat > "$CLAUDE_JOB_DIR/tmp/cdpshot.mjs" <<'EOF'${NL}const r = await send('Target.attachToTarget', { targetId: t.id });${NL}const sessionId = r?.sessionId;${NL}console.log(arr[0]);${NL}EOF`,
+  // pm 보고(2026-10-10): 설치본의 읽기 전용 하위 명령(doctor·도움말)은 경로가 보호 폴더여도 통과
+  'powershell -NoProfile -ExecutionPolicy Bypass -File ~/.wy-tools/wy-ops/current/install.ps1 doctor',
+  W`powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" doctor --json`,
+  W`& "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" doctor`,
+  'node ~/.wy-tools/wy-ops/current/lib/install.js doctor --todos',
+  'powershell -File ~/.wy-tools/wy-ops/current/install.ps1 --help',
+  'powershell -File ~/.wy-tools/wy-ops/current/install.ps1 doctor 2>&1 | tail -20',
+  'cd ~/.wy-tools/wy-ops/current && powershell -File install.ps1 doctor',
+  // pm 보고(진행현황 134줄): 문서에 덧붙이는 PowerShell here-string 본문에 설정 파일 이름이 있어도 대상(docs/…)만 본다
+  `Add-Content -Encoding utf8 docs/진행현황.md @'${NL}- .claude/wy-ops.json·settings.local.json 정리 > 다음${NL}'@`,
+  `Add-Content -Path docs/진행현황.md -Value @"${NL}- ~/.claude/wy-approvals/my-project/decisions 확인${NL}"@`,
+  `@'${NL}- .claude/wy-ops.json 정리${NL}'@ | Add-Content docs/진행현황.md`,
+  // 따옴표 문자열 내용도 데이터(대상만 본다)
+  'Add-Content docs/진행현황.md "- .claude/wy-ops.json·settings.local.json 정리"',
+  'Add-Content -Path docs/진행현황.md -Value "- ~/.claude/wy-approvals/my-project/decisions 확인"',
 ];
 for (const c of deny) { const e = ev(c); ok(e && e.decision === 'deny', 'should deny: ' + c); }
 // 설정에 commitRole이 없으면 기본 이름 없이 잠금 대상은 모두 거부(커밋 역할 이름으로 띄운 세션도)
