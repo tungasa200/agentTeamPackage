@@ -416,6 +416,9 @@ try {
       sshd: { status: 'Running', start: 'Automatic' }, tailscale: { status: 'Running', start: 'Automatic' },
       firewall: { enabled: 'True', remote: ['100.64.0.0/10'] }, standby: ac(0), hibernate: ac(0),
       sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2 Win32-OpenSSH-GitHub, LibreSSL 4.2.0',
+      // daemon 로그온 작업(0.8.2, D-167)이 맞게 있음
+      claudeExe: 'C:\\claude.exe', daemonTask: { logonType: 'Interactive', runLevel: 'Limited', logonTrigger: true,
+        execute: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', arguments: require('../lib/host').daemonArgs('C:\\claude.exe') },
     };
     r = byId(doctor.checkAll(pc.opts)).host;
     assert.ok(r.level === 'warn' && r.detail.includes('원격 확장') && r.fix.includes(' host'), JSON.stringify(r));

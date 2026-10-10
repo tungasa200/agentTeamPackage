@@ -2,7 +2,7 @@
   "name": "wy-ops-core",
   "displayName": "WY Ops — 세션 현황·승인 센터",
   "description": "메모리·프로세스·Claude 역할 세션 상태를 사이드바에서 보고, WY 승인 센터에서 git 명령 요청을 승인하고 결정 요청에 답한다",
-  "version": "0.8.0",
+  "version": "0.8.2",
   "publisher": "wy-ops",
   "private": true,
   "engines": {

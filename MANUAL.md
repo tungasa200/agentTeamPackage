@@ -210,7 +210,7 @@ pm 자신:
 
 호스트(한 번, **관리자 PowerShell**):
 1. `<설치> host --dry-run`으로 바꿀 목록을 봅니다(관리자가 아니어도 됨).
-2. `<설치> host` → 목록 확인 후 `y`. 하는 일: OpenSSH 서버 설치·자동 시작(Win32-OpenSSH를 winget `Microsoft.OpenSSH.Preview`로 `C:\Program Files\OpenSSH`에. Windows 선택적 기능판이 8.1 미만이거나 실행되지 않으면 먼저 제거. winget이 없으면 MSI 설치 안내), SSH 기본 셸 PowerShell, `sshd_config` 공개키 로그인만(비밀번호 로그인 끔, 고치기 전 백업·`sshd -t` 검사 실패 시 되돌림), `C:\ProgramData\ssh\administrators_authorized_keys` 권한(Administrators·SYSTEM만), 방화벽 OpenSSH 규칙을 Tailscale 대역(`100.64.0.0/10`)만(규칙이 없으면 만들고, 이름이 다른 OpenSSH 허용 규칙도 같은 대역으로 좁힘), 전원 AC 대기·최대 절전 끔(화면 끄기는 그대로), 원격 창용 껍데기 확장(`~\.vscode-server\extensions`). 이미 된 것은 건너뛰므로 여러 번 실행해도 됩니다.
+2. `<설치> host` → 목록 확인 후 `y`. 하는 일: OpenSSH 서버 설치·자동 시작(Win32-OpenSSH를 winget `Microsoft.OpenSSH.Preview`로 `C:\Program Files\OpenSSH`에. Windows 선택적 기능판이 8.1 미만이거나 실행되지 않으면 먼저 제거. winget이 없으면 MSI 설치 안내), SSH 기본 셸 PowerShell, `sshd_config` 공개키 로그인만(비밀번호 로그인 끔, 고치기 전 백업·`sshd -t` 검사 실패 시 되돌림), `C:\ProgramData\ssh\administrators_authorized_keys` 권한(Administrators·SYSTEM만), 방화벽 OpenSSH 규칙을 Tailscale 대역(`100.64.0.0/10`)만(규칙이 없으면 만들고, 이름이 다른 OpenSSH 허용 규칙도 같은 대역으로 좁힘), 전원 AC 대기·최대 절전 끔(화면 끄기는 그대로), claude daemon 로그온 작업 `wy-ops-claude-daemon`(로그온 때 바탕화면에서 `claude daemon run`, 대화형·일반 권한. 등록만 하고 지금 시작하지 않음 — 아래 'claude daemon은 바탕화면 로그온에서'), 원격 창용 껍데기 확장(`~\.vscode-server\extensions`). 이미 된 것은 건너뛰므로 여러 번 실행해도 됩니다.
 3. 자동으로 하지 않는 일은 승인 센터에 할 일 카드로 올라옵니다(프로젝트 폴더 밖에서 실행했으면 출력으로 안내): Tailscale 설치·로그인·Run unattended·이 기기만 키 만료 끔, 자동 로그인(Sysinternals Autologon — 비밀번호를 레지스트리에 평문으로 두는 방식은 쓰지 않음), Windows 업데이트 사용 시간. 이미 된 것(Tailscale 실행·로그인, 자동 로그인 켜짐)은 카드를 올리지 않습니다. 자동 로그인이 레지스트리 평문 비밀번호(`DefaultPassword`)로 켜져 있으면 Autologon으로 바꾸라는 주의가 나옵니다(값은 읽지 않음).
 
 접속 PC(한 번):
@@ -219,7 +219,23 @@ pm 자신:
 3. 그 한 줄(`… install.ps1 host --add-key '<공개키>'`)을 호스트의 관리자 PowerShell에서 실행합니다. 같은 키는 다시 넣지 않습니다.
 4. `ssh <별칭>`이 비밀번호 없이 되면 끝. 바로가기를 누르면 VS Code가 호스트의 프로젝트 폴더를 엽니다.
 
-매일: 바로가기 → 원격 터미널에서 `session.ps1 attach <pm 역할>`(또는 `--attach`로 만든 바로가기) → 카드는 승인 센터 탭에서. 미리보기는 VS Code 포트 탭에서 포워딩해 접속 PC 브라우저의 `localhost`로 봅니다. 재부팅 뒤에는 자동 로그인 → `ssh <별칭>` → 역할 세션을 다시 띄웁니다. doctor의 '호스트' 줄이 sshd·방화벽 범위·Tailscale·전원·원격 창용 확장을 점검합니다(호스트가 아닌 PC는 '해당 없음').
+매일: 바로가기 → 원격 터미널에서 `session.ps1 attach <pm 역할>`(또는 `--attach`로 만든 바로가기) → 카드는 승인 센터 탭에서. 미리보기는 VS Code 포트 탭에서 포워딩해 접속 PC 브라우저의 `localhost`로 봅니다. 재부팅 뒤에는 자동 로그인 → `ssh <별칭>` → 역할 세션을 다시 띄웁니다. doctor의 '호스트' 줄이 sshd·방화벽 범위·Tailscale·전원·daemon 로그온 작업·daemon 로그온 유형·원격 창용 확장을 점검합니다(호스트가 아닌 PC는 '해당 없음').
+
+claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 claude daemon이 띄우고 daemon의 로그온을 그대로 물려받습니다. ssh 키 로그인은 네트워크 로그온(유형 3)이라 거기서 뜬 daemon 아래 세션은 Windows 자격 증명 관리자를 읽지 못해 `git push`·`gh`가 실패합니다. 그래서 호스트는 자동 로그인된 바탕화면 로그온(유형 2)에서 daemon을 띄워 둡니다. `host`가 등록한 로그온 작업이 로그온 때 띄우고, `session.ps1`은 세션을 띄우기 전에 daemon이 없으면 이 작업을 먼저 시작하며 daemon이 바탕화면 로그온이 아니면 경고합니다.
+이미 ssh 쪽 daemon으로 세션을 돌리던 호스트를 옮기는 순서:
+1. pm에서 진행 중인 것을 저장하고(`/ecc:save-session`, short-id는 pm 역할), 지금 돌고 있는 세션 ID를 적어 둡니다(`claude agents`).
+2. 호스트에서 `Start-ScheduledTask wy-ops-claude-daemon`.
+3. daemon의 로그온 유형을 확인합니다(doctor '호스트' 줄의 'daemon 세션 N·로그온 유형 N' — 유형을 못 읽으면 '?'이고 세션 0이면 주의. daemon이 없으면 'daemon 꺼짐', 작업이 없거나 다르면 'daemon 로그온 작업 없음/설정 다름 — install.ps1 host'. 또는 `~\.claude\daemon.lock`의 pid 프로세스의 로그온 세션). 2(10·11도 됨)면 4로. 3이면 ssh 쪽 daemon이 아직 돌고 있어 작업이 새 daemon을 띄우지 못한 것입니다. `claude daemon stop --any`로 멈추고(**모든 백그라운드 세션이 꺼집니다**) 2를 다시 한 뒤 확인합니다.
+4. `session.ps1 start-pm <1의 인수인계 파일>` → `session.ps1 attach <pm 역할>`, 역할 세션은 `session.ps1 start <역할>`로 다시 띄웁니다.
+
+호스트 제어 창(0.8.2): `connect`에 `--folder`와 `--attach <pm 역할>`을 함께 주면 바탕화면에 '<별칭> 제어' 바로가기가 하나 더 생깁니다(추가 설치 없는 PowerShell 창, 콘솔 창은 뜨지 않음. 스크립트 사본은 `~\.wy-tools\connect\host-control.ps1`, 패키지를 갱신한 뒤 `connect`를 다시 실행하면 새 사본으로 바뀝니다).
+- 위쪽: 호스트 응답(깨어 있음/응답 없음), pm 실행 여부(둘 이상이면 경고), pm의 컨텍스트 토큰·교체 권장(`rotation.contextTokens`, 기본 150000 이상)·마지막 활동. 60초마다, 또는 '새로고침'으로 갱신합니다.
+- ① 깨우기: 매직 패킷(UDP 9 브로드캐스트). 호스트와 **같은 집 안 네트워크에서만** 닿습니다. MAC·브로드캐스트 주소는 호스트가 깨어 있을 때 상태 확인이 읽어 `~\.wy-tools\connect\<별칭>.json`에 저장하므로, 처음 한 번은 호스트가 깨어 있을 때 창을 열어 두세요. 보낸 뒤 90초 안에 깨지 않으면 안내가 나옵니다.
+- ② 재우기·③ 재부팅·④ 종료: 확인 창을 거쳐 ssh로 보냅니다. 외출할 때는 재우지 마세요(밖에서는 깨울 수 없음). 재부팅하면 모든 Claude 세션이 꺼지므로 다시 켠 뒤 ⑤를 누릅니다. 종료 뒤 다시 켤 때는 전원 버튼입니다.
+- ⑤ pm 새로 띄우기: 호스트에서 `session.ps1 start-pm <가장 최근 pm 인수인계 파일 또는 none>`. pm이 이미 돌고 있으면 띄우지 않고 ⑥을 안내합니다.
+- ⑥ pm에 붙기: 새 콘솔 창에서 `--attach` 바로가기와 같은 `ssh -t` 명령.
+- ⑦ pm 교체(반자동): 붙기 창을 열고 교체 요청 문구를 클립보드에 넣습니다. 붙여 넣고 Enter를 누르면 pm이 pm-ops 절차대로 진행 중인 것을 저장하고 `start-pm -Force`로 새 pm을 띄운 뒤 이전 자신을 멈춥니다(작업 중이면 그 일을 마친 뒤). 새 pm만 남으면 창이 '⑥ pm에 붙기'를 안내합니다(10분까지 확인).
+- ssh는 창과 따로 돌고 시간 제한이 지나면 끊으므로, 재우기처럼 응답 없이 끊기는 명령에도 창이 굳지 않습니다. `host-control.ps1 … -DryRun`은 버튼이 명령을 실행하지 않고 아래 기록 칸에 명령만 적습니다.
 
 호스트 브라우저 보기·자동화(0.8.0 실측):
 - 호스트의 전용 Chrome(원격 디버깅 9222)을 접속 PC에서 보려면 접속 PC 쪽은 **다른 포트**로 받습니다: `ssh -N -L 19222:localhost:9222 <별칭>` → 접속 PC Chrome의 `chrome://inspect`에 `localhost:19222`를 추가. 접속 PC에서 `-L 9222:…`로 같은 번호를 쓰면 `bind … Permission denied`로 실패할 수 있습니다.
@@ -316,7 +332,7 @@ pm 자신:
 | `quickstart` | 한 줄 설치: 이 PC 설치 + 프로젝트 붙이기 + 로그인·신뢰 안내 + 점검 요약(3-0) | `C:\tools\wy-ops\install.ps1 quickstart` |
 | `global` / `setup` / `init` | 설치를 단계별로 직접(3-1~3-3) | — |
 | `host` | 이 PC를 원격 호스트로(관리자 PowerShell, 3-5). `--dry-run`은 목록만. `--add-key`는 접속 PC 공개키 등록 | `<설치> host`, `<설치> host --add-key 'ssh-ed25519 AAAA… 주석'` |
-| `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기(3-5) | `<설치> connect <별칭> --host <Tailscale 이름>` |
+| `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기·호스트 제어 창(3-5) | `<설치> connect <별칭> --host <Tailscale 이름>` |
 
 공통 옵션: `--yes`(확인 없이 진행), `--project <폴더>`, `--skip-extension`, `--skip-extras`(함께 까는 도구 건너뜀), `--skip-install`(없는 도구를 설치하지 않고 알리기만).
 

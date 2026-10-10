@@ -20,6 +20,9 @@ const DEFAULT_CONFIG = [
   '       AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys',
   '',
 ].join('\r\n');
+const CLAUDE = 'C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe';
+const PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+const goodTask = () => ({ state: 'Ready', logonType: 'Interactive', runLevel: 'Limited', execute: PS, arguments: host.daemonArgs(CLAUDE), logonTrigger: true });
 const powercfg = (sec) => `전원 설정 GUID: 29f6c1db\n  최소 가능한 설정: 0x00000000\n  현재 AC 전원 설정 인덱스: 0x${sec.toString(16).padStart(8, '0')}\n  현재 DC 전원 설정 인덱스: 0x00000384\n`;
 
 // 가짜 PC: 상태(st)를 들고, 명령이 오면 상태를 바꾼다. 부른 명령은 calls에 남긴다
@@ -30,7 +33,7 @@ function fakePc(name, over = {}) {
     calls: [],
     programFiles: path.join(base, name, 'pf'),
     st: { admin: true, sshd: null, tailscale: null, defaultShell: null, firewall: null, standby: 1800, hibernate: 0, keysAcl: null,
-      sshdPath: null, sshdExe: null, sshdVersion: null, builtin: false, fwOthers: [], ...over },
+      sshdPath: null, sshdExe: null, sshdVersion: null, builtin: false, fwOthers: [], claudeExe: CLAUDE, daemonTask: null, daemon: null, ...over },
     winget: true,
     fail: null, // 실패시킬 단계 표식(스크립트 일부 문자열)
     sshdT: 0,
@@ -49,7 +52,12 @@ function fakePc(name, over = {}) {
           firewall: s.firewall, standby: powercfg(s.standby), hibernate: powercfg(s.hibernate), keysAcl: s.keysAcl,
           tailscaleState: s.tailscaleState, autoLogon: s.autoLogon,
           sshdPath: s.sshdPath, sshdExe: s.sshdExe, sshdVersion: s.sshdVersion, builtin: s.builtin, fwOthers: s.fwOthers, denied: s.denied,
+          claudeExe: s.claudeExe, daemonTask: s.daemonTask, daemon: s.daemon,
         }));
+      }
+      if (script.includes('Register-ScheduledTask')) {
+        pc.registered = script;
+        s.daemonTask = goodTask();
       }
       if (script.includes('Remove-WindowsCapability')) Object.assign(s, { builtin: false, sshd: null, sshdPath: null, sshdExe: null, sshdVersion: null });
       if (script.includes('Set-NetFirewallRule -Name ')) s.fwOthers = s.fwOthers.map((r) => (script.includes(`'${r.name}'`) ? { ...r, remote: [host.TAILNET] } : r));
@@ -139,7 +147,7 @@ try {
     const pc = fakePc('fresh');
     const { r, out, todos } = io(pc, []);
     assert.ok(r.ok, out);
-    assert.deepStrictEqual(r.done, ['install', 'service', 'shell', 'config', 'keys', 'firewall', 'power']);
+    assert.deepStrictEqual(r.done, ['install', 'service', 'shell', 'config', 'keys', 'firewall', 'power', 'daemon-task']);
     const cfg = fs.readFileSync(host.paths(pc.programData).config, 'utf8');
     assert.ok(cfg.includes('PasswordAuthentication no') && cfg.includes('PubkeyAuthentication yes'));
     assert.ok(fs.readdirSync(path.join(pc.programData, 'ssh')).some((f) => f.startsWith('sshd_config.bak-')), '설정 백업');
@@ -201,6 +209,9 @@ try {
     const others = [{ name: 'sshd-preview', enabled: true, remote: ['Any'] }, { name: 'off-rule', enabled: false, remote: ['Any'] }];
     assert.ok(!host.fwOk({ enabled: true, remote: [host.TAILNET] }, others));
     assert.ok(host.fwOk({ enabled: true, remote: [host.TAILNET] }, [others[1]]), '꺼진 규칙은 괜찮음');
+    // Windows가 돌려주는 점 표기 마스크도 같은 대역(다른 마스크는 아님)
+    assert.ok(host.fwOk({ enabled: true, remote: ['100.64.0.0/255.192.0.0'] }, [{ name: 'p', enabled: true, remote: ['100.64.0.0/255.192.0.0'] }]), '255.192.0.0 = /10');
+    assert.ok(!host.fwOk({ enabled: true, remote: ['100.64.0.0/255.255.0.0'] }, []), '/16은 다름');
     const pc = fakePc('fw-others', { fwOthers: others.map((r) => ({ ...r, enabled: r.enabled ? 'True' : 'False' })) }); // probe 출력처럼 문자열
     const { r, out } = io(pc, []);
     assert.ok(r.ok, out);
@@ -266,7 +277,7 @@ try {
   {
     const good = {
       sshd: { status: 'Running', start: 'Automatic' }, tailscale: { status: 'Running', start: 'Automatic' }, standby: 0, hibernate: 0,
-      sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2', firewall: null, keysAcl: null,
+      sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2', firewall: null, keysAcl: null, daemonTask: goodTask(),
       denied: ['fwOthers', 'firewall', 'keysAcl'],
     };
     const r = host.check(fakePc('denied', good).run, { platform: 'win32' });
@@ -371,6 +382,7 @@ try {
     const good = {
       sshd: { status: 'Running', start: 'Automatic' }, tailscale: { status: 'Running', start: 'Automatic' },
       firewall: { enabled: 'True', remote: [host.TAILNET] }, standby: 0, hibernate: 0, sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2, LibreSSL 4.2.0',
+      daemonTask: goodTask(), daemon: { pid: 10, session: 1, logonType: 2 },
     };
     assert.strictEqual(check(good).level, 'ok', check(good).detail);
     assert.ok(check(good).detail.includes('OpenSSH 10.0(Program Files)'), check(good).detail);
@@ -382,13 +394,47 @@ try {
       [{ sshdVersion: '' }, 'sshd -V 실행 실패'],
       [{ sshdVersion: 'OpenSSH_7.7p1' }, '8.1 미만'],
       [{ fwOthers: [{ name: 'x', enabled: 'True', remote: ['Any'] }] }, '다른 OpenSSH 규칙'],
+      [{ daemonTask: null }, 'daemon 로그온 작업 없음'],
+      [{ daemonTask: { ...goodTask(), runLevel: 'Highest' } }, 'daemon 로그온 작업 설정 다름'],
+      [{ daemon: { pid: 10, session: 0, logonType: 3 } }, 'daemon 세션 0·로그온 유형 3'],
+      [{ daemon: { pid: 10, session: 0, logonType: null } }, 'daemon 세션 0·로그온 유형 ?'],
     ]) {
       const r = check({ ...good, ...over });
       assert.ok(r.level === 'warn' && r.detail.includes(word), JSON.stringify(r));
     }
+    assert.ok(check(good).detail.includes('daemon 세션 1·로그온 유형 2'), check(good).detail);
+    assert.ok(check({ ...good, daemon: null }).level === 'ok' && check({ ...good, daemon: null }).detail.includes('daemon 꺼짐'));
+    assert.strictEqual(check({ ...good, daemon: { pid: 10, session: 1, logonType: 10 } }).level, 'ok', '원격 대화형(10)도 정상');
+    assert.strictEqual(check({ ...good, daemon: { pid: 10, session: 1, logonType: 3 } }).level, 'warn', '세션 1이어도 네트워크 로그온이면 주의');
     assert.strictEqual(check(good, { serverStub: { exists: false, ok: false } }).level, 'warn');
     assert.strictEqual(check(good, { serverStub: { exists: true, ok: true } }).level, 'ok');
     assert.strictEqual(host.check(() => ({ status: 0, stdout: '5.1.19041.1' }), { platform: 'win32' }).level, 'warn', '읽지 못하면 주의');
+  }
+
+  // daemon 로그온 작업(D-167): 대화형·일반 권한·로그온 트리거로 등록만(시작·정지 없음), session.ps1과 같은 이름, 다시 돌리면 건너뜀
+  {
+    assert.strictEqual(host.DAEMON_TASK, 'wy-ops-claude-daemon');
+    const ps1 = fs.readFileSync(path.join(__dirname, '..', 'templates', 'pm-ops', 'scripts', 'session.ps1'), 'utf8');
+    assert.ok(ps1.includes(`'${host.DAEMON_TASK}'`), 'session.ps1과 작업 이름이 같음');
+    assert.strictEqual(host.daemonArgs("C:\\a'b\\claude.exe"), `-NoProfile -NonInteractive -WindowStyle Hidden -Command "& 'C:\\a''b\\claude.exe' daemon run"`);
+    const pc = fakePc('daemon', { sshd: { status: 'Running', start: 'Automatic' }, defaultShell: PS, firewall: { enabled: 'True', remote: [host.TAILNET] },
+      standby: 0, keysAcl: { protected: true, sids: [host.SID_ADMINS, host.SID_SYSTEM] }, sshdExe: 'C:\\Program Files\\OpenSSH\\sshd.exe', sshdVersion: 'OpenSSH_for_Windows_10.0p2' });
+    fs.mkdirSync(path.join(pc.programData, 'ssh'), { recursive: true });
+    fs.writeFileSync(host.paths(pc.programData).config, host.editSshdConfig(DEFAULT_CONFIG).text);
+    fs.writeFileSync(host.paths(pc.programData).keys, '');
+    const { r, out } = io(pc, []);
+    assert.deepStrictEqual(r.done, ['daemon-task'], out);
+    const sc = pc.registered;
+    for (const w of ['-AtLogOn -User $u', '-LogonType Interactive -RunLevel Limited', '-ExecutionTimeLimit ([TimeSpan]::Zero)', '-MultipleInstances IgnoreNew',
+      "-TaskName 'wy-ops-claude-daemon'", 'WindowsIdentity]::GetCurrent().Name', `-Execute '${PS}'`, `''${CLAUDE}'' daemon run`])assert.ok(sc.includes(w), w);
+    assert.ok(!/Start-ScheduledTask|daemon stop|Stop-Process/.test(sc), '등록만 함');
+    assert.ok(io(pc, []).out.includes('자동으로 바꿀 것 없음'), '두 번째는 건너뜀');
+    // claude.exe 경로가 바뀌면(설치 방식 변경) 다시 등록, claude가 없으면 그 단계에서 실패 안내
+    pc.st.claudeExe = 'C:\\Users\\u\\.local\\bin\\claude.exe';
+    assert.ok(host.plan(pc.st, { programData: pc.programData }).some((s) => s.key === 'daemon-task' && s.detail.includes('다시 등록')));
+    pc.st.claudeExe = null;
+    const miss = io(pc, []);
+    assert.ok(miss.r.failed === 'daemon-task' && miss.out.includes('claude를 찾지 못했습니다'), miss.out);
   }
 
   // 공개 저장소: 손일 안내에 개인 값이 없음(별칭은 자리표시자)

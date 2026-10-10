@@ -99,40 +99,42 @@ function Get-Handoff($name) {
     if ($f) { return $f }
   }
 }
-# ssh로 붙으면 이 스크립트가 세션 0(sshd 아래)에서 돈다. 거기서 띄운 claude는 Windows 자격 증명 관리자를 못 읽어 git push·gh 인증이 실패한다.
-# 그래서 세션 0이면 자동 로그인된 바탕화면 로그온(세션 1 이상)에서 작업 스케줄러 Interactive 작업(현재 사용자, 로그온한 경우에만 실행,
-# 비밀번호 저장 없음)으로 claude를 띄우고 작업은 끝나는 대로 지운다. 세션 1 이상이면 바로 띄운다. WY_OPS_DIRECT=1이면 늘 바로(시험용)
+# 백그라운드 세션은 클라이언트가 아니라 claude daemon이 띄우고, daemon의 로그온을 그대로 물려받는다(D-166, 2026-10-10 실측).
+# ssh 키 로그인은 비밀번호 없는 네트워크 로그온(유형 3)이라 거기서 뜬 daemon 아래 세션은 Windows 자격 증명 관리자를 못 읽어 git push·gh가 실패한다.
+# 그래서 원격 호스트는 바탕화면 로그온(유형 2)에서 daemon을 띄워 둔다: install.ps1 host가 만드는 로그온 예약 작업(아래 $DaemonTask, claude daemon run).
+# 띄우기 전에 daemon을 본다: 없으면 그 작업을 먼저 시작해 ssh 쪽 claude가 네트워크 로그온 daemon을 띄우지 않게 하고, 네트워크 로그온 daemon이면 경고한다.
+# WY_OPS_DAEMON_LOCK·WY_OPS_DAEMON_TASK·WY_OPS_DAEMON_NAME은 시험용(실제 daemon·작업을 건드리지 않게)
+$DaemonTask = if ($env:WY_OPS_DAEMON_TASK) { $env:WY_OPS_DAEMON_TASK } else { 'wy-ops-claude-daemon' }
+$DaemonLock =if ($env:WY_OPS_DAEMON_LOCK) { $env:WY_OPS_DAEMON_LOCK } else { "$env:USERPROFILE\.claude\daemon.lock" }
+$DaemonName = if ($env:WY_OPS_DAEMON_NAME) { $env:WY_OPS_DAEMON_NAME } else { 'claude.exe' }
+function Get-DaemonProc {
+  try { $id = ([IO.File]::ReadAllText($DaemonLock) | ConvertFrom-Json).pid } catch { return $null }
+  if (-not $id) { return $null }
+  $p = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$id)" -ErrorAction SilentlyContinue
+  # daemon이 죽은 뒤 같은 pid를 다른 프로그램이 받았으면 daemon 없음으로 본다
+  if ($p -and $p.Name -eq $DaemonName) { $p }
+}
+function Test-Daemon {
+  $p = Get-DaemonProc
+  if (-not $p -and (Get-ScheduledTask -TaskName $DaemonTask -ErrorAction SilentlyContinue)) {
+    Start-ScheduledTask -TaskName $DaemonTask -ErrorAction SilentlyContinue
+    $deadline = (Get-Date).AddSeconds(30)
+    while (-not $p -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500; $p = Get-DaemonProc }
+    if (-not $p) { Write-Warning "로그온 작업 $DaemonTask 을 시작했지만 30초 안에 claude daemon이 뜨지 않았습니다. 이대로 띄우면 이 로그온에서 daemon이 뜰 수 있습니다." }
+  }
+  if (-not $p) { return }
+  # 로그온 유형 2 대화형, 10 원격 대화형, 11 캐시 대화형이면 자격 증명 관리자를 읽는다
+  $t = (Get-CimAssociatedInstance -InputObject $p -ResultClassName Win32_LogonSession -ErrorAction SilentlyContinue).LogonType
+  if ($t -and $t -notin 2, 10, 11) {
+    Write-Warning ("claude daemon(pid $($p.ProcessId))이 바탕화면이 아닌 로그온(유형 $t, ssh 등)에서 돌고 있습니다. 여기서 띄운 세션은 git push·gh 인증이 실패합니다. " +
+      "옮기기: 세션을 모두 멈춰도 되는 때 claude daemon stop --any → Start-ScheduledTask $DaemonTask → 역할 세션 다시 띄우기(MANUAL 3-5)")
+  }
+}
+# claude가 0이 아닌 코드로 끝나면 throw(성공 문구를 내지 않게)
 function Start-Bg([string[]]$argv) {
-  if ($env:WY_OPS_DIRECT -or (Get-Process -Id $PID).SessionId -ne 0) {
-    Push-Location $Repo; try { claude @argv } finally { Pop-Location }
-    return
-  }
-  if (-not (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -ne 0 })) {
-    throw '바탕화면 로그온이 없어 띄우지 않았습니다(세션 0에서 띄운 claude는 자격 증명 관리자를 못 읽어 git push·gh가 실패). 호스트 PC 자동 로그인을 확인하세요.'
-  }
-  $exe = (Get-Command claude.cmd -ErrorAction SilentlyContinue).Source
-  if (-not $exe) { throw 'claude.cmd를 찾지 못했습니다.' }
-  $log = Join-Path $env:TEMP "wy-ops-bg-$PID.log"
-  # 작업 인자는 한 줄 명령이라 인자마다 큰따옴표로 감싼다. 인자 안의 큰따옴표는 작은따옴표로
-  $line = (@($exe) + $argv | ForEach-Object { '"' + ($_ -replace '"', "'") + '"' }) -join ' '
-  $task = "wy-ops-bg-$PID"
-  $a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument "/d /s /c `"$line > `"$log`" 2>&1`"" -WorkingDirectory $Repo
-  $p = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-  $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
-  try {
-    Register-ScheduledTask -TaskName $task -Action $a -Principal $p -Settings $set -ErrorAction Stop | Out-Null
-    Start-ScheduledTask -TaskName $task -ErrorAction Stop
-    # 0x41303 = 아직 실행 안 됨(이 사용자의 바탕화면 로그온이 없으면 그대로 남는다)
-    $deadline = (Get-Date).AddSeconds(120)
-    do { Start-Sleep -Milliseconds 500; $info = Get-ScheduledTaskInfo -TaskName $task }
-    while ((Get-Date) -lt $deadline -and ((Get-ScheduledTask -TaskName $task).State -eq 'Running' -or $info.LastTaskResult -eq 0x41303))
-    if ($info.LastTaskResult -eq 0x41303) { throw "바탕화면 로그온에서 실행되지 않았습니다($env:USERNAME 로그온 확인)." }
-    if (Test-Path $log) { [IO.File]::ReadAllText($log) }
-    if ($info.LastTaskResult -ne 0) { "claude 종료 코드: $($info.LastTaskResult)" }
-  } finally {
-    Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction SilentlyContinue
-    Remove-Item $log -ErrorAction SilentlyContinue
-  }
+  Test-Daemon
+  Push-Location $Repo; try { claude @argv; $code = $LASTEXITCODE } finally { Pop-Location }
+  if ($code -ne 0) { throw "claude 백그라운드 시작 실패(종료 코드 $code). 위 출력을 확인하세요." }
 }
 # 새 세션: 역할 파일(.claude/agents/<역할>.md)을 --agent로 싣는다. 인수인계 경로가 있으면 그것부터 불러온다
 function Start-New($name, $handoff) {
@@ -208,7 +210,11 @@ switch ($Cmd) {
     if ($s -and (Test-Running $s)) { claude stop $s.id | Out-Null }
     if ($s) { claude rm $s.id | Out-Null }   # 작업 항목만 지운다. 대화 기록 파일은 남는다
     $h = if ($Prompt -and $Prompt -ne 'none') { $Prompt } else { $null }
-    Start-New $Role $h
+    try { Start-New $Role $h }
+    catch {
+      $back = if ($s) { " 이전 $Role 세션은 이미 멈추고 목록에서 지웠습니다(대화 기록은 남음). 이어 띄우기: claude --bg --resume $($s.sessionId) --name $Role '<지시>'" } else { '' }
+      throw "$($_.Exception.Message) 새 세션을 띄우지 못했습니다.$back"
+    }
     "세션을 교체했습니다. 새 세션이 '시작' 또는 인계 확인을 보내면 '멈춰 있는 동안 끝난 일'을 SendMessage로 알려 주세요."
   }
   'adopt' {

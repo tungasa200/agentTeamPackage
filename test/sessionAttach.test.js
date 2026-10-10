@@ -1,6 +1,6 @@
 // session.ps1 attach <역할>·start-pm·pm-cmd: attach는 이름으로 실행 중인 백그라운드 세션 id를 찾아 claude attach(pm 역할 agent:false도 됨), start-pm은 pm을 백그라운드로
 //   node test/sessionAttach.test.js   임시 저장소·가짜 claude(PATH 앞에 둔 claude.cmd)만. 실제 세션은 건드리지 않음
-//   WY_OPS_DIRECT=1: ssh(세션 0)에서 돌려도 작업 스케줄러를 거치지 않고 가짜 claude를 바로 부른다
+//   WY_OPS_DAEMON_LOCK·WY_OPS_DAEMON_TASK·WY_OPS_DAEMON_NAME(node.exe): daemon 점검이 실제 ~/.claude/daemon.lock·로그온 작업 대신 임시 파일·없는 작업 이름을 본다
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -27,13 +27,19 @@ try {
     `if "%1"=="agents" type "${agents}" & exit /b 0`,
     'if "%1"=="attach" echo ATTACH %2 & exit /b 0',
     'if "%1"=="stop" echo STOP %2 & exit /b 0',
+    'if "%1"=="rm" echo RM %2 & exit /b 0',
+    'if "%1"=="--bg" if defined FAKE_BG_FAIL echo BGFAIL %* & exit /b 1',
     'if "%1"=="--bg" echo BG %* & exit /b 0',
     'echo UNEXPECTED %* & exit /b 1',
   ].join('\r\n'));
-  const ps = (args) => {
+  // daemon.lock 대신: 살아 있는 이 node 프로세스의 pid(그래서 로그온 작업을 시작하려 하지 않음)
+  const lock = path.join(tmp, 'daemon.lock');
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid }));
+  const ps = (args, env = {}) => {
     const cmd = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; & '${path.join(scripts, 'session.ps1')}' ${args.join(' ')}`;
     const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], {
-      encoding: 'utf8', windowsHide: true, timeout: 60000, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, WY_OPS_DIRECT: '1' },
+      encoding: 'utf8', windowsHide: true, timeout: 60000,
+      env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, WY_OPS_DAEMON_LOCK: lock, WY_OPS_DAEMON_TASK: 'wy-ops-test-no-such-task', WY_OPS_DAEMON_NAME: path.basename(process.execPath), ...env },
     });
     return (r.stdout || '') + (r.stderr || '');
   };
@@ -93,6 +99,34 @@ try {
   assert.ok(/이미 실행 중입니다\(bg9\)/.test(out) && !/BG /.test(out), `실행 중이면 거부\n${out}`);
   out = ps(['start-pm', `'${handoff}'`, '-Force']);
   assert.ok(/BG --bg --name AB-pm /.test(out) && /claude stop bg9/.test(out), `-Force: 띄우고 이전 pm 멈추기 안내\n${out}`);
+
+  // claude --bg가 실패(종료 코드≠0)하면 성공 문구 없이 실패를 알린다(0.8.2). rotate는 이전 세션을 이미 지웠다고 이어 띄우는 명령까지
+  const fail = { FAKE_BG_FAIL: '1' };
+  write([{ id: 'q5', name: 'AB-qa', kind: 'background', state: 'blocked', status: 'idle', pid: 301, startedAt: 1, sessionId: 'sid-q5' }]);
+  out = ps(['rotate', 'AB-qa', 'none'], fail);
+  assert.ok(/BGFAIL --bg --agent AB-qa/.test(out), `rotate: (멈추고 지운 뒤) 띄우기 시도\n${out}`);
+  assert.ok(/백그라운드 시작 실패\(종료 코드 1\)/.test(out) && /이미 멈추고 목록에서 지웠습니다/.test(out) && out.includes('claude --bg --resume sid-q5 --name AB-qa'), `rotate 실패 안내\n${out}`);
+  assert.ok(!/세션을 교체했습니다/.test(out), `실패면 성공 문구 없음\n${out}`);
+  out = ps(['rotate', 'AB-qa', 'none']);
+  assert.ok(/BG --bg --agent AB-qa/.test(out) && /세션을 교체했습니다/.test(out), `성공이면 그대로\n${out}`);
+  write([]);
+  out = ps(['start-pm'], fail);
+  assert.ok(/백그라운드 시작 실패/.test(out) && !/백그라운드 AB-pm 을 띄웠습니다/.test(out), `start-pm 실패\n${out}`);
+  out = ps(['start', 'AB-qa', "'일'"], fail);
+  assert.ok(/백그라운드 시작 실패/.test(out) && !/새 세션으로 띄웠습니다/.test(out), `start 실패\n${out}`);
+  out = ps(['adopt', 'AB-qa', 'sid-x'], fail);
+  assert.ok(/백그라운드 시작 실패/.test(out) && !/옮겼습니다\. 답을 마치면/.test(out), `adopt 실패\n${out}`);
+  // daemon 점검(D-167): daemon이 바탕화면이 아닌 로그온(ssh 등)이면 경고만 하고 띄운다. daemon이 없고 로그온 작업도 없으면 그냥 띄운다
+  const lt = spawnSync('powershell.exe', ['-NoProfile', '-Command', `(Get-CimAssociatedInstance -InputObject (Get-CimInstance Win32_Process -Filter 'ProcessId=${process.pid}') -ResultClassName Win32_LogonSession).LogonType`], { encoding: 'utf8', windowsHide: true }).stdout.trim();
+  out = ps(['start-pm']);
+  assert.ok(/BG --bg --name AB-pm /.test(out), `띄움\n${out}`);
+  assert.strictEqual(/바탕화면이 아닌 로그온\(유형 \d+/.test(out), !['2', '10', '11'].includes(lt), `로그온 유형 ${lt}에 맞는 경고\n${out}`);
+  if (!['2', '10', '11'].includes(lt)) assert.ok(out.includes('claude daemon stop --any') && out.includes('Start-ScheduledTask wy-ops-test-no-such-task'), `옮기는 방법 안내\n${out}`);
+  // lock의 pid를 claude가 아닌 프로그램이 쓰고 있으면(pid 재사용) daemon 없음으로 보고 경고하지 않는다
+  out = ps(['start-pm'], { WY_OPS_DAEMON_NAME: 'claude.exe' });
+  assert.ok(/BG --bg --name AB-pm /.test(out) && !/바탕화면이 아닌 로그온/.test(out), `pid 재사용은 daemon 없음\n${out}`);
+  out = ps(['start-pm'], { WY_OPS_DAEMON_LOCK: path.join(tmp, 'none.lock') });
+  assert.ok(/BG --bg --name AB-pm /.test(out) && !/로그온 작업/.test(out), `daemon·작업 없음\n${out}`);
 
   // pm-cmd: 원격 운용 순서(start-pm -Force → 이전 pm 종료 → attach)와 예전 대화형 한 줄
   out = ps(['pm-cmd', `'${handoff}'`]);
