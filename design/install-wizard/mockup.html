@@ -86,6 +86,7 @@
 <h1>WY Ops 설치 마법사 목업 (setup.cmd 더블클릭)</h1>
 <p>사용자 결정 카드 20261010-2240: PowerShell + WinForms 마법사. 기준: 개발 지식이 적거나 없는 사람도 단계만 따라가면 설치할 수 있을 것. 문구 원칙: 본문은 한두 문장, 어려운 용어 옆에만 <b>?</b> 도움말(기본 닫힘).</p>
 <p>바탕: <code>install.ps1 quickstart</code>(lib/install.js quickstartCmd, lib/quickstart.js)의 순서를 그대로 화면으로 옮김. 원격 호스트(host·connect)는 범위 밖. 작성 2026-10-10 (디자인 담당), 확정본(카드 20261010-2350).</p>
+<p class="small">보충 2026-10-11: 0.9.0 구현 대조로 구현에만 있던 상태를 그려 넣음(W3-d, W5-c·d·e, W7-c·d, 점검 중, 역할 수 상한 등, pm 결정). W7 [자세히] 창과 W3 개발 도구 줄 이름은 구현 수정 뒤 모습.</p>
 
 <h2 class="sec">확정된 결정 (사용자 결정 카드 20261010-2350, 목업 그대로 승인)</h2>
 <div class="decide">
@@ -102,14 +103,14 @@
 <table class="doc">
 <tr><th>#</th><th>화면</th><th>목적</th><th>입력</th><th>버튼</th><th>실패 시</th><th>도움말(?)이 붙는 용어</th></tr>
 <tr><td>1</td><td>시작</td><td>무엇을 하는지·준비물 알림</td><td>없음</td><td>다음 · 취소</td><td>—</td><td>없음</td></tr>
-<tr><td>2</td><td>프로젝트 폴더</td><td>운영 도구를 붙일 폴더와 이름 정하기</td><td>폴더(찾아보기), 이름(폴더에서 자동). 고급(접힘): 역할 이름 앞글자, 프로젝트 종류, 역할 수</td><td>찾아보기… · 고급 설정 ▸ · 이전 · 다음 · 취소</td><td>이름 형식 틀림 → 칸 아래 빨간 한 줄, 다음 비활성. 패키지 폴더 안 → "이 폴더에는 설치할 수 없습니다"</td><td>(고급만) 역할 이름 앞글자(접두어), 프로젝트 종류(스택)</td></tr>
+<tr><td>2</td><td>프로젝트 폴더</td><td>운영 도구를 붙일 폴더와 이름 정하기</td><td>폴더(찾아보기), 이름(폴더에서 자동). 고급(접힘): 역할 이름 앞글자, 프로젝트 종류, 역할 수</td><td>찾아보기… · 고급 설정 ▸ · 이전 · 다음 · 취소</td><td>이름 형식 틀림 → 칸 아래 빨간 한 줄, 다음 비활성. 폴더 칸이 비었거나 전체 경로가 아님 → "폴더를 골라 주세요." 패키지 폴더 안 → "이 폴더에는 설치할 수 없습니다"</td><td>(고급만) 역할 이름 앞글자(접두어), 프로젝트 종류(스택)</td></tr>
 <tr><td>3</td><td>설치</td><td>필요한 프로그램 설치(묻지 않음) + 폴더 준비 + 운영 도구 파일</td><td>없음(진행 막대)</td><td>(진행 중) 취소 / (끝) 다음</td><td>그 줄에 ✕ + 쉬운 말 원인 + [다시 시도] [로그 저장…]</td><td>Node.js, GitHub 연결 도구(GitHub CLI), 작업 기록 공간(저장소)</td></tr>
 <tr><td>4</td><td>Claude 로그인</td><td>Claude 계정 로그인(대신할 수 없음)</td><td>브라우저에서 로그인</td><td>브라우저 열기 · 계정 만들기(링크) · 이전 · 다음(완료 확인 후)</td><td>5분 동안 확인 안 됨 → "아직 로그인이 확인되지 않았습니다" + [다시 열기]. 1분 뒤(또는 이 상태) "브라우저에 코드가 보이나요?" → 코드 입력(W4-d~f)</td><td>유료 요금제(도움말 안에서 Claude Code 설명)</td></tr>
-<tr><td>5</td><td>GitHub 로그인</td><td>작업을 인터넷에 보관할 계정 연결</td><td>브라우저에 확인 코드 입력</td><td>브라우저 열기 · 코드 복사 · 가입하기(링크) · 나중에 하기 · 이전 · 다음</td><td>코드 만료 → [새 코드 받기]</td><td>GitHub, 확인 코드</td></tr>
+<tr><td>5</td><td>GitHub 로그인</td><td>작업을 인터넷에 보관할 계정 연결</td><td>브라우저에 확인 코드 입력</td><td>브라우저 열기 · 코드 복사 · 가입하기(링크) · 나중에 하기 · 이전 · 다음</td><td>코드 받기 실패 → "확인 코드를 받지 못했습니다" + [로그 저장…](W5-d). 코드 만료 → [새 코드 받기](W5-e)</td><td>GitHub, 확인 코드</td></tr>
 <tr><td>6</td><td>폴더 사용 허락</td><td>Claude가 이 폴더에서 일해도 된다고 허락</td><td>없음</td><td>허락하기 · 이전 · 다음</td><td>기록 실패 → [Claude 창 열기]로 대신 허락(W6-c)</td><td>폴더 사용 허락(폴더 신뢰)</td></tr>
-<tr><td>7</td><td>마침</td><td>점검 결과(초록·노랑)와 다음 할 일</td><td>없음</td><td>VS Code 열기 · 남은 항목별 [지금 하기] · 마침</td><td>빨강(설치 실패가 남음)은 [다시 시도] + [로그 저장…]</td><td>WY Ops 아이콘, 프로젝트 규칙 파일(CLAUDE.md)</td></tr>
+<tr><td>7</td><td>마침</td><td>점검 결과(초록·노랑)와 다음 할 일</td><td>없음</td><td>VS Code 열기 · 남은 항목별 [지금 하기] · 마침</td><td>빨강(설치 실패가 남음, W7-c)은 줄마다 [다시 시도] + VS Code 열기 옆 [로그 저장…]</td><td>WY Ops 아이콘, 프로젝트 규칙 파일(CLAUDE.md)</td></tr>
 </table>
-<p class="small" style="margin-top:8px">공통: 취소 → 확인 창(아래 C). 진행 중(3단계)에는 이전 비활성. 이미 된 단계(로그인됨·허락됨)는 들어오면 바로 "이미 되어 있습니다" 상태로 보여 주고 다음 활성(자동으로 건너뛰지 않음: 왼쪽 단계 표시가 갑자기 뛰지 않게). 다시 실행하면 빠진 것만 채움(quickstart와 같음).</p>
+<p class="small" style="margin-top:8px">공통: 취소 → 확인 창(아래 C). 진행 중(3단계)에는 이전 비활성(예외: "이 폴더를 만들 수 없습니다" 실패 때만 이전 활성). 4단계의 이전은 2단계로 감(설치는 되돌릴 것이 없음). 마침 화면의 [지금 하기]로 4~6단계에 돌아오면 다음 버튼 글자가 "마침으로 &gt;". 이미 된 단계(로그인됨·허락됨)는 들어오면 바로 "이미 되어 있습니다" 상태로 보여 주고 다음 활성(자동으로 건너뛰지 않음: 왼쪽 단계 표시가 갑자기 뛰지 않게). 다시 실행하면 빠진 것만 채움(quickstart와 같음).</p>
 
 <h2 class="sec">② 화면별 목업 (720×520 고정, WinForms 요소만)</h2>
 <p class="small">쓰는 컨트롤: Form(FormBorderStyle=FixedDialog, MaximizeBox=false), Panel(왼쪽 단계 표시), Label, TextBox, Button, LinkLabel, ProgressBar, FolderBrowserDialog, SaveFileDialog, NumericUpDown, ComboBox, 작은 확인 Form, Timer(로그인 확인 2초마다). 도움말: 용어 옆 Button(“?”, AccessibleName “○○ 도움말”) → 아래 Label 칸 Visible 전환(FlowLayoutPanel이라 아래 내용이 밀려 내려감). 글꼴 맑은 고딕 10pt(제목 14pt).</p>
@@ -170,7 +171,7 @@
       <label class="f">폴더</label>
       <div class="row"><div class="tbx" style="flex:1">C:\projects\내 앱</div><button class="btn">찾아보기…</button></div>
       <label class="f" style="margin-top:10px">프로젝트 이름</label>
-      <div class="tbx err" style="width:240px">내 앱</div>
+      <div class="tbx" style="width:240px"></div>
       <div class="errt">이름은 영문·숫자로 적어 주세요. 예: my-app</div>
       <div class="group" style="margin-top:10px"><span class="lnk">고급 설정 ▾</span>
         <div class="adv">
@@ -186,7 +187,7 @@
   </div>
   <div class="foot"><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
 </div>
-<div class="notes">한글 폴더명이면 이름을 못 채우므로 비워 두고 오류 줄 표시. 고급: 프로젝트 종류 ComboBox(자동으로 알아내기 / Node.js / Python / Java(Gradle) / C# / C++ / 기타), 역할 수 NumericUpDown 0~4(총괄·커밋은 고정이라 표시 안 함, 외부 서비스 1도 기본값 그대로 숨김 — 4개 칸이 넘치면 줄바꿈). 고급 값이 기본과 다르면 '고급 설정 ▸ (바꿈)'으로 표시.</div></div>
+<div class="notes">한글 폴더명이면 이름을 못 채우므로 비워 두고 오류 줄 표시(칸 색은 바꾸지 않고 칸 아래 빨간 글자 한 줄만). 폴더 칸이 비었으면 폴더 아래 "폴더를 골라 주세요." 고급: 프로젝트 종류 ComboBox(자동으로 알아내기 / Node.js / Python / Java(Gradle) / C# / C++ / 기타), 역할 수 NumericUpDown — 기획·디자인 0~1(나눌 수 없는 역할), 서버·화면·테스트 0~4(총괄·커밋은 고정이라 표시 안 함, 외부 서비스 1도 기본값 그대로 숨김 — 4개 칸이 넘치면 줄바꿈). 고급 값이 기본과 다르면 '고급 설정 ▸ (바꿈)'으로 표시.</div></div>
 
 <!-- 3a 설치 진행 -->
 <div class="frame"><div class="cap">W3-a 설치 <span>— 진행 중, 도움말 닫힘</span></div>
@@ -211,7 +212,7 @@
   </div>
   <div class="foot"><span class="sp"></span><button class="btn dis">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
 </div>
-<div class="notes">화면에 들어오면 묻지 않고 바로 시작. 줄 상태: ✓ 이미 있음/설치함(초록), ⟳ 설치 중(파랑), · 기다림(회색), ✕ 실패(빨강) — 기호와 글자를 함께 써 색만으로 구별하지 않음. 모두 끝나면 다음 활성 + 상태 줄 "설치를 마쳤습니다". 'WY Ops 도구'=설치본·VS Code 확장, '프로젝트 폴더 준비'=폴더 만들기·git init·운영 도구 파일·CLAUDE.md(사람에게는 한 줄로만 보임). 스택 개발 도구(JDK 등)가 필요하면 줄이 하나 늘어남(묻지 않음).</div></div>
+<div class="notes">화면에 들어오면 묻지 않고 바로 시작. 줄 상태: ✓ 이미 있음/설치함(초록), ⟳ 설치 중(파랑), · 기다림(회색), ✕ 실패(빨강) — 기호와 글자를 함께 써 색만으로 구별하지 않음. 모두 끝나면 다음 활성 + 상태 줄 "설치를 마쳤습니다". 'WY Ops 도구'=설치본·VS Code 확장, '프로젝트 폴더 준비'=폴더 만들기·git init·운영 도구 파일·CLAUDE.md(사람에게는 한 줄로만 보임). 스택 개발 도구(JDK 등)가 필요하면 줄이 하나 늘어남(묻지 않음). 줄 이름은 "○○ 개발 도구"(예: Java 개발 도구, Python 개발 도구)처럼 쉬운 이름을 쓰고 내부 이름(stack-…)은 보이지 않음. Git이 없는 PC면 맨 위에 "Git" 줄이 생기고, 이미 있으면 줄을 만들지 않음. '프로젝트 폴더 준비'가 진행 중이면 상태 글자는 "준비 중…". 설치 중에 취소 → 확인 창에서 [멈추기]를 고르면 진행 글자 자리에 "지금 설치하던 프로그램이 끝나면 닫습니다."를 보인 뒤 닫힘.</div></div>
 
 <!-- 3b 설치 도움말 -->
 <div class="frame"><div class="cap">W3-b 설치 <span>— 'GitHub 연결 도구' 도움말 펼침, 모두 끝남</span></div>
@@ -264,7 +265,34 @@
   </div>
   <div class="foot"><span class="sp"></span><button class="btn dis">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
 </div>
-<div class="notes">실패한 줄에서 멈추고 아래 줄은 기다림. [다시 시도]는 실패한 줄부터 이어서. [로그 저장…]은 SaveFileDialog(기본 이름 wy-ops-설치기록-날짜.txt, 바탕화면). 원인별 첫 문장은 ③ 문구 표 '실패 문구'. 원문 오류는 화면에 보이지 않고 로그에만.</div></div>
+<div class="notes">실패한 줄에서 멈추고 아래 줄은 기다림. [다시 시도]는 실패한 줄부터 이어서. [로그 저장…]은 SaveFileDialog(기본 이름 wy-ops-설치기록-날짜.txt, 바탕화면). 원인별 첫 문장은 ③ 문구 표 '실패 문구'. 원문 오류는 화면에 보이지 않고 로그에만. 이전은 비활성이고, "이 폴더를 만들 수 없습니다"(폴더 권한·드라이브) 실패 때만 활성(문구가 [이전]을 안내하므로).</div></div>
+
+<!-- 3d 작업 기록 공간 실패 -->
+<div class="frame"><div class="cap">W3-d 설치 <span>— '프로젝트 폴더 준비' 실패: 작업 기록 공간, 도움말 펼침</span></div>
+<div class="win">
+  <div class="tb"><div class="ico">WY</div><div class="t">WY Ops 설치</div><div class="x">✕</div></div>
+  <div class="main">
+    <ol class="steps"><li class="done"><span class="n">✓</span>시작</li><li class="done"><span class="n">✓</span>프로젝트 폴더</li><li class="cur"><span class="n">3</span>설치</li><li><span class="n">4</span>Claude 로그인</li><li><span class="n">5</span>GitHub 로그인</li><li><span class="n">6</span>폴더 사용 허락</li><li><span class="n">7</span>마침</li></ol>
+    <div class="content">
+      <h3>필요한 프로그램을 설치합니다</h3>
+      <ul class="list">
+        <li><span class="s ok">✓</span><span class="nm">Node.js</span><span class="st">설치함</span></li>
+        <li><span class="s ok">✓</span><span class="nm">GitHub 연결 도구</span><span class="st">설치함</span></li>
+        <li><span class="s ok">✓</span><span class="nm">VS Code</span><span class="st">설치함</span></li>
+        <li><span class="s ok">✓</span><span class="nm">Claude Code</span><span class="st">설치함</span></li>
+        <li><span class="s ok">✓</span><span class="nm">WY Ops 도구</span><span class="st">설치함</span></li>
+        <li><span class="s bad">✕</span><span class="nm">프로젝트 폴더 준비</span><span class="st bad">설치하지 못함</span></li>
+      </ul>
+      <div class="fail">
+        <b>폴더에 작업 기록 공간을 만들지 못했습니다.</b> [다시 시도]를 누르세요. <button class="q on" aria-label="작업 기록 공간 도움말">?</button>
+        <div class="help" style="margin-top:6px">폴더 안에 바뀐 기록을 모아 두는 공간입니다. 영어로 repository라고 합니다.</div>
+        <div class="row"><button class="btn primary">다시 시도</button><button class="btn">로그 저장…</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span class="sp"></span><button class="btn dis">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
+</div>
+<div class="notes">'작업 기록 공간' 도움말은 이 실패 문구에만 붙음(③ 도움말 표). 다른 '프로젝트 폴더 준비' 실패는 W3-c와 같은 꼴.</div></div>
 
 <!-- 4a Claude 로그인 -->
 <div class="frame"><div class="cap">W4-a Claude 로그인 <span>— 시작 전, 도움말 닫힘</span></div>
@@ -282,7 +310,7 @@
   </div>
   <div class="foot"><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
 </div>
-<div class="notes">[브라우저 열기] = 창 없이 <code>claude auth login</code> 실행(브라우저가 열림). [계정 만들기] = claude.ai 가입 페이지. 이미 로그인돼 있으면 W4-c 상태로 바로 표시.</div></div>
+<div class="notes">[브라우저 열기] = 창 없이 <code>claude auth login</code> 실행(브라우저가 열림). [계정 만들기] = claude.ai 가입 페이지. 이미 로그인돼 있으면 W4-c 상태로 바로 표시. [이전]은 2단계(프로젝트 폴더)로 감: 설치는 되돌릴 것이 없어 건너뜀.</div></div>
 
 <!-- 4b Claude 기다림 + 도움말 -->
 <div class="frame"><div class="cap">W4-b Claude 로그인 <span>— 브라우저에서 기다리는 중, 도움말 펼침</span></div>
@@ -311,6 +339,7 @@
     <div class="content">
       <h3>Claude에 로그인하세요</h3>
       <p class="lead">브라우저에서 로그인하면 이 창이 알아서 확인합니다.</p>
+      <div class="row" style="gap:6px">Claude 계정(유료 요금제)이 필요합니다 <button class="q" aria-label="유료 요금제 도움말">?</button></div>
       <div class="status"><span class="big run">⟳</span><div><b>브라우저에서 로그인을 기다리는 중입니다.</b><br><span class="small">로그인을 마치면 자동으로 다음으로 넘어갈 수 있습니다. 브라우저가 안 열렸으면 <span class="lnk">다시 열기</span></span></div></div>
       <div style="margin-top:8px"><span class="lnk">브라우저에 코드가 보이나요?</span></div>
     </div>
@@ -328,6 +357,7 @@
     <div class="content">
       <h3>Claude에 로그인하세요</h3>
       <p class="lead">브라우저에서 로그인하면 이 창이 알아서 확인합니다.</p>
+      <div class="row" style="gap:6px">Claude 계정(유료 요금제)이 필요합니다 <button class="q" aria-label="유료 요금제 도움말">?</button></div>
       <div class="status"><span class="big run">⟳</span><div><b>브라우저에서 로그인을 기다리는 중입니다.</b><br><span class="small">로그인을 마치면 자동으로 다음으로 넘어갈 수 있습니다. 브라우저가 안 열렸으면 <span class="lnk">다시 열기</span></span></div></div>
       <div class="group" style="margin-top:12px">
         <label class="f">브라우저에 보이는 코드를 붙여 넣으세요</label>
@@ -338,7 +368,7 @@
   </div>
   <div class="foot"><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
 </div>
-<div class="notes">링크를 누르면 그 자리에 펼쳐지고(링크는 숨김) 입력 칸에 포커스. [확인] = 붙여 넣은 코드를 로그인 과정에 넘김(앞뒤 공백 제거). 확인하는 동안 [확인]은 "확인 중…"으로 끔. 맞으면 W4-c. [코드 받는 주소 열기] = 로그인 주소를 브라우저로 다시 엶(같은 로그인 과정, 새 과정을 시작하지 않음).</div></div>
+<div class="notes">링크를 누르면 그 자리에 펼쳐지고(링크는 숨김) 입력 칸에 포커스. [확인] = 붙여 넣은 코드를 로그인 과정에 넘김(앞뒤 공백 제거). 확인하는 동안 [확인]은 "확인 중…"으로 끄고 입력 칸도 끔. 로그인되기 전까지 "Claude 계정(유료 요금제)이 필요합니다 ?" 줄은 W4-a~f 모두에 남음. 맞으면 W4-c. [코드 받는 주소 열기] = 로그인 주소를 브라우저로 다시 엶(같은 로그인 과정, 새 과정을 시작하지 않음).</div></div>
 
 <!-- 4f Claude 코드 틀림 -->
 <div class="frame"><div class="cap">W4-f Claude 로그인 <span>— 코드가 맞지 않음</span></div>
@@ -349,6 +379,7 @@
     <div class="content">
       <h3>Claude에 로그인하세요</h3>
       <p class="lead">브라우저에서 로그인하면 이 창이 알아서 확인합니다.</p>
+      <div class="row" style="gap:6px">Claude 계정(유료 요금제)이 필요합니다 <button class="q" aria-label="유료 요금제 도움말">?</button></div>
       <div class="status"><span class="big run">⟳</span><div><b>브라우저에서 로그인을 기다리는 중입니다.</b><br><span class="small">로그인을 마치면 자동으로 다음으로 넘어갈 수 있습니다. 브라우저가 안 열렸으면 <span class="lnk">다시 열기</span></span></div></div>
       <div class="group" style="margin-top:12px">
         <label class="f">브라우저에 보이는 코드를 붙여 넣으세요</label>
@@ -394,7 +425,7 @@
   </div>
   <div class="foot"><span class="lnk" style="font-size:12px">나중에 하기</span><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
 </div>
-<div class="notes">[브라우저 열기] = 창 없이 <code>gh auth login --web --git-protocol https</code>(지금의 질문 3개를 기본값으로 대신 답함) → 코드를 받아 W5-b로. [나중에 하기]는 결정 ③(허용): 마침 화면에 노랑 + 승인 센터 할 일 카드.</div></div>
+<div class="notes">[브라우저 열기] = 창 없이 <code>gh auth login --web --git-protocol https</code>(지금의 질문 3개를 기본값으로 대신 답함) → 코드를 받아 W5-b로. [나중에 하기]는 결정 ③(허용): 마침 화면에 노랑 + 승인 센터 할 일 카드. [브라우저 열기]를 누른 뒤 코드가 올 때까지는 버튼 위에 상태 상자 "⟳ 확인 코드를 받는 중입니다. / 잠시 기다려 주세요."</div></div>
 
 <!-- 5b GitHub 코드 -->
 <div class="frame"><div class="cap">W5-b GitHub 로그인 <span>— 확인 코드 표시, 기다리는 중, 도움말 닫힘</span></div>
@@ -411,7 +442,62 @@
   </div>
   <div class="foot"><span class="lnk" style="font-size:12px">나중에 하기</span><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
 </div>
-<div class="notes">코드는 gh 출력에서 읽어 표시(예시 값). [코드 복사] 후 버튼 글자가 2초간 "복사함". 확인 코드 도움말: "이 PC와 브라우저의 로그인을 짝지어 주는 일회용 코드입니다. 몇 분 뒤 만료되면 [새 코드 받기]를 누르세요." 됨 상태는 W4-c와 같은 모양("GitHub에 로그인되었습니다").</div></div>
+<div class="notes">코드는 gh 출력에서 읽어 표시(예시 값). [코드 복사] 후 버튼 글자가 2초간 "복사함". 확인 코드 도움말: "이 PC와 브라우저의 로그인을 짝지어 주는 일회용 코드입니다. 몇 분 뒤 만료되면 [새 코드 받기]를 누르세요." 됨 상태는 W5-c.</div></div>
+
+<!-- 5c GitHub 됨 -->
+<div class="frame"><div class="cap">W5-c GitHub 로그인 <span>— 됨</span></div>
+<div class="win">
+  <div class="tb"><div class="ico">WY</div><div class="t">WY Ops 설치</div><div class="x">✕</div></div>
+  <div class="main">
+    <ol class="steps"><li class="done"><span class="n">✓</span>시작</li><li class="done"><span class="n">✓</span>프로젝트 폴더</li><li class="done"><span class="n">✓</span>설치</li><li class="done"><span class="n">✓</span>Claude 로그인</li><li class="cur"><span class="n">5</span>GitHub 로그인</li><li><span class="n">6</span>폴더 사용 허락</li><li><span class="n">7</span>마침</li></ol>
+    <div class="content">
+      <h3>GitHub에 로그인하세요</h3>
+      <p class="lead">만든 작업을 GitHub에 안전하게 보관합니다.</p>
+      <div class="status"><span class="big ok">✓</span><div><b>GitHub에 로그인되었습니다.</b><br><span class="small">[다음]을 누르세요.</span></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn primary">다음 &gt;</button><button class="btn">취소</button></div>
+</div>
+<div class="notes">처음부터 로그인돼 있던 경우 문구는 "이미 로그인되어 있습니다." 됨이면 [나중에 하기]와 브라우저 열기는 숨김.</div></div>
+
+<!-- 5d GitHub 코드 받기 실패 -->
+<div class="frame"><div class="cap">W5-d GitHub 로그인 <span>— 확인 코드를 받지 못함</span></div>
+<div class="win">
+  <div class="tb"><div class="ico">WY</div><div class="t">WY Ops 설치</div><div class="x">✕</div></div>
+  <div class="main">
+    <ol class="steps"><li class="done"><span class="n">✓</span>시작</li><li class="done"><span class="n">✓</span>프로젝트 폴더</li><li class="done"><span class="n">✓</span>설치</li><li class="done"><span class="n">✓</span>Claude 로그인</li><li class="cur"><span class="n">5</span>GitHub 로그인</li><li><span class="n">6</span>폴더 사용 허락</li><li><span class="n">7</span>마침</li></ol>
+    <div class="content">
+      <h3>GitHub에 로그인하세요</h3>
+      <div class="row lead" style="gap:6px;margin-bottom:6px">만든 작업을 GitHub에 안전하게 보관합니다. <button class="q" aria-label="GitHub 도움말">?</button></div>
+      <div class="fail">
+        <b>확인 코드를 받지 못했습니다.</b> 인터넷 연결을 확인하고 [브라우저 열기]를 다시 누르세요.
+        <div class="row"><button class="btn">로그 저장…</button></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn primary big">브라우저 열기</button></div>
+      <div class="small" style="margin-top:10px">계정이 없나요? <span class="lnk">가입하기</span></div>
+    </div>
+  </div>
+  <div class="foot"><span class="lnk" style="font-size:12px">나중에 하기</span><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
+</div>
+<div class="notes">GitHub 연결 도구가 코드를 내주지 못하고 끝났을 때. [다시 시도] 대신 [브라우저 열기]가 처음부터 다시 함(같은 동작이라 버튼을 하나만 둠). [나중에 하기]로 넘어갈 수 있음.</div></div>
+
+<!-- 5e GitHub 코드 만료 -->
+<div class="frame"><div class="cap">W5-e GitHub 로그인 <span>— 확인 코드 만료</span></div>
+<div class="win">
+  <div class="tb"><div class="ico">WY</div><div class="t">WY Ops 설치</div><div class="x">✕</div></div>
+  <div class="main">
+    <ol class="steps"><li class="done"><span class="n">✓</span>시작</li><li class="done"><span class="n">✓</span>프로젝트 폴더</li><li class="done"><span class="n">✓</span>설치</li><li class="done"><span class="n">✓</span>Claude 로그인</li><li class="cur"><span class="n">5</span>GitHub 로그인</li><li><span class="n">6</span>폴더 사용 허락</li><li><span class="n">7</span>마침</li></ol>
+    <div class="content">
+      <h3>GitHub에 로그인하세요</h3>
+      <div class="row lead" style="gap:6px">열린 브라우저에 아래 코드를 넣으세요. <button class="q" aria-label="확인 코드 도움말">?</button></div>
+      <div class="row" style="gap:12px"><span class="code">4F2A-9C1B</span><button class="btn">코드 복사</button><button class="btn primary">새 코드 받기</button></div>
+      <div class="status"><span class="big wrn">!</span><div><b>코드가 만료되었습니다.</b><br><span class="small">[새 코드 받기]를 눌러 새 코드를 받으세요.</span></div></div>
+    </div>
+  </div>
+  <div class="foot"><span class="lnk" style="font-size:12px">나중에 하기</span><span class="sp"></span><button class="btn">&lt; 이전</button><button class="btn dis">다음 &gt;</button><button class="btn">취소</button></div>
+</div>
+<div class="notes">[새 코드 받기]는 만료된 뒤에만 코드 옆에 나타남. 누르면 W5-b(새 코드)로.</div></div>
+
 
 <!-- 6a 허락 -->
 <div class="frame"><div class="cap">W6-a 폴더 사용 허락 <span>— 기본, 도움말 닫힘</span></div>
@@ -492,7 +578,7 @@
   </div>
   <div class="foot"><span class="sp"></span><button class="btn dis">&lt; 이전</button><button class="btn">마침</button></div>
 </div>
-<div class="notes">점검(doctor) 결과를 사람이 거친 단계 이름으로 묶어 보여 줌(점검 항목 이름은 숨김). 마침 화면에서 취소는 없음, 다음 자리에 [마침]. WY Ops 아이콘 도움말: "VS Code 왼쪽 세로 막대에 있는 WY 모양 아이콘입니다. 누르면 AI 도우미들의 상태와 승인할 일이 보입니다. 안 보이면 VS Code를 닫았다가 다시 여세요."(Reload Window 대신)</div></div>
+<div class="notes">들어오면 먼저 제목 "설치를 마무리하고 있습니다" + 상태 상자 "⟳ 마지막 점검 중입니다. / 잠시 기다려 주세요."(이전·다음 끔)를 보이고, 끝나면 결과로 바뀜. 점검(doctor) 결과를 사람이 거친 단계 이름으로 묶어 보여 줌(점검 항목 이름은 숨김). 마침 화면에서 취소는 없음, 다음 자리에 [마침]. WY Ops 아이콘 도움말: "VS Code 왼쪽 세로 막대에 있는 WY 모양 아이콘입니다. 누르면 AI 도우미들의 상태와 승인할 일이 보입니다. 안 보이면 VS Code를 닫았다가 다시 여세요."(Reload Window 대신)</div></div>
 
 <!-- 7b 마침 노랑 -->
 <div class="frame"><div class="cap">W7-b 마침 <span>— 남은 일 있음(노랑), '프로젝트 규칙 파일' 도움말 펼침</span></div>
@@ -514,7 +600,37 @@
   </div>
   <div class="foot"><span class="sp"></span><button class="btn dis">&lt; 이전</button><button class="btn">마침</button></div>
 </div>
-<div class="notes">노랑(!)은 남은 것, 먼저 보이게 위에. [지금 하기] = 그 단계 화면으로 돌아감(끝나면 마침으로 복귀). [붙일 내용 보기] = 메모장으로 .claude/ops/CLAUDE.part.md 열기. 남은 일은 지금처럼 승인 센터 할 일 카드로도 올림. 빨강(✕, 설치 실패가 남음)이 있으면 제목 "설치를 끝내지 못했습니다" + [다시 시도] [로그 저장…], VS Code 열기는 그대로 둠.</div></div>
+<div class="notes">노랑(!)은 남은 것, 먼저 보이게 위에. [지금 하기] = 그 단계 화면으로 돌아감(끝나면 마침으로 복귀). [붙일 내용 보기] = 메모장으로 .claude/ops/CLAUDE.part.md 열기. 남은 일은 지금처럼 승인 센터 할 일 카드로도 올림. 남은 일 종류(이 순서): GitHub 로그인을 건너뛰었습니다 [지금 하기] / Claude 로그인이 확인되지 않았습니다 [지금 하기] / 폴더 사용 허락이 확인되지 않았습니다 [지금 하기] / 프로젝트 규칙 파일이 이미 있어 그대로 두었습니다 [붙일 내용 보기] / 프로그램 설치(또는 프로젝트 폴더 준비)에 확인할 것이 있습니다 [자세히] → W7-d 창. 빨강은 W7-c.</div></div>
+
+<!-- 7c 마침 빨강 -->
+<div class="frame"><div class="cap">W7-c 마침 <span>— 설치를 끝내지 못함(빨강)</span></div>
+<div class="win">
+  <div class="tb"><div class="ico">WY</div><div class="t">WY Ops 설치</div><div class="x">✕</div></div>
+  <div class="main">
+    <ol class="steps"><li class="done"><span class="n">✓</span>시작</li><li class="done"><span class="n">✓</span>프로젝트 폴더</li><li class="done"><span class="n">✓</span>설치</li><li class="done"><span class="n">✓</span>Claude 로그인</li><li class="warn"><span class="n">!</span>GitHub 로그인</li><li class="done"><span class="n">✓</span>폴더 사용 허락</li><li class="cur"><span class="n">7</span>마침</li></ol>
+    <div class="content">
+      <h3>설치를 끝내지 못했습니다</h3>
+      <ul class="list res">
+        <li><span class="s bad">✕</span><span class="nm">프로그램 설치를 끝내지 못했습니다</span><span class="act"><button class="btn primary">다시 시도</button></span></li>
+        <li><span class="s wrn">!</span><span class="nm">GitHub 로그인을 건너뛰었습니다</span><span class="act"><button class="btn">지금 하기</button></span></li>
+        <li><span class="s ok">✓</span><span class="nm">나머지 3개는 됐습니다</span></li>
+      </ul>
+      <div class="row" style="margin-top:16px"><button class="btn primary big">VS Code 열기</button><button class="btn">로그 저장…</button></div>
+    </div>
+  </div>
+  <div class="foot"><span class="sp"></span><button class="btn dis">&lt; 이전</button><button class="btn">마침</button></div>
+</div>
+<div class="notes">빨강 줄이 맨 위, 줄마다 [다시 시도](3단계로 돌아가 실패한 곳부터). 본문 안내 줄은 없음. [로그 저장…]은 빨강이 있을 때만 VS Code 열기 옆.</div></div>
+
+<!-- 7d 자세히 창 -->
+<div class="frame" style="width:auto"><div class="cap">W7-d [자세히] 창 <span>— MessageBox, W7-b의 '○○에 확인할 것이 있습니다'</span></div>
+<div class="mbox">
+  <div class="tb"><div class="t" style="padding-left:12px">WY Ops 설치</div><div class="x">✕</div></div>
+  <div class="body"><div class="qi">i</div><div><b>VS Code를 다시 열어 주세요.</b><br>WY Ops 화면이 아직 보이지 않을 수 있습니다. VS Code를 닫았다가 다시 열면 나타납니다.</div></div>
+  <div class="foot"><button class="btn primary">확인</button></div>
+</div>
+<div class="notes" style="max-width:420px">점검 결과를 그대로 보여 주지 않고 항목마다 쉬운 말 두 줄(굵은 첫 줄 = 무엇이 남았나, 둘째 줄 = 할 일)로 바꿔 보여 줌. '쓰지 않는 용어' 표의 말(점검 항목 이름, 설치본·확장·훅·설정 파일 이름, 명령)은 나오지 않음. 바꿀 말이 없는 항목은 "○○를 확인하지 못했습니다. setup을 다시 실행해 주세요." 항목이 여럿이면 빈 줄로 나눔. 위 예시 외 항목별 문구는 구현 때 정함.</div></div>
+
 
 <!-- C 취소 확인 -->
 <div class="frame" style="width:auto"><div class="cap">C 취소 확인 <span>— 작은 Form(ShowDialog, 버튼 글자를 바꿔야 해서 MessageBox 대신), 어느 단계에서든 취소·✕</span></div>
@@ -532,12 +648,12 @@
 <table class="doc">
 <tr><th>화면</th><th>제목</th><th>본문(한두 문장)</th><th>상태·버튼 문구</th></tr>
 <tr><td>W1</td><td>WY Ops 설치를 시작합니다</td><td>AI 도우미 여러 명이 한 프로젝트에서 나눠 일하도록 이 PC를 준비합니다. 화면의 안내대로 [다음]만 누르면 됩니다.</td><td>준비할 것: 인터넷 연결 / Claude 계정(유료 요금제) / GitHub 계정(없으면 중간에 만들 수 있습니다). 보통 10~20분 걸립니다. 중간에 멈춰도 다시 실행하면 이어서 합니다.</td></tr>
-<tr><td>W2</td><td>프로젝트 폴더를 고르세요</td><td>AI 도우미들이 일할 폴더입니다. 없는 폴더면 새로 만듭니다.</td><td>폴더 / 찾아보기… / 프로젝트 이름 / 영문·숫자로 적습니다. 폴더 이름으로 채워 두었습니다. / 고급 설정 ▸ (바꾸지 않아도 됩니다) / 역할 이름 앞글자 / 프로젝트 종류 / 역할 수: 기획·서버·화면·테스트·디자인. 오류: 이름은 영문·숫자로 적어 주세요. 예: my-app / 이 폴더에는 설치할 수 없습니다. 다른 폴더를 고르세요.(패키지 폴더) / 이미 설정이 있어 빠진 것만 채웁니다.</td></tr>
-<tr><td>W3</td><td>필요한 프로그램을 설치합니다</td><td>“변경을 허용할까요?” 창이 뜨면 [예]를 누르세요.</td><td>이미 있음 / 설치함 / 설치 중… / 기다림 / 설치하지 못함 / 6개 중 n개 끝남 / 설치를 마쳤습니다. 줄 이름: Node.js · GitHub 연결 도구 · VS Code · Claude Code · WY Ops 도구 · 프로젝트 폴더 준비</td></tr>
+<tr><td>W2</td><td>프로젝트 폴더를 고르세요</td><td>AI 도우미들이 일할 폴더입니다. 없는 폴더면 새로 만듭니다.</td><td>폴더 / 찾아보기… / 프로젝트 이름 / 영문·숫자로 적습니다. 폴더 이름으로 채워 두었습니다. / 고급 설정 ▸ (바꾸지 않아도 됩니다) / 역할 이름 앞글자 / 프로젝트 종류 / 역할 수: 기획·서버·화면·테스트·디자인. 오류: 이름은 영문·숫자로 적어 주세요. 예: my-app / 이 폴더에는 설치할 수 없습니다. 다른 폴더를 고르세요.(패키지 폴더) / 이미 설정이 있어 빠진 것만 채웁니다. / 폴더를 골라 주세요.</td></tr>
+<tr><td>W3</td><td>필요한 프로그램을 설치합니다</td><td>“변경을 허용할까요?” 창이 뜨면 [예]를 누르세요.</td><td>이미 있음 / 설치함 / 설치 중… / 기다림 / 설치하지 못함 / 준비 중…(프로젝트 폴더 준비) / 6개 중 n개 끝남 / 설치를 마쳤습니다. / (취소 후) 지금 설치하던 프로그램이 끝나면 닫습니다. 줄 이름: Git(없을 때만) · Node.js · GitHub 연결 도구 · VS Code · Claude Code · WY Ops 도구 · ○○ 개발 도구(필요할 때만) · 프로젝트 폴더 준비</td></tr>
 <tr><td>W4</td><td>Claude에 로그인하세요</td><td>브라우저에서 로그인하면 이 창이 알아서 확인합니다.</td><td>Claude 계정(유료 요금제)이 필요합니다 / 브라우저 열기 / 계정이 없나요? 계정 만들기 / 브라우저에서 로그인을 기다리는 중입니다. / 로그인을 마치면 자동으로 다음으로 넘어갈 수 있습니다. 브라우저가 안 열렸으면 다시 열기 / 아직 로그인이 확인되지 않았습니다. 브라우저에서 로그인을 마쳤나요? / 로그인되었습니다. [다음]을 누르세요. / 이미 로그인되어 있습니다. / (1분 뒤) 브라우저에 코드가 보이나요? / 브라우저에 보이는 코드를 붙여 넣으세요 / 코드 붙여 넣기 / 확인 / 코드가 안 보이면 코드 받는 주소 열기 / 코드가 맞지 않습니다. [다시 열기]를 눌러 새 코드를 받으세요. / 다시 열기</td></tr>
-<tr><td>W5</td><td>GitHub에 로그인하세요</td><td>만든 작업을 GitHub에 안전하게 보관합니다. → (코드 받은 뒤) 열린 브라우저에 아래 코드를 넣으세요.</td><td>브라우저 열기 / 계정이 없나요? 가입하기 / 코드 복사 → 복사함 / 새 코드 받기 / 나중에 하기 / GitHub에 로그인되었습니다.</td></tr>
+<tr><td>W5</td><td>GitHub에 로그인하세요</td><td>만든 작업을 GitHub에 안전하게 보관합니다. → (코드 받은 뒤) 열린 브라우저에 아래 코드를 넣으세요.</td><td>브라우저 열기 / 계정이 없나요? 가입하기 / 확인 코드를 받는 중입니다. 잠시 기다려 주세요. / 확인 코드를 받지 못했습니다. 인터넷 연결을 확인하고 [브라우저 열기]를 다시 누르세요. / 코드 복사 → 복사함 / 코드가 만료되었습니다. [새 코드 받기]를 눌러 새 코드를 받으세요. / 새 코드 받기 / 나중에 하기 / GitHub에 로그인되었습니다. / 이미 로그인되어 있습니다.</td></tr>
 <tr><td>W6</td><td>이 폴더를 Claude에게 허락하세요</td><td>Claude가 이 폴더의 파일을 읽고 고칠 수 있게 됩니다.</td><td>허락하기 / 허락했습니다. [다음]을 누르세요. / 이미 허락되어 있습니다. / (W6-c) 허락을 자동으로 기록하지 못했습니다. Claude 창에서 직접 허락해 주세요. / Claude 창 열기 / 창에서 “Yes, I trust this folder”를 고르고(Enter) 창을 닫으세요. / Claude 창에서 허락을 기다리는 중입니다.</td></tr>
-<tr><td>W7</td><td>설치를 마쳤습니다 / 설치를 마쳤습니다 (남은 일 n개) / 설치를 끝내지 못했습니다</td><td>VS Code를 열고 왼쪽 막대의 WY Ops 아이콘을 누르세요. / (남은 일) 지금 해도 되고, 나중에 VS Code의 WY Ops 화면에서 해도 됩니다.</td><td>프로그램 설치 / 프로젝트 폴더 준비 / Claude 로그인 / GitHub 로그인 / 폴더 사용 허락 / GitHub 로그인을 건너뛰었습니다 [지금 하기] / 프로젝트 규칙 파일이 이미 있어 그대로 두었습니다 [붙일 내용 보기] / 나머지 n개는 됐습니다 / VS Code 열기 / 마침</td></tr>
+<tr><td>W7</td><td>설치를 마무리하고 있습니다(점검 중) / 설치를 마쳤습니다 / 설치를 마쳤습니다 (남은 일 n개) / 설치를 끝내지 못했습니다</td><td>VS Code를 열고 왼쪽 막대의 WY Ops 아이콘을 누르세요. / (남은 일) 지금 해도 되고, 나중에 VS Code의 WY Ops 화면에서 해도 됩니다.</td><td>프로그램 설치 / 프로젝트 폴더 준비 / Claude 로그인 / GitHub 로그인 / 폴더 사용 허락 / GitHub 로그인을 건너뛰었습니다 [지금 하기] / 프로젝트 규칙 파일이 이미 있어 그대로 두었습니다 [붙일 내용 보기] / Claude 로그인이 확인되지 않았습니다 [지금 하기] / 폴더 사용 허락이 확인되지 않았습니다 [지금 하기] / ○○에 확인할 것이 있습니다 [자세히] / ○○를 끝내지 못했습니다 [다시 시도] / 마지막 점검 중입니다. 잠시 기다려 주세요. / 나머지 n개는 됐습니다 / VS Code 열기 / 마침 / (4~6단계로 돌아왔을 때) 마침으로 &gt;</td></tr>
 <tr><td>C</td><td>(창 제목) WY Ops 설치</td><td>설치를 멈출까요?</td><td>이미 설치한 프로그램은 그대로 남습니다. setup을 다시 실행하면 이어서 합니다. [멈추기] [계속 설치]</td></tr>
 <tr><td>공통</td><td colspan="3">&lt; 이전 / 다음 &gt; / 취소 / 다시 시도 / 로그 저장… (저장 후: “기록을 저장했습니다: 파일 이름”)</td></tr>
 </table>
@@ -566,7 +682,7 @@
 <tr><td>winget(앱 설치 관리자)이 없음</td><td><b>이 PC에서 프로그램을 자동으로 설치할 수 없습니다.</b> Microsoft Store에서 ‘앱 설치 관리자’를 업데이트한 뒤 [다시 시도]를 누르세요.</td></tr>
 <tr><td>폴더를 만들 수 없음(권한·드라이브)</td><td><b>이 폴더를 만들 수 없습니다.</b> [이전]을 눌러 다른 폴더를 고르세요.</td></tr>
 <tr><td>작업 기록 공간 만들기(git init) 실패</td><td><b>폴더에 작업 기록 공간을 만들지 못했습니다.</b> [다시 시도]를 누르세요. (작업 기록 공간 ? 도움말)</td></tr>
-<tr><td>폴더 허락 기록 실패</td><td><b>허락을 자동으로 기록하지 못했습니다.</b> [Claude 창 열기]를 누르고, 창에서 “Yes, I trust this folder”를 고른 뒤 창을 닫으세요.</td></tr>
+<tr><td>폴더 허락 기록 실패</td><td><b>허락을 자동으로 기록하지 못했습니다.</b> Claude 창에서 직접 허락해 주세요.<br><span class="small">(작은 글씨) 창에서 “Yes, I trust this folder”를 고르고(Enter) 창을 닫으세요. W6-c와 같음</span></td></tr>
 <tr><td>그 밖</td><td><b>○○ 중에 문제가 생겼습니다.</b> [다시 시도]를 누르세요. 계속 안 되면 [로그 저장]으로 기록을 저장해 도움을 요청하세요.</td></tr>
 </table>
 
