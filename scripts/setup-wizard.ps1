@@ -468,16 +468,23 @@ function Start-Install {
   $St.RunSeg = New-Object Text.StringBuilder
   Show-Step
 }
+# 스택 도구 줄 이름은 '○○ 개발 도구'(목업 W3): 아는 명령은 언어 이름, 이름(label)만 있으면 그 이름, 둘 다 없으면 '프로젝트'
+$StackToolNames = @{ java = 'Java'; python = 'Python'; dotnet = '.NET'; cmake = 'C++'; node = 'Node.js'; npm = 'Node.js' }
+function Get-StackToolName([string]$cmd, [string]$label) {
+  $base = if ($StackToolNames[$cmd]) { $StackToolNames[$cmd] } elseif ($label -and $label -ne $cmd) { $label -replace '\s*\(.*\)$', '' } else { '프로젝트' }
+  return "$base 개발 도구"
+}
 function Read-Install {
   $run = $St.Run
   foreach ($line in (Read-Hidden $run)) {
     [void]$St.RunSeg.AppendLine($line)
     if ($line -match '^@@tool (\S+) (\S+)\s*(\S*)\s*(.*)$') {
       $k = $Matches[1]; $state = $Matches[2]; $code = $Matches[3]; $label = $Matches[4]
+      if ($state -ne 'failed') { $label = "$code $label".Trim(); $code = '' }  # 실패 코드는 failed 뒤에만, 나머지는 모두 이름
       $r = Find-Row $k
       if (-not $r) {
         if ($state -eq 'have') { continue }  # Git 등 목록에 없는 도구는 이미 있으면 보이지 않음
-        $nm = if ($label) { $label } elseif ($k -eq 'git') { 'Git' } else { $k }
+        $nm = if ($k -like 'stack-*') { Get-StackToolName ($k -replace '^stack-', '') $label } elseif ($label) { $label } elseif ($k -eq 'git') { 'Git' } else { $k }
         $r = @{ Key = $k; Name = $nm; State = 'wait'; Ui = $null }
         $at = $(if ($k -like 'stack-*') { $St.Rows.IndexOf((Find-Row 'folder')) } else { $St.Rows.IndexOf((Find-Row 'ops')) })
         $St.Rows.Insert($at, $r); Show-Step
@@ -709,13 +716,49 @@ function Start-Doctor {
     Show-Step
   }
 }
+# [자세히] 창(W7-d) 문구: 점검 원문 대신 항목마다 쉬운 말 두 줄(굵은 첫 줄 + 할 일), 목업 '쓰지 않는 용어'
+function Get-FriendlyLine($r, [string]$group) {
+  switch ($r.id) {
+    'tools' { return @{ Head = '필요한 프로그램 중 일부가 없습니다.'; Do = 'setup을 다시 실행하면 이어서 설치합니다.' } }
+    'stack-tools' {
+      $names = if ("$($r.detail)" -match '없음\s*—\s*(.+)$') { $Matches[1] } else { '' }
+      return @{ Head = '프로젝트 개발 도구가 아직 없습니다' + $(if ($names) { ": $names" } else { '.' }); Do = '설치 방법은 VS Code의 WY Ops 화면 할 일에 있습니다.' }
+    }
+    'extension' { return @{ Head = 'VS Code를 다시 열어 주세요.'; Do = 'WY Ops 화면이 아직 보이지 않을 수 있습니다. VS Code를 닫았다가 다시 열면 나타납니다.' } }
+    default { return @{ Head = "$($group)를 확인하지 못했습니다."; Do = 'setup을 다시 실행해 주세요.' } }
+  }
+}
+function New-DetailDialog($items) {
+  $w = Px 440; $tw = $w - (Px 86)
+  $d = New-Object Windows.Forms.Form; $d.Text = 'WY Ops 설치'; $d.FormBorderStyle = 'FixedDialog'; $d.MaximizeBox = $false; $d.MinimizeBox = $false; $d.ShowInTaskbar = $false
+  $d.StartPosition = 'CenterParent'; $d.Font = $F.Body; $d.BackColor = [Drawing.Color]::White; $d.AutoScaleMode = 'None'
+  $qi = New-Object Windows.Forms.Label; $qi.Text = 'i'; $qi.Font = New-Font 12 'Bold' 'Segoe UI'; $qi.ForeColor = [Drawing.Color]::White; $qi.BackColor = $C.Accent; $qi.TextAlign = 'MiddleCenter'
+  $qi.SetBounds((Px 20), (Px 20), (Px 32), (Px 32)); $d.Controls.Add($qi)
+  $y = Px 20; $first = $true
+  foreach ($it in @($items)) {
+    if (-not $first) { $y += Px 14 }; $first = $false  # 항목 사이 빈 줄
+    $nb = "VS$([char]0xA0)Code"  # 'VS Code'가 두 줄로 갈리지 않게(줄바꿈은 보통 띄어쓰기에서만)
+    $h = New-Label ($it.Head -replace 'VS Code', $nb) $F.Bold $C.Text $tw; $h.Location = New-Object Drawing.Point((Px 66), $y); $d.Controls.Add($h); $y += $h.PreferredHeight + (Px 2)
+    $t = New-Label ($it.Do -replace 'VS Code', $nb) $F.Body $C.Text $tw; $t.Location = New-Object Drawing.Point((Px 66), $y); $d.Controls.Add($t); $y += $t.PreferredHeight
+  }
+  $ft = New-Object Windows.Forms.Panel; $ft.Dock = 'Bottom'; $ft.Height = Px 50; $ft.BackColor = $C.Foot
+  $ok = New-Btn '확인' $true; $ok.DialogResult = 'OK'; $bx = $w - (Px 100); $by = Px 11; $ok.Location = New-Object Drawing.Point($bx, $by)
+  $ft.Controls.Add($ok); $d.Controls.Add($ft); $d.AcceptButton = $ok; $d.CancelButton = $ok
+  $ch = [Math]::Max($y, (Px 52)) + (Px 20) + (Px 50); $d.ClientSize = New-Object Drawing.Size($w, $ch)
+  $d.Add_Shown({ $ok.Focus() }.GetNewClosure())
+  return $d
+}
 function Get-Final {
   $lv = @{ install = 'ok'; folder = 'ok'; claude = $(if ($St.ClaudeOk) { 'ok' } else { 'warn' }); gh = 'ok'; trust = $(if ($St.TrustOk) { 'ok' } else { 'warn' }) }
   $detail = @{}
   foreach ($r in @($St.Doctor)) {
     $gname = Get-GroupOf $r.id; if (-not $gname) { continue }
     if ($r.level -eq 'fail' -or ($r.level -eq 'warn' -and $lv[$gname] -eq 'ok')) { $lv[$gname] = $r.level }
-    if ($r.level -ne 'ok') { if (-not $detail[$gname]) { $detail[$gname] = @() }; $detail[$gname] += ("$($r.title)$(if ($r.detail) { ': ' + $r.detail })$(if ($r.fix) { "`n  할 일: " + $r.fix })") }
+    if ($r.level -ne 'ok') {
+      Write-Log "점검 $($r.id) $($r.level): $($r.title) $($r.detail) $($r.fix)"  # 원문(개발 용어)은 로그에만
+      if (-not $detail[$gname]) { $detail[$gname] = @() }
+      $it = Get-FriendlyLine $r $Groups[$gname]; if (-not @($detail[$gname] | Where-Object { $_.Head -eq $it.Head }).Count) { $detail[$gname] += $it }
+    }
   }
   if (-not $St.Installed) { $lv.install = 'fail' }
   if ($St.GhSkipped -and -not $St.GhOk) { $lv.gh = 'warn' }
@@ -736,7 +779,7 @@ function Show-Step7 {
   if ($lv.claude -eq 'warn') { [void]$left.Add(@{ Text = 'Claude 로그인이 확인되지 않았습니다'; Btn = '지금 하기'; Go = 4 }) }
   if ($lv.trust -eq 'warn') { [void]$left.Add(@{ Text = '폴더 사용 허락이 확인되지 않았습니다'; Btn = '지금 하기'; Go = 6 }) }
   if ($St.ClaudeMd -eq 'append') { [void]$left.Add(@{ Text = '프로젝트 규칙 파일이 이미 있어 그대로 두었습니다'; Btn = '붙일 내용 보기'; Note = $true; Help = 'AI 도우미가 읽는 규칙 파일(CLAUDE.md)입니다. 이미 있던 파일은 고치지 않았습니다. [붙일 내용 보기]로 연 내용을 그 파일 끝에 붙여 넣으세요.' }) }
-  foreach ($k in 'install', 'folder') { if ($lv[$k] -eq 'warn') { [void]$left.Add(@{ Text = "$($Groups[$k])에 확인할 것이 있습니다"; Btn = '자세히'; Detail = ($fin.Detail[$k] -join "`n`n") }) } }
+  foreach ($k in 'install', 'folder') { if ($lv[$k] -eq 'warn') { [void]$left.Add(@{ Text = "$($Groups[$k])에 확인할 것이 있습니다"; Btn = '자세히'; Detail = @($fin.Detail[$k]) }) } }
   if ($bad.Count) { Add-Title '설치를 끝내지 못했습니다' }
   elseif ($left.Count) { Add-Title "설치를 마쳤습니다 (남은 일 $($left.Count)개)" }
   else { Add-Title '설치를 마쳤습니다' }
@@ -767,7 +810,7 @@ function Show-Step7 {
     $b.Add_Click({ param($s) $x = $s.Tag
         if ($x.Go) { $St.ReturnTo7 = $true; Go-Step $x.Go }
         elseif ($x.Note) { $file = Join-Path $St.Project '.claude\ops\CLAUDE.part.md'; if (-not $Demo) { Start-Process notepad.exe -ArgumentList (Q $file) } }
-        elseif ($x.Detail) { [void][Windows.Forms.MessageBox]::Show($form, $x.Detail, 'WY Ops 설치') } })
+        elseif ($x.Detail) { $d = New-DetailDialog $x.Detail; [void]$d.ShowDialog($form); $d.Dispose() } })
     Add-ResultRow 'warn' $x.Text $b $x.Help
   }
   if ($left.Count -or $bad.Count) {
@@ -959,6 +1002,10 @@ function Invoke-Shots {
   $St.Step = 7; $St.GhSkipped = $false; $St.GhOk = $true; $St.Doctor = @(@{ id = 'tools'; level = 'ok' }); Show-Step7Shot; Save-Shot 'W7-a'
   $St.GhSkipped = $true; $St.GhOk = $false; $St.ClaudeMd = 'append'; Show-Step7Shot; Open-Help 0; Save-Shot 'W7-b'
   $St.Installed = $false; $St.ClaudeMd = $null; Show-Step7Shot; Save-Shot 'W7-c-fail'
+  $d = New-DetailDialog @((Get-FriendlyLine @{ id = 'extension' } ''), (Get-FriendlyLine @{ id = 'lock' } $Groups.folder))  # W7-d: 목업 예시 + 바꿀 말이 없는 항목
+  $d.StartPosition = 'Manual'; $d.Location = $form.Location; $d.Show($form); $d.Refresh(); [Windows.Forms.Application]::DoEvents()
+  $bmp = New-Object Drawing.Bitmap($d.Width, $d.Height); $d.DrawToBitmap($bmp, (New-Object Drawing.Rectangle(0, 0, $d.Width, $d.Height)))
+  $df = Join-Path $Shots ('W7-d-' + [int]($DpiScale * 100) + '.png'); $bmp.Save($df, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose(); $d.Close(); $d.Dispose(); Write-Output "캡처: $df"
   $script:Closing = $true; $form.Close()
 }
 function Show-Step7Shot { Clear-Body; $btnNext.Text = '마침'; $btnCancel.Visible = $false; $btnNext.Enabled = $true; Set-Primary $btnNext $false; $lnkLater.Visible = $false; Show-Step7; Update-Side; $flow.ResumeLayout() }

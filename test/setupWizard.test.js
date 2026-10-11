@@ -50,4 +50,10 @@ for (const f of ['--progress', '--no-finish', '--todos']) {
   assert.ok(js.includes(`'${f}'`), `install.js: ${f}`);
 }
 assert.ok(/ trust --project /.test(wiz) && /cmd === 'trust'/.test(js), 'trust 명령');
+
+// 5. 사용자에게 개발 용어를 보이지 않는다: [자세히]에 점검 원문(title·fix)을 넣지 않고, 이름 없는 스택 도구는 일반 이름
+assert.ok(!/\$detail\[\$gname\] \+= \(?"\$\(\$r\.title\)/.test(wiz) && /Get-FriendlyLine \$r /.test(wiz) && /New-DetailDialog \$x\.Detail/.test(wiz), '[자세히]는 쉬운 말 두 줄 창(W7-d)');
+assert.ok(/를 확인하지 못했습니다\.'?"?; Do = 'setup을 다시 실행해 주세요\.'/.test(wiz), '바꿀 말이 없는 항목 문구(목업 W7-d)');
+assert.ok(/progress\(`tool stack-\$\{t\.cmd\} installing \$\{t\.label \|\| t\.cmd\}`\)/.test(js), 'install.js 스택 도구 진행 줄 형식(바뀌면 마법사 이름 처리도 확인)');
+assert.ok(/"\$base 개발 도구"/.test(wiz) && /Get-StackToolName/.test(wiz) &&/if \(\$state -ne 'failed'\) \{ \$label = "\$code \$label"\.Trim\(\)/.test(wiz), '스택 도구 이름: 여러 낱말 이름 유지, 없으면 일반 이름');
 console.log('설치 마법사 검사 통과');
