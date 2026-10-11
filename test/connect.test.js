@@ -218,6 +218,23 @@ try {
   assert.deepStrictEqual(r.results, [{ id: 'attach', state: 'done' }]);
   r = connect(opts, deps);
   assert.deepStrictEqual(r.results, []);
+
+  // 5-6. 폰 중계(0.9.1): --wake-relay는 제어 창 설정 json에만(mac·broadcast 보존), 같으면 다시 쓰지 않음, 형식 검사
+  const cfgFile = path.join(home, '.wy-tools', 'connect', 'wy-host.json');
+  fs.writeFileSync(cfgFile, '﻿' + JSON.stringify({ mac: '00-11-22-33-44-55', broadcast: '192.168.0.255' }));
+  const relayOpts = { ...opts, wakeRelay: '100.64.0.9:8022' };
+  r = connect({ ...relayOpts, dryRun: true }, deps);
+  assert.strictEqual(state(r.plan).relay, 'todo');
+  assert.ok(!JSON.parse(fs.readFileSync(cfgFile, 'utf8').replace(/^﻿/, '')).wakeRelay, 'dry-run은 쓰지 않음');
+  r = connect(relayOpts, deps);
+  assert.deepStrictEqual(r.results, [{ id: 'relay', state: 'done' }]);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(cfgFile, 'utf8')), { mac: '00-11-22-33-44-55', broadcast: '192.168.0.255', wakeRelay: '100.64.0.9:8022' });
+  r = connect(relayOpts, deps);
+  assert.deepStrictEqual(r.results, []);
+  assert.strictEqual(state(r.plan).relay, 'ok');
+  assert.strictEqual(state(connect({ ...opts, dryRun: true }, deps).plan).relay, undefined, '옵션이 없으면 단계 없음(기존 값 유지)');
+  for (const bad of ['100.64.0.9', '100.64.0.9:', 'a b:22', '-oProxy:22', '100.64.0.9:8022;rm'])
+    assert.throws(() => connect({ ...opts, wakeRelay: bad, dryRun: true }, deps), /--wake-relay/, bad);
 } finally {
   rmTree(root2);
 }
@@ -255,8 +272,18 @@ if (process.platform === 'win32') {
     assert.ok(attachReq.includes("folder = 'C:\\projects\\my project'; role = 'AB.pm'") && attachReq.includes("'attach-request.json'") && attachReq.includes('ToUniversalTime'), attachReq);
     assert.ok(o.wake.startsWith('MAC'), o.wake);
     fs.writeFileSync(cfg, JSON.stringify({ mac: '00-11-22-33-44-55', broadcast: '192.168.0.255' }));
+    assert.strictEqual(o.relay, '없음');
     o = run6(true);
     assert.ok(o.wake.startsWith('UDP 192.168.0.255:9 102'), o.wake);
+    assert.strictEqual(o.relay, '없음');
+    // 폰 중계(0.9.1): 설정 json의 wakeRelay → 폰에 공개키만·묻지 않음·10초 연결 제한으로 wake.py. MAC을 몰라도 폰 경로는 있음
+    fs.writeFileSync(cfg, JSON.stringify({ wakeRelay: '100.64.0.9:8022' }));
+    o = run6(true);
+    assert.strictEqual(o.wake, 'MAC 모름');
+    assert.strictEqual(o.relay, 'ssh.exe -p 8022 -o BatchMode=yes -o ConnectTimeout=10 -o PasswordAuthentication=no 100.64.0.9 python wake.py');
+    fs.writeFileSync(cfg, JSON.stringify({ mac: '00-11-22-33-44-55', broadcast: '192.168.0.255', wakeRelay: 'x y:8022' }));
+    o = run6(true);
+    assert.ok(o.relay.includes('형식이 아닙니다'), o.relay);
   } finally {
     rmTree(root3);
   }
