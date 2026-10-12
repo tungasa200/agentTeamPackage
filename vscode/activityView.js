@@ -13,7 +13,8 @@ const VIEW_TYPE = 'wyActivity';
 const OPEN_COMMAND = 'wyActivity.open';
 const INTERVAL = { transcripts: 3000, status: 10000 }; // 메시지는 10초 안에 보여야 한다(OPS-09)
 const MAX_BUNDLES = 40;
-const DORMANT_MS = 2 * 60 * 60 * 1000; // 진행 중 묶음이 이만큼 조용하면 '휴면'으로 접는다(사용자 결정, 설정으로 빼지 않음)
+const DORMANT_MS = 2 * 60 * 60 * 1000; // 진행 중 묶음이 이만큼 조용하면 '휴면'(dormant 표시만, 목록에는 남는다)
+const EXPIRE_MS = 24 * 60 * 60 * 1000; // 진행 중 묶음이 이만큼 조용하면 목록에서 뺀다(사용자 결정 2026-10-12)
 const LANE_HOURS = 12; // 시간 보기가 고를 수 있는 가장 긴 범위
 const LANE_STEP = 30000;
 
@@ -179,36 +180,38 @@ class ActivityView {
     } catch {
       // 승인 폴더가 없으면 카드 연결 없이 보여 준다
     }
-    const all = bundle(feed).map((b) => {
-        const card = cards.filter((c) => b.sessions.includes(c.session) && String(c.createdAt || '') >= b.startedAt).pop();
-        const blockedBy = b.state !== 'done' ? b.sessions.find((n) => views.get(n) === 'permission') : null;
-        const state = blockedBy ? 'perm' : card && b.state !== 'done' ? 'me' : b.state;
-        return {
-          key: b.key,
-          taskId: b.taskId,
-          title: b.title,
-          state,
-          // 완료 판정: 단계 사슬의 마지막이 완료([완료]·재검증 통과)이고, 권한 대기·대기 카드가 걸려 있지 않다.
-          // 다시 메시지가 붙으면 마지막 단계가 바뀌어 진행 중으로 돌아간다(묶음은 lastAt 최신순)
-          done: state === 'done',
-          // 휴면: 진행 중인데 마지막 메시지 뒤 DORMANT_MS 넘게 움직임이 없다. 권한 대기·대기 카드가 걸린 묶음은 사람 손을 기다리는 중이라 제외
-          dormant: state !== 'done' && state !== 'perm' && state !== 'me' && now - Date.parse(b.lastAt) > DORMANT_MS,
-          startedAt: b.startedAt,
-          lastAt: b.lastAt,
-          sessions: b.sessions,
-          steps: b.messages.map((m, i) => ({ id: m.id, from: m.from, stage: b.stages[i] })),
-          card: card ? { id: card.id, title: card.title } : null,
-        };
+    const stages = new Map(); // 메시지 → 단계(피드·시간 보기의 색). 목록에서 뺀 묶음의 메시지도 칠한다
+    const bundles = [];
+    for (const b of bundle(feed)) {
+      b.messages.forEach((m, i) => stages.set(m.id, b.stages[i]));
+      const card = cards.filter((c) => b.sessions.includes(c.session) && String(c.createdAt || '') >= b.startedAt).pop();
+      const blockedBy = b.state !== 'done' ? b.sessions.find((n) => views.get(n) === 'permission') : null;
+      const state = blockedBy ? 'perm' : card && b.state !== 'done' ? 'me' : b.state;
+      // 현황판에는 진행 중(권한 대기·내 차례 포함)만 보낸다. 완료([완료]·재검증 통과 뒤 확인 회신만 붙은 것 포함)는 뺀다.
+      // 권한 대기·대기 카드가 걸린 묶음은 사람 손을 기다리는 중이라 오래 조용해도 남긴다
+      if (state === 'done') continue;
+      const quiet = now - Date.parse(b.lastAt);
+      const waiting = state === 'perm' || state === 'me';
+      if (!waiting && quiet > EXPIRE_MS) continue;
+      if (bundles.length >= MAX_BUNDLES) continue; // 단계 색은 남은 묶음도 채운다
+      bundles.push({
+        key: b.key,
+        taskId: b.taskId,
+        title: b.title,
+        state,
+        dormant: !waiting && quiet > DORMANT_MS,
+        startedAt: b.startedAt,
+        lastAt: b.lastAt,
+        sessions: b.sessions,
+        steps: b.messages.map((m, i) => ({ id: m.id, from: m.from, stage: b.stages[i] })),
+        card: card ? { id: card.id, title: card.title } : null,
       });
-    // 진행 중과 완료를 따로 자른다(완료가 많아도 진행 중 묶음이 밀려나지 않게)
-    // 진행 중·휴면·완료를 따로 자른다(한쪽이 많아도 다른 쪽이 밀려나지 않게)
-    const pick = (f) => all.filter(f).slice(0, MAX_BUNDLES);
-    const bundles = [...pick((b) => !b.done && !b.dormant), ...pick((b) => b.dormant), ...pick((b) => b.done)];
+    }
 
     return {
       sessions,
       statusError: this.status.error,
-      messages: Object.fromEntries(feed.map((m) => [m.id, { from: m.from, to: m.to, at: m.at, title: m.title, body: m.body }])),
+      messages: Object.fromEntries(feed.map((m) => [m.id, { from: m.from, to: m.to, at: m.at, title: m.title, body: m.body, stage: stages.get(m.id) || 'order' }])),
       feed: feed.map((m) => m.id).reverse(),
       bundles,
       // 시간 보기(B3-3): 세션별 일한 구간. 30초 단위로 맞춰, 일하는 동안 3초마다 상태를 다시 보내지 않게 한다

@@ -178,3 +178,17 @@ test('ID 없는 대화는 [완료] 뒤에 새 묶음으로 시작한다', () => 
   const bs = bundle([m(1, '커밋 요청 받음'), m(2, '[완료] 커밋 끝'), m(3, '[완료] 다른 커밋 끝')]);
   assert.deepStrictEqual(bs.map((b) => b.messages.map((x) => x.id)).sort(), [['1', '2'], ['3']]);
 });
+
+test('완료 뒤 머리표 없는 확인 회신은 완료를 유지하고, [결함]·커밋 요청은 다시 진행 중으로 연다', () => {
+  const m = (min, from, to, body) => ({ id: `${min}`, from, to, at: at(min), body, summary: '', title: body });
+  // 작업 ID 묶음
+  let bs = bundle([m(1, 'WY-pm', 'WY-qa', 'P1-11 재검증'), m(2, 'WY-qa', 'WY-pm', '[완료] P1-11 통과'), m(3, 'WY-pm', 'WY-qa', 'P1-11 잘 받았습니다')]);
+  assert.strictEqual(bs[0].state, 'done');
+  bs = bundle([m(1, 'WY-qa', 'WY-pm', '[완료] P1-11 통과'), m(2, 'WY-pm', 'WY-qa', 'P1-11 잘 받았습니다'), m(3, 'WY-qa', 'WY-pm', '[결함] P1-11 재발')]);
+  assert.strictEqual(bs[0].state, 'bug');
+  bs = bundle([m(1, 'WY-qa', 'WY-pm', '[완료] P1-11 통과'), m(2, 'WY-qa', 'WY-commit', 'P1-11 커밋 요청')]);
+  assert.strictEqual(bs[0].state, 'run');
+  // ID 없는 대화: 확인 회신은 완료 묶음에 붙고, 머리표 있는 다음 메시지는 새 묶음
+  bs = bundle([m(1, 'WY-backend2', 'WY-pm', '[완료] 소리 알림'), m(2, 'WY-pm', 'WY-backend2', '[pm] 잘 받았습니다'), m(3, 'WY-pm', 'WY-backend2', '[차단] 다른 일')]);
+  assert.deepStrictEqual(bs.map((b) => [b.messages.map((x) => x.id), b.state]).sort(), [[['1', '2'], 'done'], [['3'], 'blocked']]);
+});

@@ -306,14 +306,14 @@ function taskId(m) {
 
 const PAIR_GAP = 60 * 60 * 1000; // ID 없는 메시지: 같은 두 세션 사이에서 이 간격 안이면 같은 묶음(응답 관계)
 
-// 묶음 상태: 마지막 단계로 정한다
+const STATE_OF = { done: 'done', block: 'blocked', ask: 'ask', bug: 'bug' };
+
+// 묶음 상태: 단계를 차례로 밟아 정한다. 한 번 완료된 뒤 머리표 없는 메시지(order: 확인 회신·전달)는
+// 완료를 유지한다. [결함]·[차단]·[결정 요청]·커밋 요청·재검증이 붙으면 다시 진행 중이다
 function bundleState(stages) {
-  const last = stages[stages.length - 1];
-  if (last === 'done') return 'done';
-  if (last === 'block') return 'blocked';
-  if (last === 'ask') return 'ask';
-  if (last === 'bug') return 'bug';
-  return 'run';
+  let state = 'run';
+  for (const st of stages) if (!(st === 'order' && state === 'done')) state = STATE_OF[st] || 'run';
+  return state;
 }
 
 const stripTag = (t) => String(t).replace(/^\s*(\[[^\]]+\]\s*)+/, '').replace(/^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9]+\s*(지시|알림)?\s*:\s*/, '').trim();
@@ -329,8 +329,8 @@ function bundle(feed) {
     else {
       const pair = [m.from, m.to].sort().join('|');
       const prev = openPairs.get(pair);
-      // 응답이 [완료]로 끝났으면 다음 메시지는 새 묶음이다(ID 없는 대화가 몇 시간씩 이어 붙지 않게)
-      const open = prev && prev.stages[prev.stages.length - 1] !== 'done' && Date.parse(m.at) - Date.parse(prev.lastAt) <= PAIR_GAP;
+      // 완료된 묶음에는 머리표 없는 확인 회신만 붙인다(완료 유지). 그 밖의 메시지는 새 묶음이다
+      const open = prev && (bundleState(prev.stages) !== 'done' || stageOf(m) === 'order') && Date.parse(m.at) - Date.parse(prev.lastAt) <= PAIR_GAP;
       key = open ? prev.key : `pair:${pair}:${m.at}`;
     }
     let b = byKey.get(key);

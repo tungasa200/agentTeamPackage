@@ -7,8 +7,6 @@
     mode: ['feed', 'time'].includes(saved.mode) ? saved.mode : 'threads',
     range: [1, 3, 12].includes(saved.range) ? saved.range : 1,
     open: new Set(saved.open || []),
-    doneOpen: saved.doneOpen === true, // '완료 n' 묶음: 기본 접힘
-    dormantOpen: saved.dormantOpen === true, // '휴면 n' 묶음: 기본 접힘
     openMsg: new Set(),
     timeSel: null, // 시간 보기에서 고른 메시지
   };
@@ -151,27 +149,11 @@
     return `<div class="chain" role="img" aria-label="${esc(`메시지 ${b.steps.length}개: ${b.steps.map((s) => STAGE[s.stage][1]).join(' → ')}`)}">${nodes.join('')}</div>`;
   }
 
-  // 진행 중 묶음은 위(최근에 움직인 순). 그 아래 '휴면 n'(2시간 넘게 조용한 진행 중), 맨 아래 '완료 n'.
-  // 두 묶음 모두 기본 접힘이고 접힘 상태는 webview에 기억한다. 휴면·완료 판정은 확장(activityView.js)이 한다
-  const GROUPS = {
-    dormant: { label: '유휴', icon: 'i-clock', aria: '2시간 넘게 움직임이 없는 스레드', key: 'dormantOpen' },
-    done: { label: '완료', icon: 'i-check', aria: '완료된 스레드', key: 'doneOpen' },
-  };
-
+  // 현황판에는 진행 중(권한 대기·내 차례 포함) 묶음만 온다(최근에 움직인 순). 완료와 24시간 넘게 조용한 묶음은 확장(activityView.js)이 뺀다
   function renderThreads() {
-    if (!state.bundles.length) return empty('아직 세션 간 메시지가 없습니다', `최근 ${state.windowHours}시간 안에 세션이 SendMessage로 주고받은 메시지가 여기에 묶여 보입니다.`);
-    const running = state.bundles.filter((b) => !b.done && !b.dormant);
-    const top = running.length ? `<div class="threads">${cards(running)}</div>` : '<p class="none">진행 중인 스레드가 없습니다.</p>';
-    return top + group('dormant', state.bundles.filter((b) => b.dormant)) + group('done', state.bundles.filter((b) => b.done));
-  }
-
-  function group(kind, list) {
-    if (!list.length) return '';
-    const g = GROUPS[kind];
-    const open = ui[g.key];
-    return `<section class="done-group g-${kind}" aria-label="${g.aria}">
-      <button type="button" class="done-toggle" data-group="${kind}" aria-expanded="${open}"${open ? ` aria-controls="${kind}-list"` : ''}>${ico('i-down', 'i-s')}${ico(g.icon, 'i-s')}${g.label} <b>${list.length}</b>${open ? '' : `<span class="dt-last">마지막 ${esc(ago(list[0].lastAt))}</span>`}</button>
-      ${open ? `<div class="threads done-list" id="${kind}-list">${cards(list)}</div>` : ''}</section>`;
+    if (!state.feed.length) return empty('아직 세션 간 메시지가 없습니다', `최근 ${state.windowHours}시간 안에 세션이 SendMessage로 주고받은 메시지가 여기에 묶여 보입니다.`);
+    if (!state.bundles.length) return '<p class="none">진행 중인 스레드가 없습니다. 끝난 일의 메시지는 피드에 있습니다.</p>';
+    return `<div class="threads">${cards(state.bundles)}</div>`;
   }
 
   function cards(list) {
@@ -202,8 +184,6 @@
 
   function renderFeed() {
     if (!state.feed.length) return empty('아직 세션 간 메시지가 없습니다', `최근 ${state.windowHours}시간 안에 세션이 주고받은 메시지가 최신순으로 보입니다.`);
-    const stageOf = new Map();
-    for (const b of state.bundles) for (const s of b.steps) stageOf.set(s.id, s.stage);
     let day = '';
     const rows = [];
     for (const id of state.feed) {
@@ -213,7 +193,7 @@
         day = d;
         rows.push(`<li class="day" role="presentation">${esc(d)}</li>`);
       }
-      rows.push(msgRow(id, stageOf.get(id) || 'order'));
+      rows.push(msgRow(id, m.stage));
     }
     return `<ul class="feed">${rows.join('')}</ul>`;
   }
@@ -317,10 +297,8 @@
     }).join('');
 
     // 진행 중인 묶음(작업 ID, 메시지 2개 이상) 중 가장 최근 것 하나를 점선 상자로(여럿이면 이름표가 겹친다)
-    const stageOf = new Map();
-    for (const b of state.bundles) for (const s of b.steps) stageOf.set(s.id, s.stage);
     const boxes = state.bundles
-      .filter((b) => b.taskId && b.state !== 'done')
+      .filter((b) => b.taskId)
       .map((b) => ({ b, in: b.steps.map((s) => state.messages[s.id]).filter((m) => m && Date.parse(m.at) >= t0 && names.includes(m.from) && names.includes(m.to)) }))
       .filter((v) => v.in.length >= 2)
       .slice(0, 1)
@@ -336,7 +314,7 @@
     const arrows = msgs
       .filter((m) => names.includes(m.from) && names.includes(m.to))
       .map((m) => {
-        const stage = stageOf.get(m.id) || 'order';
+        const stage = m.stage;
         const ax = x(Date.parse(m.at));
         const y1 = y(m.from);
         const y2 = y(m.to);
@@ -351,12 +329,12 @@
     const legend = [['band', '활동 구간'], ['tail-permission', '권한 승인 대기'], ['tail-input', '입력 대기'], ['tail-offwarn', '미전달 메시지']]
       .map(([c, t]) => `<span><i class="lg ${c}"></i>${t}</span>`).join('') + `<span><i class="lg box-lg"></i>진행 중인 스레드</span><span><i class="lg unread"></i>미로드 구간</span>`;
 
-    const selRow = ui.timeSel && state.messages[ui.timeSel] ? `<ul class="feed sel-msg">${msgRow(ui.timeSel, stageOf.get(ui.timeSel) || 'order')}</ul>` : `<p class="hint">화살표를 누르면 그 메시지의 원문이 여기에 펼쳐집니다.</p>`;
+    const selRow = ui.timeSel && state.messages[ui.timeSel] ? `<ul class="feed sel-msg">${msgRow(ui.timeSel, state.messages[ui.timeSel].stage)}</ul>` : `<p class="hint">화살표를 누르면 그 메시지의 원문이 여기에 펼쳐집니다.</p>`;
     return `<div class="lanes"><svg viewBox="0 0 ${X1 + 30} ${H}" role="group" aria-label="${esc(`최근 ${ui.range}시간 세션별 활동, 메시지 ${msgs.length}개`)}"><defs>${markers}</defs>${ticks.join('')}${boxes}${lanes}${arrows}${nowLine}</svg></div>
       <div class="legend">${legend}</div>${selRow}`;
   }
 
-  const save = () => vscode.setState({ mode: ui.mode, range: ui.range, open: [...ui.open], doneOpen: ui.doneOpen, dormantOpen: ui.dormantOpen });
+  const save = () => vscode.setState({ mode: ui.mode, range: ui.range, open: [...ui.open] });
 
   function pickTimeMsg(id) {
     ui.timeSel = ui.timeSel === id ? null : id;
@@ -385,11 +363,6 @@
       ui.range = Number(t.dataset.range);
       save();
       render();
-    } else if (GROUPS[t.dataset.group]) {
-      const k = GROUPS[t.dataset.group].key;
-      ui[k] = !ui[k];
-      save();
-      render();
     } else if (t.dataset.thread) {
       const k = t.dataset.thread;
       if (ui.open.has(k)) ui.open.delete(k);
@@ -415,6 +388,7 @@
       state = e.data.state;
       // 모르는 단계 값(읽기 모듈이 새 머리표를 배운 경우)은 '지시·전달'로 그린다
       for (const b of state.bundles || []) for (const s of b.steps) if (!STAGE[s.stage]) s.stage = 'order';
+      for (const m of Object.values(state.messages || {})) if (!STAGE[m.stage]) m.stage = 'order';
       render();
     }
   });
