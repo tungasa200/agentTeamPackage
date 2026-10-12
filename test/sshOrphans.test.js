@@ -69,6 +69,7 @@ try {
   assert.strictEqual(c[2001].mb, 500);
   assert.deepStrictEqual(o.candidates, { count: 3, mb: 500 + 600 + 500 });
   assert.strictEqual(o.stopped, null, '판정만이면 stopped 없음');
+  assert.strictEqual(o.stoppedChains, null, '판정만이면 stoppedChains 없음');
   assert.strictEqual(o.minAgeMinutes, 30);
 
   // 서버 pid.txt가 바뀌면(서버가 다른 묶음으로) 3001은 일하는 프로세스로 남는다
@@ -86,6 +87,13 @@ try {
   assert.deepStrictEqual(order2001, [2004, 2003, 2005, 2002, 2001], '깊은 것부터, 같은 깊이는 늦게 생긴 것부터');
   assert.ok(stopped.indexOf(4010) < stopped.indexOf(4004), 'code 아래 code가 먼저');
   assert.ok(s.stopped.every((x) => x.ok === true));
+  // 세션 현황 결과 한 줄(0.11.0): 다시 판정해도 후보라 끈 묶음 수·MB
+  assert.deepStrictEqual(s.stoppedChains, { count: 3, mb: 1600 });
+
+  // 후보가 없으면 0묶음(30분 기준을 크게 잡아 모두 too-new)
+  const none = run('-Stop', '-MinAgeMinutes', '100000');
+  assert.deepStrictEqual(none.stoppedChains, { count: 0, mb: 0 });
+  assert.deepStrictEqual(none.stopped, []);
 
   console.log('wy-ops ssh-orphans 검사 통과');
 } finally {

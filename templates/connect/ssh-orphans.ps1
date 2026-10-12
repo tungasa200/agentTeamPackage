@@ -6,7 +6,8 @@
 #   has-worker(자손에 껍데기(powershell·conhost·code CLI) 말고 다른 프로세스가 있음) / too-new(MinAgeMinutes 안)
 # 정리 후보: 부모 없는 묶음 중 위에 안 걸린 것.
 # -Json: 표시용(doctor·세션 현황). 스키마 {admin, now, minAgeMinutes, serverPids[], chains[{verdict,reason,rootPid,pids[],created,mb}],
-#   candidates{count,mb}, stopped[{pid,name,ok}]|null}
+#   candidates{count,mb}, stopped[{pid,name,ok}]|null, stoppedChains{count,mb}|null}
+#   stoppedChains: -Stop에서 다시 판정해도 후보라 실제로 끄기 시작한 묶음 수·MB(세션 현황 [정리]·자동 정리 결과 한 줄, 0.11.0)
 # -FixtureJson <파일>: 시험용. 파일 {now, serverPids[], processes[{ProcessId,ParentProcessId,Name,CreationDate,WorkingSetSize}]}을
 #   지금 프로세스 대신 쓴다. -Stop과 함께 주면 끄지 않고 끌 순서만 stopped에 적는다.
 param(
@@ -97,9 +98,11 @@ $state = Read-State
 $verdicts = @(Get-Verdicts $state)
 $cand = @($verdicts | Where-Object verdict -eq 'candidate')
 $stopped = $null
+$stoppedChains = $null
 
 if ($Stop) {
   $stopped = @()
+  $stoppedChains = [pscustomobject]@{ count = 0; mb = 0 }
   if (-not $FixtureJson -and -not $admin) {
     [Console]::Error.WriteLine('정리는 관리자 권한이 필요합니다(남은 묶음이 관리자 SSH 로그인 소유). 관리자 PowerShell에서 다시 실행하세요.')
   } else {
@@ -107,6 +110,7 @@ if ($Stop) {
     $again = @(Get-Verdicts (Read-State) | Where-Object verdict -eq 'candidate')
     foreach ($c in $cand) {
       if (-not ($again | Where-Object { $_.rootPid -eq $c.rootPid -and $_.created -eq $c.created })) { continue }
+      $stoppedChains.count++; $stoppedChains.mb += $c.mb
       foreach ($o in $c.order) {
         $ok = $true
         if (-not $FixtureJson) {
@@ -129,6 +133,7 @@ $out = [pscustomobject]@{
   chains        = @($verdicts | Select-Object verdict, reason, rootPid, pids, created, mb)
   candidates    = [pscustomobject]@{ count = $cand.Count; mb = [int](($cand | Measure-Object mb -Sum).Sum) }
   stopped       = $stopped
+  stoppedChains = $stoppedChains
 }
 if ($Json) {
   [Console]::OutputEncoding = [Text.Encoding]::UTF8

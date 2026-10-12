@@ -83,17 +83,51 @@ ${JSON.stringify(pmMsg)}`);
     await flush();
     assert.ok(fake.terminals.length === before + 1 && fake.terminals.at(-1).opts.name === `${ops.pmRole} 붙기`, '[붙기] → pm 붙기 터미널');
 
-    // 끊긴 SSH 묶음 줄(0.10.0): 판정 스크립트 -Json의 candidates만. 스크립트 없음·실패·이상한 출력은 null(줄 숨김)
-    const { readOrphans } = require(path.join(EXT, 'sessionsView.js'));
-    const script = path.join(process.env.WY_APPROVALS_DIR, 'ssh-orphans.ps1');
-    assert.strictEqual(await readOrphans(script, async () => { throw new Error('부르면 안 됨'); }), null, '스크립트 없으면 부르지 않음');
-    fs.writeFileSync(script, '');
-    let called = null;
-    const json = '{"admin":false,"chains":[],"candidates":{"count":2,"mb":624},"stopped":null}';
-    assert.deepStrictEqual(await readOrphans(script, async (label, file, args, timeout) => { called = { file, args, timeout }; return `﻿${json}\r\n`; }), { count: 2, mb: 624 });
-    assert.ok(called.file === 'powershell.exe' && called.args.includes('-Json') && !called.args.includes('-Stop') && called.args.includes(script) && called.timeout >= 10000, JSON.stringify(called));
-    assert.strictEqual(await readOrphans(script, async () => { throw new Error('ssh-orphans 응답 없음'); }), null, '실패는 숨김');
-    assert.strictEqual(await readOrphans(script, async () => 'not json'), null);
+    // 끊긴 SSH 묶음(0.11.0): 줄 값은 cleaner.read(), [정리]는 orphansStop → 결과 한 줄 → 줄 다시 읽기, 자동 정리는 읽은 값으로
+    //   판정·끄기 자체는 orphanCleaner.test.js·test/sshOrphans.test.js
+    const { Provider } = require(path.join(EXT, 'sessionsView.js'));
+    const log = [];
+    let seen = { count: 3, mb: 900, admin: true };
+    const cleaner = {
+      read: async () => (log.push('read'), seen),
+      stop: async (kind) => (log.push('stop:' + kind), { kind, at: 1, count: 3, mb: 900, failed: 0 }),
+      maybeAuto: (d) => (log.push('auto?'), d.admin && d.count ? cleaner.stop('auto') : null),
+    };
+    const p2 = new Provider(fake.context.extensionUri, fake.context.globalState, null, cleaner);
+    const posts2 = [];
+    p2.view = { webview: { postMessage: (m) => posts2.push(m) } };
+    const wait = async () => { for (let k = 0; k < 20; k++) await flush(); };
+    // 읽은 값에 후보가 있고 관리자면 자동 정리 → 결과 → 다시 읽음(다시 읽은 값으로는 또 정리하지 않게 seen을 0으로)
+    cleaner.stop = async (kind) => { log.push('stop:' + kind); seen = { count: 0, mb: 0, admin: true }; return { kind, at: 1, count: 3, mb: 900, failed: 0 }; };
+    await p2.update('orphans');
+    await wait();
+    assert.deepStrictEqual(log, ['read', 'auto?', 'stop:auto', 'read', 'auto?'], log.join(','));
+    assert.deepStrictEqual(posts2.map((m) => m.type), ['orphans', 'orphansBusy', 'orphansResult', 'orphans']);
+    assert.deepStrictEqual(posts2[0].data, { count: 3, mb: 900, admin: true });
+    assert.strictEqual(posts2[2].data.kind, 'auto');
+    assert.strictEqual(p2.cache.orphansResult.data.count, 3, '다시 열어도 결과 한 줄을 보이게 cache');
+    // [정리] 버튼(webview 메시지)
+    log.length = 0;
+    posts2.length = 0;
+    const view2 = { visible: false, posts: posts2, webview: { postMessage: (m) => posts2.push(m), options: {}, asWebviewUri: (u) => u, cspSource: 'x', onDidReceiveMessage(h) { this.handler = h; } }, onDidChangeVisibility() {}, onDidDispose() {} };
+    p2.resolveWebviewView(view2);
+    await wait();
+    // 자동 정리용 판정: 안 보이고(visible false) 접혀 있어도 뷰가 뜨면 바로 한 번, 그 뒤 10분마다
+    assert.deepStrictEqual(log, ['read', 'auto?'], '뷰가 뜨면 표시와 상관없이 판정');
+    assert.ok(p2.autoTimer, '10분 타이머');
+    log.length = 0;
+    view2.webview.handler({ type: 'orphansStop' });
+    await wait();
+    assert.ok(log[0] === 'stop:manual' && log.includes('read'), log.join(','));
+    assert.ok(posts2.some((m) => m.type === 'orphansResult' && m.data.kind === 'manual'));
+    // host 아님·스크립트 없음이면 read가 null → 자동 정리를 묻지도 않는다
+    log.length = 0;
+    cleaner.read = async () => (log.push('read'), null);
+    await p2.update('orphans');
+    await wait();
+    assert.deepStrictEqual(log, ['read']);
+    p2.stopAutoClean();
+    assert.strictEqual(p2.autoTimer, null);
 
     console.log('sessionsView 검사 통과');
   } finally {

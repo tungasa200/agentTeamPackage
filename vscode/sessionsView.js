@@ -11,12 +11,12 @@ const { rootFor } = require('./approvalStore');
 const { readSessionStatus, readAgents } = require('./agentsReader');
 const { notifyStuck } = require('./stuckTool');
 const { PmControl } = require('./pmControl');
+const { OrphanCleaner, AUTO_GAP_MS } = require('./orphanCleaner');
 
 const VIEW_ID = 'wyOps.sessions';
 const INTERVAL = { memory: 5000, processes: 15000, sessions: 10000, orphans: 60000 };
-// 끊긴 SSH 접속이 남긴 묶음(0.10.0): 설치본의 판정 스크립트(호스트에서만 의미, PowerShell이라 1~2초 → 60초 간격)
+// 끊긴 SSH 접속이 남긴 묶음(0.10.0, [정리]·자동 정리 0.11.0): 설치본의 판정 스크립트(SSH 원격 호스트에서만, PowerShell이라 1~2초 → 60초 간격)
 const ORPHANS_PS = path.join(os.homedir(), '.wy-tools', 'wy-ops', 'current', 'templates', 'connect', 'ssh-orphans.ps1');
-const ORPHANS_TIMEOUT = 30000;
 const STUCK_INTERVAL = 60000; // 패널이 안 보여도 멈춤 의심을 pm에 알리려고 세션 상태를 이 간격으로 읽는다
 const COMMAND_TIMEOUT = 8000;
 const REVEAL_REPLAY_MS = 10000;
@@ -59,19 +59,6 @@ async function readProcesses() {
     groups.set(key, g);
   }
   return [...groups.values()].sort((a, b) => b.bytes - a.bytes).slice(0, 5);
-}
-
-// 정리 후보 수·MB. 스크립트가 없거나(호스트 아님·옛 설치본) 읽지 못하면 null → 줄을 숨긴다(오류로 띄우지 않음)
-async function readOrphans(file = ORPHANS_PS, runFn = run) {
-  if (!fs.existsSync(file)) return null;
-  try {
-    const out = await runFn('ssh-orphans', 'powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, '-Json'], ORPHANS_TIMEOUT);
-    const line = String(out).split(/\r?\n/).filter((l) => l.trim().startsWith('{')).pop();
-    const c = line && JSON.parse(line.trim().replace(/^﻿/, '')).candidates;
-    return c ? { count: Number(c.count) || 0, mb: Number(c.mb) || 0 } : null;
-  } catch {
-    return null;
-  }
 }
 
 function workspaceDir() {
@@ -123,7 +110,8 @@ function readRoles() {
   }
 }
 
-const READERS = { memory: async () => readMemory(), processes: readProcesses, sessions: readSessions, orphans: () => readOrphans() };
+const orphanCleaner = new OrphanCleaner({ file: ORPHANS_PS, run });
+const READERS = { memory: async () => readMemory(), processes: readProcesses, sessions: readSessions, orphans: () => orphanCleaner.read() };
 // 접기 단위: 고아 줄은 프로세스 블록 안에 있어 프로세스를 접으면 읽지 않는다
 const foldKey = (s) => (s === 'orphans' ? 'processes' : s);
 
@@ -142,8 +130,9 @@ const PM_ACTIONS = {
 };
 
 class Provider {
-  constructor(extensionUri, globalState, pm) {
+  constructor(extensionUri, globalState, pm, cleaner = orphanCleaner) {
     this.extensionUri = extensionUri;
+    this.cleaner = cleaner;
     this.globalState = globalState;
     this.pm = pm || null;
     this.pmTimer = null;
@@ -176,6 +165,8 @@ class Provider {
         openSession(msg.id, msg.name);
       } else if (PM_ACTIONS[msg.type] && this.pm) {
         Promise.resolve(PM_ACTIONS[msg.type](this.pm)).finally(() => this.update('sessions'));
+      } else if (msg.type === 'orphansStop') {
+        this.cleanOrphans(this.cleaner.stop('manual'));
       } else if (msg.type === 'ackOff' && typeof msg.sessionId === 'string') {
         this.ackOff(msg.sessionId);
       } else if (msg.type === 'fold') {
@@ -188,7 +179,10 @@ class Provider {
       }
     });
     view.onDidChangeVisibility(() => (view.visible ? this.start() : this.stop()));
+    // 자동 정리용 판정: 사이드바가 떠 있는 동안 10분마다(프로세스 블록을 접었거나 안 보여도). 표시용 60초 판정은 펼쳤을 때만
+    this.startAutoClean();
     view.onDidDispose(() => {
+      this.stopAutoClean();
       this.stop();
       this.view = undefined;
     });
@@ -264,7 +258,7 @@ class Provider {
       this.inflight[source] = (async () => {
         let msg;
         try {
-          let data = await READERS[source]();
+          let data = await (source === 'orphans' ? this.cleaner.read() : READERS[source]());
           if (source === 'sessions') {
             if (this.pm) this.pm.observe(data.pmAgents, data.rows.find((r) => r.name === this.pm.name));
             data = this.applyAcks(data.rows);
@@ -277,9 +271,34 @@ class Provider {
         this.cache[source] = msg;
         this.post(msg);
         if (source === 'sessions') this.postPm();
+        if (source === 'orphans' && msg.data) this.cleanOrphans(this.cleaner.maybeAuto(msg.data));
       })();
     }
     return this.inflight[source];
+  }
+
+  // 정리 결과 한 줄을 보내고(다시 열어도 보이게 cache), 줄의 수를 새로 읽는다
+  async cleanOrphans(job) {
+    if (!job) return;
+    this.post({ type: 'orphansBusy' });
+    const result = await job;
+    const msg = { type: 'orphansResult', data: result };
+    this.cache.orphansResult = msg;
+    this.post(msg);
+    await this.inflight.orphans;
+    await this.update('orphans');
+  }
+
+  startAutoClean() {
+    this.stopAutoClean();
+    this.update('orphans');
+    this.autoTimer = setInterval(() => this.update('orphans'), AUTO_GAP_MS);
+    if (this.autoTimer.unref) this.autoTimer.unref();
+  }
+
+  stopAutoClean() {
+    if (this.autoTimer) clearInterval(this.autoTimer);
+    this.autoTimer = null;
   }
 
   refreshAll() {
@@ -347,6 +366,7 @@ function register(context) {
       provider.reveal(sessionId);
     }),
     { dispose: () => provider.stop() },
+    { dispose: () => provider.stopAutoClean() },
     { dispose: () => provider.pmTimer && clearInterval(provider.pmTimer) },
   );
   // 창을 닫았다 열어도 교체 진행을 이어서 본다(R-4)
@@ -354,4 +374,4 @@ function register(context) {
   return provider;
 }
 
-module.exports = { register, VIEW_ID, REVEAL_COMMAND, readOrphans };
+module.exports = { register, VIEW_ID, REVEAL_COMMAND, Provider };

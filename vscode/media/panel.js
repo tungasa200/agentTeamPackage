@@ -590,16 +590,49 @@ ${s.stuck.command || ''}`;
   }
 
   // 끊긴 SSH 접속이 남긴 묶음(0.10.0): 정리 후보가 있을 때만 프로세스 블록 아래 한 줄. 확장은 못 읽으면 data를 null로 보낸다
+  // 끊긴 SSH 묶음 줄(SSH 원격 호스트에서만 옴). [정리]는 관리자 창(SSH 원격 창)에서만 보인다(0.11.0)
   function renderOrphans(msg) {
     const p = $('proc-orphans');
     const d = msg.data;
+    renderOrphansResult();
     if (msg.error || !d || !d.count) {
       p.hidden = true;
       return;
     }
-    p.textContent = `끊긴 SSH 접속이 남긴 묶음 ${d.count}개 · ${d.mb} MB`;
-    p.title = '접속 PC의 제어 창에서 붙으면 정리됩니다. 바로 하려면 호스트의 관리자 PowerShell에서 ssh-orphans.ps1 -Stop';
+    $('orphans-text').textContent = `끊긴 SSH 접속이 남긴 묶음 ${d.count}개 · ${d.mb} MB`;
+    $('orphans-stop').hidden = !d.admin;
+    p.title = d.admin
+      ? '30분 넘게 쓰이지 않은 묶음만 끕니다(지금 서버·살아 있는 접속은 남김). 10분에 한 번 저절로도 정리합니다'
+      : '정리는 SSH 원격 창(관리자 권한)에서 됩니다. 접속 PC의 제어 창에서 붙어도 정리됩니다';
     p.hidden = false;
+  }
+
+  // 정리 결과 한 줄: 10분 지나면 숨긴다(줄은 60초마다 다시 그려진다)
+  const ORPHANS_RESULT_MS = 10 * 60 * 1000;
+  let orphansResult = null;
+  function orphansResultText(r) {
+    const what = r.kind === 'auto' ? '자동 정리' : '정리';
+    if (r.error) return `${what}하지 못했습니다: ${r.error}`;
+    if (!r.count) return `${what}: 끌 묶음이 없었습니다(그사이 다시 쓰이기 시작했거나 이미 꺼짐)`;
+    return `${hhmm(new Date(r.at))} ${what}: ${r.count}묶음 · ${r.mb} MB 끔${r.failed ? ` · 프로세스 ${r.failed}개는 끄지 못함` : ''}`;
+  }
+  function renderOrphansResult() {
+    const p = $('orphans-result');
+    const r = orphansResult;
+    // 자동 정리가 끌 것이 없었으면 알릴 일이 아니다
+    if (!r || Date.now() - r.at > ORPHANS_RESULT_MS || (r.kind === 'auto' && !r.error && !r.count)) {
+      p.hidden = true;
+      return;
+    }
+    p.textContent = orphansResultText(r);
+    p.classList.toggle('is-error', !!(r.error || r.failed));
+    p.hidden = false;
+  }
+  function setOrphansBusy(busy) {
+    const b = $('orphans-stop');
+    b.disabled = busy;
+    b.setAttribute('aria-busy', String(busy));
+    b.textContent = busy ? '정리 중…' : '정리';
   }
 
   const RENDER = { memory: renderMemory, processes: renderProcesses, sessions: renderSessions, orphans: renderOrphans };
@@ -612,6 +645,12 @@ ${s.stuck.command || ''}`;
     $(bodyId).hidden = isFolded;
     btnEl.closest('.block').classList.toggle('is-folded', isFolded);
   }
+
+  $('orphans-stop').addEventListener('click', () => {
+    if ($('orphans-stop').disabled) return;
+    setOrphansBusy(true);
+    vscode.postMessage({ type: 'orphansStop' });
+  });
 
   $('proc-fold').addEventListener('click', () => {
     const isFolded = !folded.has('processes');
@@ -647,6 +686,17 @@ ${s.stuck.command || ''}`;
       pmName = name;
       renderPm(msg.data);
       if (changed && lastSessions && !lastSessions.error) renderSessions(lastSessions);
+      return;
+    }
+    if (msg.type === 'orphansBusy') {
+      setOrphansBusy(true);
+      return;
+    }
+    if (msg.type === 'orphansResult') {
+      setOrphansBusy(false);
+      orphansResult = msg.data || null;
+      renderOrphansResult();
+      if (orphansResult && !$('orphans-result').hidden) announce(orphansResultText(orphansResult));
       return;
     }
     if (msg.type === 'reveal') {

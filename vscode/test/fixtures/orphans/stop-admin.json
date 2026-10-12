@@ -1,0 +1,1 @@
+﻿{"admin":true,"now":"2026-10-12T15:12:00","minAgeMinutes":30,"serverPids":[3010],"chains":[],"candidates":{"count":10,"mb":3072},"stopped":[{"pid":2004,"name":"code.exe","ok":true},{"pid":2003,"name":"powershell.exe","ok":false}],"stoppedChains":{"count":9,"mb":2860}}

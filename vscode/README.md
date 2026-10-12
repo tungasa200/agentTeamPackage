@@ -20,10 +20,12 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 | 전체·여유 메모리 | Node `os.totalmem`·`os.freemem` | 5초 |
 | 프로세스 그룹 상위 5개 | `tasklist /fo csv /nh` | 15초 |
 | 세션 | `claude agents --json --all` | 10초 |
+| 끊긴 SSH 접속 묶음(SSH 원격 호스트만) | 설치본 `templates/connect/ssh-orphans.ps1 -Json` | 60초 |
 
 - 패널이 보이지 않으면 폴링을 멈춘다. 위 오른쪽 새로고침 버튼으로 바로 갱신할 수 있다.
 - pm(`.claude/wy-ops.json`의 `pmRole`)은 세션 표에 넣지 않고 세션 표 바로 위 pm 줄에 따로 보인다(0.10.0, `pmControl.js`, 목업 `design/pm-control/`). 아래 'pm 줄'.
 - 프로세스 블록은 제목을 눌러 접을 수 있다. 접어 두면 `tasklist`를 실행하지 않고, 접힘 상태는 패널을 다시 열어도 유지된다.
+- 끊긴 SSH 접속 묶음(0.11.0, `orphanCleaner.js`): `install.ps1 host`를 한 PC(`HKLM\SOFTWARE\OpenSSH` DefaultShell이 Windows PowerShell)에서만 판정한다. 관리자 창(SSH 원격 창)이면 줄 옆 [정리]가 보이고(`ssh-orphans.ps1 -Stop -Json`, 결과 `stoppedChains` 한 줄), 후보를 보면 10분에 한 번까지 저절로 끈다(자동 정리용 판정은 사이드바가 떠 있는 동안 10분마다, 프로세스 블록을 접어도 돈다). 판정 규칙(30분·지금 서버·살아 있는 접속·에이전트 호스트 관리는 남김, 끄기 직전 다시 판정)은 스크립트 한 곳에 있다. 일반 권한 창은 줄만 보이고 자동 정리하지 않는다.
 - 세션은 갱신 때마다 작업 중 → 대기(대기·입력 대기·승인 대기) → 멈춤 → 오류 → 없음 순으로 다시 정렬한다. 같은 그룹 안은 `.claude/wy-ops.json`의 역할 순서다. 실행하지 않은 역할은 '없음'으로 보여 준다. 워크스페이스 루트가 저장소여야 한다.
 - 입력 대기는 할 일을 마치고 다음 지시를 기다리는 상태, 승인 대기는 권한·샌드박스·선택 대화상자 응답을 기다리는 상태다(`claude agents`의 `waitingFor`로 구분). 상태 위에 마우스를 올리면 기다리는 이유가 보인다.
 - 여유 메모리가 1GB 미만이면 막대와 문구가 경고색으로 바뀐다. 막대 위의 세로선이 1GB 기준이다.

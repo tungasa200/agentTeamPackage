@@ -1,0 +1,4 @@
+
+HKEY_LOCAL_MACHINE\SOFTWARE\OpenSSH
+    DefaultShell    REG_SZ    C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+
