@@ -123,6 +123,7 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
 - push 요청은 `commits`에 올라갈 커밋을, commit 요청은 `files`(또는 `fileCount`)와 `verification`을 채운다.
 - `effect`(선택): 무엇이 바뀌고 어떻게 되돌리는지 한 줄, 200자 이내. 카드 제목 바로 아래 큰 글씨로 보인다. 짧은 명사형·단문. 예: `main에 22개 커밋 합침 · revert로 되돌림`, `feature/P1에 커밋 1개 추가(파일 1개) · 푸시 전이라 되돌리기 쉬움`. 비우면 `kind`·`branch`·`commits`·`files`·`command`로 만든다(push → `원격 feature/P1에 3개 커밋 올림 · revert로 되돌림`, `gh pr merge` → `원격 main에 22개 커밋 합침 · revert로 되돌림`, `reset --hard` → `… 작업 중 변경도 지움 · 지운 변경은 되찾기 어려움`).
 - `kind`는 위 값만. PR 병합(`gh pr merge`)도 `merge`다(`pr`은 형식 오류 카드).
+- 요청 파일을 쓴 직후 `vscode/approvalStore.js`의 `readRequest(파일, id)`로 읽어 결과에 `broken`이 없는지 확인한다. `broken`이 있으면 형식 오류 카드로 올라간 것이니 그 내용대로 고쳐 다시 쓴다. 예: `node -e "const s=require(process.argv[1]); console.log(s.readRequest(process.argv[2], process.argv[3]).broken || 'ok')" <설치 폴더>/vscode/approvalStore.js <요청 파일> <id>`
 
 결정 요청(`kind`: `choice`, AskUserQuestion과 같은 모양):
 

@@ -4,9 +4,10 @@
 
 - **승인 센터**(VS Code 확장): 세션이 올린 권한 요청·결정 요청·할 일·git 승인을 한곳에서 처리합니다.
 - **세션 현황·활동 탭**: 역할 세션의 상태와 세션끼리 주고받은 메시지를 봅니다.
-- **훅 5종**: 커밋은 커밋 역할만 승인을 받은 뒤 실행하게 하고, 백그라운드 세션의 권한 요청을 카드로 바꿉니다.
+- **훅 6종**: 커밋은 커밋 역할만 승인을 받은 뒤 실행하게 하고(승인 가드), 백그라운드 세션의 권한 요청을 카드로 바꿉니다(권한 요청). 종료된 세션에 보내는 메시지를 막고(메시지 가드), 세션의 역할을 기록하고(세션 시작), 대화가 길어지면 세션 교체를 알리고(컨텍스트 크기), 카드가 처리되면 올린 세션을 깨웁니다(결정 깨우기). 각각 `vscode/hooks/`의 `wy-approval-guard`·`wy-permission`·`wy-message-guard`·`wy-session-start`·`wy-context-size`·`wy-decision-wake`입니다.
 - **역할 생성**: 역할 파일(`.claude/agents/<역할>.md`), pm 운영 스킬(`pm-ops`), 세션 실행·세션 교체 스크립트(`session.ps1`)를 만듭니다.
 - **점검·이전**: `doctor`로 설치 상태를 확인하고, `export`·`restore`로 개인 상태를 새 PC로 옮깁니다.
+- **원격(선택)**: 한 PC를 호스트로 두고 다른 PC(노트북)에서 VS Code 원격 창으로 이어 씁니다. `host`·`connect`로 준비하고, 접속 PC의 제어 창에서 호스트 깨우기(집 밖에서는 폰 중계)·pm에 붙기를 합니다(0.8.x~0.9.1). 자세한 것은 [MANUAL.md](MANUAL.md) 3-5.
 
 사용법(팀이 일하는 흐름·설치·매일 쓰기·역할 바꾸기·패키지 고치기와 배포)은 [MANUAL.md](MANUAL.md), 새 PC 체크리스트는 [NEW-PC.md](NEW-PC.md), 카드 요청 파일 형식은 [vscode/README.md](vscode/README.md)에 있습니다.
 
@@ -96,6 +97,8 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 | `gen` | `.claude/ops`의 역할 원본을 고친 뒤 역할 파일·스킬 다시 만들기 |
 | `deploy` / `rollback` | 설치본만 갱신 / 이전 버전으로 |
 | `export` / `import` / `restore` | 개인 이전 묶음 만들기 / 들여오기 / 새 PC 한 번에 복원 |
+| `host` | 이 PC를 원격 호스트로(관리자 PowerShell, MANUAL 3-5). `--dry-run`은 목록만. `--add-key`는 접속 PC 공개키 등록 |
+| `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기·호스트 제어 창(MANUAL 3-5) |
 
 ## 개발
 
@@ -104,6 +107,6 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 - 작업 사본을 바로 쓰려면 `install.ps1 deploy --dev`(설치본 `current`가 이 폴더를 가리킵니다. doctor가 '개발 연결 중'으로 알립니다). 풀려면 `install.ps1 deploy`.
 - 시험: 저장소 루트에서 `node test/<이름>.test.js`, `node vscode/test/<이름>.test.js`. npm 의존성은 없습니다. 시험은 임시 폴더·가짜 명령으로 돌고 실제 홈 폴더와 설치본은 건드리지 않습니다.
 
-- powershell -ExecutionPolicy Bypass -File C:\projects\agentTeamPackage\install.ps1 restore <USB>\wy-transfer.zip --project <프로젝트를 clone한 폴더>
+- 새 PC로 옮기기는 [NEW-PC.md](NEW-PC.md)를 따릅니다(예: `powershell -ExecutionPolicy Bypass -File <설치 폴더>\install.ps1 restore <zip> --project <프로젝트를 clone한 폴더>`).
 - 버전: 0.x는 개발 중, 첫 공개 판이 1.0.0입니다. 프로젝트는 `.claude/wy-ops.json`의 `wyOpsVersion`으로 쓰는 버전을 적고, doctor가 설치본과 비교합니다.
 - VS Code 확장 id(`wy-ops.wy-ops`)는 바꾸지 않습니다. 확장은 설치본 `current`를 읽는 얇은 껍데기라 버전을 바꿀 때 다시 설치하지 않아도 됩니다.
