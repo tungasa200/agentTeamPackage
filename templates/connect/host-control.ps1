@@ -84,14 +84,10 @@ if ($LASTEXITCODE -eq 0 -and $j) {
 $o | ConvertTo-Json -Compress
 '@ -replace '__ROLE__', $Role -replace '__REPO__', $Repo.Replace("'", "''").Replace('$', '$$')
 
-# pm 새로 띄우기: 가장 최근 인수인계 파일(<날짜>-<역할>[-n]-session.tmp)로, 없으면 none. 이미 실행 중이면 start-pm이 거부한다
+# pm 새로 띄우기: start-pm latest(가장 최근 인수인계 파일, 없으면 인수인계 없이 — 찾는 규칙은 session.ps1 한 곳). 이미 실행 중이면 start-pm이 거부한다
 $StartPmBody = @'
-$f = Get-ChildItem (Join-Path $env:USERPROFILE '.claude\session-data') -Filter '*-__ROLE__*-session.tmp' -ErrorAction SilentlyContinue |
-  Where-Object { $_.Name -match '^\d{4}-\d{2}-\d{2}-__RX__(-\d+)?-session\.tmp$' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$h = if ($f) { $f.FullName } else { 'none' }
-"인수인계: $h"
-try { & '__SCRIPT__' start-pm $h 2>&1 | Out-String -Width 200 } catch { "실패: $($_.Exception.Message)" }
-'@ -replace '__ROLE__', $Role -replace '__RX__', [regex]::Escape($Role).Replace('$', '$$') -replace '__SCRIPT__', $SessionPs1.Replace("'", "''").Replace('$', '$$')
+try { & '__SCRIPT__' start-pm latest 2>&1 | Out-String -Width 200 } catch { "실패: $($_.Exception.Message)" }
+'@ -replace '__SCRIPT__', $SessionPs1.Replace("'", "''").Replace('$', '$$')
 
 # pm에 붙기(0.8.5): 새 콘솔 창 대신 VS Code 원격 창 통합 터미널에서. 호스트에 붙기 요청 파일을 쓰고(이 단계) 원격 창을 연다(Open-VsCode).
 # 원격 창의 wy-ops 확장(vscode/attachRequest.js)이 요청을 가져가 '<역할> 붙기' 터미널을 띄우거나, 살아 있으면 그 터미널을 보여 준다. 시각은 호스트 시계(UTC)
@@ -103,6 +99,12 @@ $j = [ordered]@{ folder = '__REPO__'; role = '__ROLE__'; at = (Get-Date).ToUnive
 [IO.File]::WriteAllText((Join-Path $d 'attach-request.json'), $j)
 '붙기 요청을 남겼습니다'
 '@.Replace('__ROLE__', $Role.Replace("'", "''")).Replace('__REPO__', $Repo.Replace("'", "''"))
+# 끊긴 SSH 접속이 남긴 묶음 정리(0.10.0): 붙기 때 호스트의 판정 스크립트를 -Stop으로. 접속 PC의 SSH 로그인이 관리자라 묶음을 끌 수 있다.
+# 판정·안전장치(지금 서버·살아 있는 접속·30분 안은 남김, 끄기 직전 다시 판정)는 ssh-orphans.ps1 한 곳. 스크립트가 없으면(옛 설치본) 건너뜀
+$OrphansBody = @'
+$f = Join-Path $env:USERPROFILE '.wy-tools\wy-ops\current\templates\connect\ssh-orphans.ps1'
+if (Test-Path $f) { & $f -Stop -Json } else { '{"skipped":true}' }
+'@
 $Parts = ($Repo -replace '\\', '/').Split('/')
 $FolderUri = "vscode-remote://ssh-remote+$Alias/" + $Parts[0].ToLower() + '/' + (($Parts | Select-Object -Skip 1 | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/')
 # 바로가기와 같은 Code.exe(code.cmd 옆, 콘솔 창이 뜨지 않음). 못 찾으면 code.cmd
@@ -121,6 +123,20 @@ $Remote = [ordered]@{
   shutdown = @{ cmd = 'shutdown /s /t 0'; timeout = 20 }
   startpm  = @{ cmd = (Get-RemotePs $StartPmBody); timeout = 240 }
   attach   = @{ cmd = (Get-RemotePs $AttachReqBody); timeout = 20 }
+  orphans  = @{ cmd = (Get-RemotePs $OrphansBody); timeout = 60 }
+}
+
+# 정리 결과 JSON(ssh-orphans.ps1 -Json) → 기록 칸 한 줄. 후보가 없거나 읽지 못하면 $null(아무것도 적지 않음)
+function Format-Orphans([string]$out) {
+  $line = @($out -split '\r?\n' | Where-Object { $_.StartsWith('{') })[-1]
+  if (-not $line) { return $null }
+  try { $r = $line | ConvertFrom-Json } catch { return $null }
+  if (-not $r.candidates -or -not $r.candidates.count) { return $null }
+  $n = $r.candidates.count; $mb = $r.candidates.mb
+  $st = @($r.stopped)
+  if (-not $st.Count) { return "이전 접속이 남긴 묶음 ${n}개·${mb}MB를 정리하지 못했습니다(호스트 관리자 권한 아님)" }
+  $bad = @($st | Where-Object { -not $_.ok }).Count
+  "이전 접속 정리: ${n}개 묶음·${mb}MB$(if ($bad) { " (프로세스 ${bad}개는 끄지 못함)" })"
 }
 
 function Get-Cfg {
@@ -153,6 +169,8 @@ if ($SelfTest) {
   foreach ($k in $Remote.Keys) { "${k}: $Ssh $(Get-SshArgs $Remote[$k].cmd)" }
   "open: $(Get-CodeExe) --folder-uri $FolderUri"
   "rotate: $RotateText"
+  'orphanFmt: ' + (Format-Orphans '{"candidates":{"count":2,"mb":624},"stopped":[{"pid":1,"ok":true},{"pid":2,"ok":false}]}')
+  'orphanNone: ' + [string](Format-Orphans '{"candidates":{"count":0,"mb":0},"stopped":[]}') + '|' + [string](Format-Orphans 'ssh: connect timed out')
   $c = Get-Cfg
   if ($c -and $c.mac) { "wake: UDP $($c.broadcast):9 $((Get-WakePacket $c.mac).Length)바이트" } else { 'wake: MAC 모름' }
   try { $ra = Get-RelayArgs $c; "relay: $(if ($ra) { "$Ssh $ra" } else { '없음' })" } catch { "relay: $($_.Exception.Message)" }
@@ -171,6 +189,8 @@ if ($AttachOnly) {
   $p = Start-Process -FilePath $Ssh -ArgumentList (Get-SshArgs $Remote.attach.cmd) -Wait -PassThru -WindowStyle Hidden
   $err = if ($p.ExitCode -ne 0) { "호스트에 붙기 요청을 보내지 못했습니다(ssh 종료 코드 $($p.ExitCode)). 호스트가 깨어 있는지 '$Alias 제어' 창에서 확인하세요" } else { Open-VsCode }
   if ($err) { [void][Windows.Forms.MessageBox]::Show($err, "$Alias $Role", 'OK', 'Warning') }
+  # 이전 접속 정리는 기다리지 않는다(창 없이 따로, 결과 표시 없음)
+  else { try { Start-Process -FilePath $Ssh -ArgumentList (Get-SshArgs $Remote.orphans.cmd) -WindowStyle Hidden } catch { } }
   return
 }
 
@@ -298,6 +318,15 @@ $btnStartPm.Add_Click({
   }
 })
 function Open-Attach {
+  # 이전 접속 정리: 붙기와 따로 돈다(실패·시간 초과여도 붙기는 그대로). 정리한 것이 있을 때만 한 줄
+  if (-not (Test-Busy 'orphans')) {
+    Start-Ssh 'orphans' {
+      param($code, $out, $err)
+      if ($DryRun) { return }
+      $m = Format-Orphans $out
+      if ($m) { Write-Log $m }
+    }
+  }
   Write-Log '붙기 요청을 보내는 중…'
   Start-Ssh 'attach' {
     param($code, $out, $err)

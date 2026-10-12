@@ -6,6 +6,10 @@
 #   5 GitHub    gh auth login --web(창 없이, 출력의 확인 코드를 보여 주고 브라우저는 마법사가 연다) + 2초마다 gh auth status, 끝나면 gh auth setup-git
 #   6 폴더 허락 node lib/install.js trust --project <폴더>(~/.claude.json에 기록) → 실패하면 Claude 창(사람이 Yes) + 2초마다 trust --check
 #   7 마침      node lib/install.js doctor --json --todos --project <폴더>(남은 일은 승인 센터 할 일 카드로도)
+#               [pm 시작하고 VS Code 열기](0.10.0, 목업 W7-e): <폴더>\.claude\skills\pm-ops\scripts\session.ps1 start-pm latest(창 없이)가
+#               끝나면 code <폴더>. 상태 상자: 시작하는 중 → 시작했습니다 / 시작하지 못함(VS Code는 그래도 연다, 사이드바 [pm 시작]으로 이어서).
+#               마법사는 스스로 닫지 않는다. [VS Code만 열기] 링크는 pm 없이. Claude 로그인·폴더 허락이 끝나지 않았거나
+#               설치를 끝내지 못했으면 pm은 건너뛰고 [VS Code 열기]만(GitHub만 건너뛴 것은 pm을 띄울 수 있음)
 # 외부 명령은 모두 창 없는 프로세스로 돌리고 타이머로 출력을 읽는다(창이 굳지 않게). 출력 전체는 기록 파일에만 남고 화면에는 쉬운 말만.
 #   -Demo        명령 대신 가짜 출력으로 흐름만 돈다(설치·로그인·기록을 하지 않음)
 #   -Shots <폴더> 화면 상태를 차례로 그려 PNG로 저장하고 끝낸다(목업 대조용, -Demo 포함)
@@ -764,6 +768,21 @@ function Get-Final {
   if ($St.GhSkipped -and -not $St.GhOk) { $lv.gh = 'warn' }
   return @{ Lv = $lv; Detail = $detail }
 }
+function Open-Code { Write-Log "VS Code 열기: $($St.Project)"; if (-not $Demo) { $null = Start-Hidden ('code ' + (Q $St.Project)) } }
+# pm을 백그라운드 세션으로(start-pm latest: 가장 최근 pm 인수인계, 없으면 없이). 끝나면 VS Code를 연다(뜨지 않았어도 — 사이드바 [pm 시작]으로 이어서).
+# 출력은 UTF-8로 받아 '띄웠습니다'(새로 띄움)·'이미 실행 중'(이미 떠 있음)이면 됨으로 본다
+function Start-Pm {
+  $ps1 = Join-Path $St.Project '.claude\skills\pm-ops\scripts\session.ps1'
+  $St.PmPhase = 'run'
+  $cmd = if ($Demo) { Get-DemoCmd @('백그라운드 AB-pm 을 띄웠습니다.') 1.5 } else { 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; & ''' + $ps1.Replace("'", "''") + ''' start-pm latest"' }
+  Start-Poll $cmd {
+    param($code, $out)
+    $St.PmPhase = if ($code -eq 0 -and $out -match '띄웠습니다|이미 실행 중') { 'ok' } else { 'fail' }
+    Write-Log "pm 시작 결과: $($St.PmPhase)"
+    Open-Code
+    if ($St.Step -eq 7) { Show-Step }
+  }
+}
 function Show-Step7 {
   if ($null -eq $St.Doctor) {
     Add-Title '설치를 마무리하고 있습니다'
@@ -783,7 +802,10 @@ function Show-Step7 {
   if ($bad.Count) { Add-Title '설치를 끝내지 못했습니다' }
   elseif ($left.Count) { Add-Title "설치를 마쳤습니다 (남은 일 $($left.Count)개)" }
   else { Add-Title '설치를 마쳤습니다' }
+  # pm은 로그인·허락이 끝났을 때만 띄운다(로그인 전이면 시작이 실패하고, 허락 전이면 세션이 허락 확인에서 멈춤)
+  $St.PmOk = $St.ClaudeOk -and $St.TrustOk -and -not $bad.Count
   if ($left.Count -and -not $bad.Count) { Add-Lead '지금 해도 되고, 나중에 VS Code의 WY Ops 화면에서 해도 됩니다.' }
+  elseif ($St.PmOk) { [void](Add-TextWithHelp '아래 버튼을 누르면 총괄 도우미(pm)가 일을 시작하고 VS Code가 열립니다.' 'pm' 'pm은 다른 AI 도우미들에게 일을 나눠 주는 총괄 도우미입니다. 화면 뒤에서 일하고, VS Code 왼쪽 막대의 WY Ops 화면 맨 위에서 [붙기]를 누르면 대화할 수 있습니다.') }
   elseif (-not $bad.Count) { [void](Add-TextWithHelp 'VS Code를 열고 왼쪽 막대의 WY Ops 아이콘을 누르세요.' 'WY Ops 아이콘' 'VS Code 왼쪽 세로 막대에 있는 WY 모양 아이콘입니다. 누르면 AI 도우미들의 상태와 승인할 일이 보입니다. 안 보이면 VS Code를 닫았다가 다시 여세요.') }
   $first = $true
   function Add-ResultRow([string]$kind, [string]$text, $btn, [string]$help) {
@@ -817,13 +839,31 @@ function Show-Step7 {
     $okN = @($Groups.Keys | Where-Object { $lv[$_] -eq 'ok' }).Count
     if ($okN) { Add-ResultRow 'ok' "나머지 $($okN)개는 됐습니다" $null $null }
   } else { foreach ($k in $Groups.Keys) { Add-ResultRow 'ok' $Groups[$k] $null $null } }
-  $r = New-Row 16
-  $vs = New-BigBtn 'VS Code 열기'; $vs.Add_Click({ Write-Log "VS Code 열기: $($St.Project)"; if (-not $Demo) { $null = Start-Hidden ('code ' + (Q $St.Project)) } })
-  $r.Controls.Add($vs)
-  if ($bad.Count) { $sl = New-SaveLogBtn; $sl.Margin = New-Object Windows.Forms.Padding((Px 8), (Px 3), 0, 0); $r.Controls.Add($sl) }
-  $flow.Controls.Add($r)
   $St.Done[7] = $true
   $btnPrev.Enabled = $false; $btnNext.Enabled = $true
+  # pm 시작을 누른 뒤: 버튼 줄 자리에 상태 상자(시작 중에는 [마침]도 끔)
+  if ($St.PmOk -and $St.PmPhase) {
+    switch ($St.PmPhase) {
+      'run' { Add-Status 'run' 'pm을 시작하는 중입니다.' '잠시 기다려 주세요.'; $btnNext.Enabled = $false }
+      'ok' { Add-Status 'ok' 'pm이 일을 시작했습니다.' 'VS Code의 WY Ops 화면에서 [붙기]를 누르세요.' }
+      default { Add-Status 'warn' 'pm을 시작하지 못했습니다. VS Code는 열었습니다.' 'WY Ops 화면 맨 위의 [pm 시작]을 누르세요.' }
+    }
+    return
+  }
+  $r = New-Row 16
+  if ($St.PmOk) {
+    $vs = New-Btn 'pm 시작하고 VS Code 열기' $true 210 34
+    $vs.Add_Click({ Start-Pm; Show-Step })
+    $r.Controls.Add($vs)
+    $only = New-Object Windows.Forms.LinkLabel; $only.AutoSize = $true; $only.Font = $F.Body; $only.LinkColor = $C.Accent; $only.Text = 'VS Code만 열기'
+    $only.Margin = New-Object Windows.Forms.Padding((Px 14), (Px 9), 0, 0); $only.Add_LinkClicked({ Open-Code })
+    $r.Controls.Add($only)
+  } else {
+    $vs = New-BigBtn 'VS Code 열기'; $vs.Add_Click({ Open-Code })
+    $r.Controls.Add($vs)
+  }
+  if ($bad.Count) { $sl = New-SaveLogBtn; $sl.Margin = New-Object Windows.Forms.Padding((Px 8), (Px 3), 0, 0); $r.Controls.Add($sl) }
+  $flow.Controls.Add($r)
 }
 
 # LinkLabel은 글꼴이 커지면(150% 이상) 밑줄을 엉뚱한 줄·자리에 긋거나 아예 빼먹는다(.NET Framework, 실제 창에서도 같음).
@@ -999,7 +1039,9 @@ function Invoke-Shots {
   $St.TrustOk = $true; Show-Step; Open-Help 0; Save-Shot 'W6-b'
   $St.TrustOk = $false; $St.TrustFail = $true; $St.TrustWindow = $true; Show-Step; Save-Shot 'W6-c'
   $St.TrustFail = $false; $St.TrustWindow = $false; $St.TrustOk = $true; $St.Done[6] = $true
-  $St.Step = 7; $St.GhSkipped = $false; $St.GhOk = $true; $St.Doctor = @(@{ id = 'tools'; level = 'ok' }); Show-Step7Shot; Save-Shot 'W7-a'
+  $St.Step = 7; $St.GhSkipped = $false; $St.GhOk = $true; $St.Doctor = @(@{ id = 'tools'; level = 'ok' }); Show-Step7Shot; Open-Help 0; Save-Shot 'W7-a'
+  foreach ($ph in 'run', 'ok', 'fail') { $St.PmPhase = $ph; Show-Step7Shot; Save-Shot "W7-e-$ph" }
+  $St.PmPhase = $null
   $St.GhSkipped = $true; $St.GhOk = $false; $St.ClaudeMd = 'append'; Show-Step7Shot; Open-Help 0; Save-Shot 'W7-b'
   $St.Installed = $false; $St.ClaudeMd = $null; Show-Step7Shot; Save-Shot 'W7-c-fail'
   $d = New-DetailDialog @((Get-FriendlyLine @{ id = 'extension' } ''), (Get-FriendlyLine @{ id = 'lock' } $Groups.folder))  # W7-d: 목업 예시 + 바꿀 말이 없는 항목

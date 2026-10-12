@@ -47,6 +47,13 @@ try {
   const s = qs.summarize([{ level: 'ok', title: 'a' }, { level: 'warn', title: 'w', fix: 'gh auth login' }, { level: 'fail', title: 'f', detail: 'd' }]);
   assert.ok(s.startsWith('됐음: 점검 3개 중 1개') && s.indexOf('- f: d') < s.indexOf('- w') && s.includes('할 일: gh auth login'), s);
   assert.ok(qs.summarize([{ level: 'ok', title: 'a' }]).includes('남은 것 없음'));
+  // 마침(0.10.0): pm은 로그인·신뢰가 끝난 사람 설치에서만, VS Code는 사람 설치이고 확장을 건너뛰지 않을 때
+  const fp = (o) => qs.finishPlan({ interactive: true, skipExtension: false, loggedIn: true, trusted: true, ...o });
+  assert.deepStrictEqual(fp({}), { openCode: true, startPm: true });
+  assert.deepStrictEqual(fp({ loggedIn: false }), { openCode: true, startPm: false }, '로그인 전이면 pm 없이 VS Code만');
+  assert.deepStrictEqual(fp({ trusted: false }), { openCode: true, startPm: false }, '신뢰 전이면 pm 없이');
+  assert.deepStrictEqual(fp({ interactive: false }), { openCode: false, startPm: false }, '--yes는 둘 다 안 함');
+  assert.deepStrictEqual(fp({ skipExtension: true }), { openCode: false, startPm: false }, '--skip-extension은 둘 다 안 함');
 
   // 2. CLI: 설치 원본은 git 저장소여야 하므로 패키지 작업 사본을 임시 저장소로 커밋해 그 install.js를 쓴다(restore.test.js와 같음)
   const pkgRepo = path.join(tmp, 'pkg');
@@ -71,9 +78,10 @@ try {
   const ops = JSON.parse(fs.readFileSync(path.join(P, '.claude', 'wy-ops.json'), 'utf8'));
   assert.deepStrictEqual([ops.project, ops.rolePrefix, ops.stack], ['my-app', 'MY-', 'node'], r1.out);
   const cmd = fs.readFileSync(path.join(P, 'CLAUDE.md'), 'utf8');
-  assert.ok(cmd.startsWith('# my-app\n') && cmd.includes(qs.SECTION_MARK) && cmd.includes('`MY-pm` 창과 승인 센터'), cmd.slice(0, 400));
+  assert.ok(cmd.startsWith('# my-app\n') && cmd.includes(qs.SECTION_MARK) && cmd.includes('맨 위 `MY-pm` 줄(백그라운드 `MY-pm`'), cmd.slice(0, 400));
   assert.ok(fs.existsSync(path.join(P, '.claude', 'settings.local.json')), '새 settings는 묻지 않고 만듦');
   assert.ok(r1.out.includes('됐음: 점검') && r1.out.includes('--yes라 건너뜀'), r1.out);
+  assert.ok(!r1.out.includes('pm 시작') && !r1.out.includes('pm은 띄우지 않았습니다'), `--yes는 pm을 띄우지 않음\n${r1.out}`);
   assert.ok([0, 1].includes(r1.status), r1.out); // 임시 홈이라 doctor FAIL(확장 없음 등)은 있을 수 있다
 
   // 2-2. 다시 돌리면: 있는 설정·CLAUDE.md 그대로, git 있음

@@ -52,7 +52,7 @@ function fakePc(name, over = {}) {
           firewall: s.firewall, standby: powercfg(s.standby), hibernate: powercfg(s.hibernate), keysAcl: s.keysAcl,
           tailscaleState: s.tailscaleState, autoLogon: s.autoLogon,
           sshdPath: s.sshdPath, sshdExe: s.sshdExe, sshdVersion: s.sshdVersion, builtin: s.builtin, fwOthers: s.fwOthers, denied: s.denied,
-          claudeExe: s.claudeExe, daemonTask: s.daemonTask, daemon: s.daemon,
+          claudeExe: s.claudeExe, daemonTask: s.daemonTask, daemon: s.daemon, sshOrphans: s.sshOrphans,
         }));
       }
       if (script.includes('Register-ScheduledTask')) {
@@ -408,6 +408,14 @@ try {
     assert.strictEqual(check({ ...good, daemon: { pid: 10, session: 1, logonType: 3 } }).level, 'warn', '세션 1이어도 네트워크 로그온이면 주의');
     assert.strictEqual(check(good, { serverStub: { exists: false, ok: false } }).level, 'warn');
     assert.strictEqual(check(good, { serverStub: { exists: true, ok: true } }).level, 'ok');
+    // 끊긴 SSH 접속이 남긴 묶음: 0개·못 읽음은 그대로, 1개 이상이면 주의 + 정리 안내
+    assert.strictEqual(check({ ...good, sshOrphans: { count: 0, mb: 0 } }).level, 'ok');
+    assert.strictEqual(check({ ...good, sshOrphans: null }).level, 'ok');
+    const orph = check({ ...good, sshOrphans: { count: 2, mb: 624 } });
+    assert.ok(orph.level === 'warn' && orph.detail.includes('묶음 2개·624MB') && orph.detail.includes('ssh-orphans.ps1" -Stop'), orph.detail);
+    let probeScript = '';
+    host.check((cmd, args) => { probeScript = Buffer.from(args[args.indexOf('-EncodedCommand') + 1], 'base64').toString('utf16le'); return { status: 1 }; }, { platform: 'win32' });
+    assert.ok(/T sshOrphans \{\$r=\(& '[^']*ssh-orphans\.ps1' -Json\)/.test(probeScript), '점검이 판정 스크립트를 -Json으로 부름');
     assert.strictEqual(host.check(() => ({ status: 0, stdout: '5.1.19041.1' }), { platform: 'win32' }).level, 'warn', '읽지 못하면 주의');
   }
 

@@ -264,12 +264,25 @@ if (process.platform === 'win32') {
     assert.ok(status.includes("$repo = 'C:\\projects\\my project'") && status.includes('limit = 150000') && status.includes('$c.rotation.contextTokens') && status.includes("'wy-ops.local.json'"), status);
     assert.ok(status.includes("'input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'") && status.includes('isSidechain'), status);
     assert.ok(o.rotate.includes('pm 세션 교체') && o.rotate.includes('start-pm -Force'), o.rotate);
+    // ⑦과 세션 현황 [pm 교체]는 같은 문구를 붙기 터미널에 넣는다(0.10.0)
+    assert.strictEqual(o.rotate, require('../vscode/attachRequest').ROTATE_TEXT, '교체 문구가 확장(attachRequest.ROTATE_TEXT)과 같음');
+    // ⑤는 start-pm latest(인수인계 찾기는 session.ps1 한 곳, 0.10.0)
     const startPm = decode(o.startpm);
-    assert.ok(startPm.includes("-Filter '*-AB.pm*-session.tmp'") && startPm.includes('-AB\\.pm(-\\d+)?-session\\.tmp$'), startPm);
-    assert.ok(startPm.includes("& 'C:\\projects\\my project\\.claude\\skills\\pm-ops\\scripts\\session.ps1' start-pm $h"), startPm);
+    assert.ok(startPm.includes("& 'C:\\projects\\my project\\.claude\\skills\\pm-ops\\scripts\\session.ps1' start-pm latest"), startPm);
+    assert.ok(!startPm.includes('session-data'), startPm);
     const attachReq = decode(o.attach);
     assert.ok(o.attach.startsWith(quick), o.attach);
     assert.ok(attachReq.includes("folder = 'C:\\projects\\my project'; role = 'AB.pm'") && attachReq.includes("'attach-request.json'") && attachReq.includes('ToUniversalTime'), attachReq);
+    // 이전 접속 정리(0.10.0): 붙기 때 호스트 설치본의 ssh-orphans.ps1 -Stop -Json, 없으면 건너뜀. 결과는 정리한 것이 있을 때만 한 줄
+    const orphans = decode(o.orphans);
+    assert.ok(o.orphans.startsWith(quick), o.orphans);
+    assert.ok(orphans.includes("'.wy-tools\\wy-ops\\current\\templates\\connect\\ssh-orphans.ps1'") && orphans.includes('& $f -Stop -Json') && orphans.includes('"skipped":true'), orphans);
+    assert.strictEqual(o.orphanFmt, '이전 접속 정리: 2개 묶음·624MB (프로세스 1개는 끄지 못함)');
+    assert.strictEqual(o.orphanNone, '|', '후보 없음·ssh 실패는 아무것도 적지 않음');
+    const ctl = fs.readFileSync(path.join(__dirname, '..', 'templates', 'connect', 'host-control.ps1'), 'utf8');
+    const openAttach = ctl.slice(ctl.indexOf('function Open-Attach'));
+    assert.ok(openAttach.indexOf("Start-Ssh 'orphans'") >= 0 && openAttach.indexOf("Start-Ssh 'orphans'") < openAttach.indexOf("Start-Ssh 'attach'"), '⑥ 붙기 앞에서 정리를 따로 띄움');
+    assert.ok(/\$AttachOnly[\s\S]*Remote\.orphans\.cmd/.test(ctl), '붙기 바로가기(-AttachOnly)도 정리를 띄움');
     assert.ok(o.wake.startsWith('MAC'), o.wake);
     fs.writeFileSync(cfg, JSON.stringify({ mac: '00-11-22-33-44-55', broadcast: '192.168.0.255' }));
     assert.strictEqual(o.relay, '없음');

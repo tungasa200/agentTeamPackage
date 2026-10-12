@@ -1,9 +1,9 @@
 ﻿# 역할 세션을 백그라운드 Claude 세션으로 실행·멈춤·세션 교체(rotate)한다. pm 역할(wy-ops.json의 pmRole)이 실행한다.
 #   session.ps1 list                    역할 세션 목록(VS Code 세션 포함)
-#   session.ps1 health                  역할별 컨텍스트(토큰·MB)·마지막 활동, 세션 교체 권장 표시
+#   session.ps1 health                  역할별(pm 포함) 컨텍스트(토큰·MB)·마지막 활동, 세션 교체 권장 표시
 #   session.ps1 start <역할> [지시]     멈춘 세션이 있으면 대화를 이어서, 없으면 역할 파일로 새로 시작한다
 #                                       멈춘 세션의 컨텍스트가 세션 교체 기준(토큰) 이상이면 재시작하지 않고 rotate를 권한다(-Force로 강행)
-#   session.ps1 stop <역할>             멈춘다. 대화는 남아 start로 이어진다
+#   session.ps1 stop <역할>             멈춘다. 대화는 남아 start로 이어진다. pm 역할도 된다(다시 띄우기는 start-pm)
 #   session.ps1 prep <역할>             세션 교체 준비: 진행 중인 것만 save-session으로 저장하라고 지시한다
 #   session.ps1 rotate <역할> [경로]    세션 교체: 이전 세션을 멈추고 역할 파일(+인수인계 경로)로 새 세션을 시작한다
 #   session.ps1 adopt <역할> <세션ID>   닫은 VS Code 세션의 대화를 백그라운드로 옮긴다
@@ -12,8 +12,8 @@
 #   session.ps1 unpin <역할>            고정 목록에서 뺀다. pin·unpin 모두 멈춘·없는 세션의 id를 목록에서 정리한다
 #                                       start·rotate는 고정하지 않는다. 허용 규칙 한 줄로 이 명령만 열기 위해 pm이 따로 부른다
 #   session.ps1 attach <역할>           실행 중인 그 역할 백그라운드 세션에 붙는다(claude attach <id>, 원격 접속용). pm 역할도 된다
-#   session.ps1 start-pm [경로]         pm 역할을 백그라운드 세션으로 띄운다(역할 파일 없음: pm-ops 스킬·인수인계 경로·ListAgents 확인을 시작 지시로).
-#                                       이미 백그라운드 pm이 실행 중이면 거부한다. pm 세션 교체 중이면 -Force(새 pm을 띄운 뒤 이전 pm을 멈추라고 알려 줌)
+#   session.ps1 start-pm [경로|latest]  pm 역할을 백그라운드 세션으로 띄운다(역할 파일 없음: pm-ops 스킬·인수인계 경로·ListAgents 확인을 시작 지시로).
+#                                       latest는 가장 최근 pm 인수인계 파일(없으면 인수인계 없이). 이미 백그라운드 pm이 실행 중이면 거부한다. pm 세션 교체 중이면 -Force(새 pm을 띄운 뒤 이전 pm을 멈추라고 알려 줌)
 param([Parameter(Mandatory)][ValidateSet('list','health','start','stop','prep','rotate','adopt','pm-cmd','pin','unpin','attach','start-pm')][string]$Cmd, [string]$Role, [string]$Prompt, [switch]$Force)
 
 # claude.exe가 stderr로 진행 문구를 내면 PowerShell 5.1이 'Stop'에서 오류로 끊어 버려 백그라운드 시작이 실패한다
@@ -60,7 +60,7 @@ if ($Ops) {
 if (-not $Roles.Count -or -not $PmRole) { throw "프로젝트 설정 $Repo\.claude\wy-ops.json에 roles·pmRole이 없습니다(install.ps1 init으로 만듭니다)" }
 # Claude Code는 대화 기록 폴더 이름을 저장소 경로의 영문·숫자 외 문자를 '-'로 바꿔 만든다(Windows는 대소문자 무시)
 $Transcripts = "$env:USERPROFILE\.claude\projects\" + ($Repo -replace '[^A-Za-z0-9]', '-')
-if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -and -not ($Cmd -eq 'attach' -and $Role -eq $PmRole)) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
+if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -and -not ($Cmd -in 'attach','stop' -and $Role -eq $PmRole)) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
 
 # PowerShell 5.1의 ConvertFrom-Json은 JSON 배열을 한 덩어리로 넘기므로 괄호로 풀어서 넘긴다
 function Get-Sessions { (claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
@@ -149,7 +149,7 @@ switch ($Cmd) {
   }
   'health' {
     $all = Get-Sessions
-    $(foreach ($r in $Roles) {
+    $(foreach ($r in @($PmRole) + @($Roles | Where-Object { $_ -ne $PmRole })) {
       $s = $all | Where-Object { $_.kind -eq 'background' -and $_.name -eq $r } | Sort-Object startedAt -Descending | Select-Object -First 1
       $t = Get-Transcript $s
       $mb = if ($t) { [math]::Round($t.Length / 1MB, 1) } else { 0 }
@@ -242,6 +242,8 @@ switch ($Cmd) {
   'start-pm' {
     # 경로는 두 번째 자리($Role)로 들어온다. 'none'이나 빈 값이면 인수인계 없이 시작
     $h = @($Role, $Prompt) | Where-Object { $_ -and $_ -ne 'none' } | Select-Object -First 1
+    # latest: 가장 최근 pm 인수인계 파일(제어 창 ⑤·세션 현황 [pm 시작]·설치 마침이 씀). 없으면 인수인계 없이
+    if ($h -eq 'latest') { $f = Get-Handoff $PmRole; $h = if ($f) { $f.FullName } else { $null }; "인수인계: $(if ($h) { $h } else { '없음' })" }
     if ($h -and -not (Test-Path $h)) { throw "인수인계 파일이 없습니다: $h" }
     $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
     $bg = @($live | Where-Object { $_.kind -eq 'background' })

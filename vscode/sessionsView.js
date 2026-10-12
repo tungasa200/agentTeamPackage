@@ -8,21 +8,26 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { loadOpsConfig } = require('./opsConfig');
 const { rootFor } = require('./approvalStore');
-const { readSessionStatus } = require('./agentsReader');
+const { readSessionStatus, readAgents } = require('./agentsReader');
 const { notifyStuck } = require('./stuckTool');
+const { PmControl } = require('./pmControl');
 
 const VIEW_ID = 'wyOps.sessions';
-const INTERVAL = { memory: 5000, processes: 15000, sessions: 10000 };
+const INTERVAL = { memory: 5000, processes: 15000, sessions: 10000, orphans: 60000 };
+// 끊긴 SSH 접속이 남긴 묶음(0.10.0): 설치본의 판정 스크립트(호스트에서만 의미, PowerShell이라 1~2초 → 60초 간격)
+const ORPHANS_PS = path.join(os.homedir(), '.wy-tools', 'wy-ops', 'current', 'templates', 'connect', 'ssh-orphans.ps1');
+const ORPHANS_TIMEOUT = 30000;
 const STUCK_INTERVAL = 60000; // 패널이 안 보여도 멈춤 의심을 pm에 알리려고 세션 상태를 이 간격으로 읽는다
 const COMMAND_TIMEOUT = 8000;
 const REVEAL_REPLAY_MS = 10000;
+const PM_BUSY_INTERVAL = 3000; // pm 시작·교체를 지켜보는 동안 세션을 읽는 간격(패널이 안 보여도)
 
 // stderr는 콘솔 코드 페이지(CP949)라 글자가 깨지므로 오류 문구는 종료 코드로만 만든다
-function run(label, file, args) {
+function run(label, file, args, timeout = COMMAND_TIMEOUT) {
   return new Promise((resolve, reject) => {
-    execFile(file, args, { timeout: COMMAND_TIMEOUT, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+    execFile(file, args, { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
       if (!err) resolve(stdout);
-      else if (err.killed) reject(new Error(`${label} 응답 없음(${COMMAND_TIMEOUT / 1000}초)`));
+      else if (err.killed) reject(new Error(`${label} 응답 없음(${timeout / 1000}초)`));
       else if (err.code === 'ENOENT') reject(new Error(`${label} 명령을 찾을 수 없음`));
       else reject(new Error(`${label} 실패(종료 코드 ${err.code})`));
     });
@@ -56,6 +61,19 @@ async function readProcesses() {
   return [...groups.values()].sort((a, b) => b.bytes - a.bytes).slice(0, 5);
 }
 
+// 정리 후보 수·MB. 스크립트가 없거나(호스트 아님·옛 설치본) 읽지 못하면 null → 줄을 숨긴다(오류로 띄우지 않음)
+async function readOrphans(file = ORPHANS_PS, runFn = run) {
+  if (!fs.existsSync(file)) return null;
+  try {
+    const out = await runFn('ssh-orphans', 'powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, '-Json'], ORPHANS_TIMEOUT);
+    const line = String(out).split(/\r?\n/).filter((l) => l.trim().startsWith('{')).pop();
+    const c = line && JSON.parse(line.trim().replace(/^﻿/, '')).candidates;
+    return c ? { count: Number(c.count) || 0, mb: Number(c.mb) || 0 } : null;
+  } catch {
+    return null;
+  }
+}
+
 function workspaceDir() {
   const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   return folder ? folder.uri.fsPath : null;
@@ -63,13 +81,16 @@ function workspaceDir() {
 
 // 세션 상태: claude agents + 권한 요청 파일 + 세션 등록 기록(agentsReader, 계획 2.2).
 // 멈춤 의심인 세션은 여기서 pm 세션에 한 번 알린다(stuckTool.notifyStuck, 같은 도구 호출로는 한 번)
+// pmAgents: pm 줄이 교체 전·후 pm을 함께 보려고 이름별 한 줄로 줄이기 전 pm 항목을 따로 넘긴다
 async function readSessions() {
   const dir = workspaceDir();
   const root = rootFor(dir);
   const ops = dir ? loadOpsConfig(dir) : null;
-  const rows = await readSessionStatus({ root, ops });
+  const list = await readAgents();
+  const rows = await readSessionStatus({ root, ops, list });
   for (const r of rows) if (r.stuck) notifyStuck(root, r, (ops && ops.pmRole) || null);
-  return rows;
+  const pm = ops && ops.pmRole;
+  return { rows, pmAgents: pm ? list.filter((s) => s && s.name === pm) : [] };
 }
 
 // 메모리 경고 선(wy-ops.json memory, D-86): warnFreeMB 미만 주의, blockFreeMB 미만 위험
@@ -102,14 +123,30 @@ function readRoles() {
   }
 }
 
-const READERS = { memory: async () => readMemory(), processes: readProcesses, sessions: readSessions };
+const READERS = { memory: async () => readMemory(), processes: readProcesses, sessions: readSessions, orphans: () => readOrphans() };
+// 접기 단위: 고아 줄은 프로세스 블록 안에 있어 프로세스를 접으면 읽지 않는다
+const foldKey = (s) => (s === 'orphans' ? 'processes' : s);
 
 const OFF_ACK_KEY = 'wyOps.offMessageAck'; // { sessionId: 확인한 마지막 막힌 메시지 시각 }
 
+// pm 줄 버튼(webview 메시지 → PmControl)
+const PM_ACTIONS = {
+  pmStart: (pm) => pm.start(),
+  pmAttach: (pm) => pm.attach(),
+  pmRotate: (pm) => pm.rotate(),
+  pmStop: (pm) => pm.stop(),
+  pmStopOld: (pm) => pm.stopOld(),
+  pmRetry: (pm) => pm.retry(),
+  pmClose: (pm) => pm.close(),
+  pmLog: (pm) => pm.openLog(),
+};
+
 class Provider {
-  constructor(extensionUri, globalState) {
+  constructor(extensionUri, globalState, pm) {
     this.extensionUri = extensionUri;
     this.globalState = globalState;
+    this.pm = pm || null;
+    this.pmTimer = null;
     this.view = undefined;
     this.timers = [];
     this.inflight = {};
@@ -129,6 +166,7 @@ class Provider {
         this.post({ type: 'roles', data: readRoles() });
         this.post({ type: 'limits', data: readMemoryLimits() });
         Object.values(this.cache).forEach((m) => this.post(m));
+        this.postPm();
         // 뷰가 막 열리는 중에 온 "세션 현황에서 보기"는 webview가 준비된 뒤 다시 보낸다
         if (this.lastReveal && Date.now() - this.lastReveal.at < REVEAL_REPLAY_MS) this.post(this.lastReveal.msg);
         if (view.visible) this.start();
@@ -136,6 +174,8 @@ class Provider {
         this.refreshAll().then(() => this.post({ type: 'refreshed' }));
       } else if (msg.type === 'open') {
         openSession(msg.id, msg.name);
+      } else if (PM_ACTIONS[msg.type] && this.pm) {
+        Promise.resolve(PM_ACTIONS[msg.type](this.pm)).finally(() => this.update('sessions'));
       } else if (msg.type === 'ackOff' && typeof msg.sessionId === 'string') {
         this.ackOff(msg.sessionId);
       } else if (msg.type === 'fold') {
@@ -143,6 +183,7 @@ class Provider {
         else {
           this.folded.delete(msg.source);
           this.update(msg.source);
+          if (msg.source === 'processes') this.update('orphans');
         }
       }
     });
@@ -204,34 +245,52 @@ class Provider {
     if (this.view) this.view.webview.postMessage(msg);
   }
 
+  // pm 줄을 보내고, 시작·교체를 지켜보는 중이면 세션을 자주 읽는다
+  postPm() {
+    if (!this.pm) return;
+    this.post({ type: 'pm', data: this.pm.view() });
+    if (this.pm.busy() && !this.pmTimer) {
+      this.pmTimer = setInterval(() => this.update('sessions'), PM_BUSY_INTERVAL);
+      if (this.pmTimer.unref) this.pmTimer.unref();
+    } else if (!this.pm.busy() && this.pmTimer) {
+      clearInterval(this.pmTimer);
+      this.pmTimer = null;
+    }
+  }
+
   // 같은 출처를 읽는 중이면 새로 띄우지 않고 그 결과를 기다린다
   update(source) {
     if (!this.inflight[source]) {
       this.inflight[source] = (async () => {
         let msg;
         try {
-          const data = await READERS[source]();
-          msg = { type: source, data: source === 'sessions' ? this.applyAcks(data) : data, at: Date.now() };
+          let data = await READERS[source]();
+          if (source === 'sessions') {
+            if (this.pm) this.pm.observe(data.pmAgents, data.rows.find((r) => r.name === this.pm.name));
+            data = this.applyAcks(data.rows);
+          }
+          msg = { type: source, data, at: Date.now() };
         } catch (err) {
           msg = { type: source, error: firstLine(err), at: Date.now() };
         }
         this.inflight[source] = undefined;
         this.cache[source] = msg;
         this.post(msg);
+        if (source === 'sessions') this.postPm();
       })();
     }
     return this.inflight[source];
   }
 
   refreshAll() {
-    return Promise.all(Object.keys(READERS).filter((s) => !this.folded.has(s)).map((s) => this.update(s)));
+    return Promise.all(Object.keys(READERS).filter((s) => !this.folded.has(foldKey(s))).map((s) => this.update(s)));
   }
 
   // 패널이 보일 때만 폴링한다
   start() {
     this.stop();
     this.refreshAll();
-    this.timers = Object.keys(READERS).map((s) => setInterval(() => this.folded.has(s) || this.update(s), INTERVAL[s]));
+    this.timers = Object.keys(READERS).map((s) => setInterval(() => this.folded.has(foldKey(s)) || this.update(s), INTERVAL[s]));
   }
 
   stop() {
@@ -261,7 +320,20 @@ async function openSession(id, name) {
 }
 
 function register(context) {
-  const provider = new Provider(context.extensionUri, context.globalState);
+  let provider = null;
+  const pm = new PmControl({
+    vscode,
+    store: context.workspaceState,
+    folder: workspaceDir,
+    ops: () => {
+      const dir = workspaceDir();
+      return dir ? loadOpsConfig(dir) : null;
+    },
+    run,
+    logFile: path.join(context.logUri ? context.logUri.fsPath : path.join(os.tmpdir(), 'wy-ops'), 'pm-control.log'),
+    onChange: () => provider && provider.postPm(),
+  });
+  provider = new Provider(context.extensionUri, context.globalState, pm);
   // 패널이 보이면 패널 폴링(10초)이 읽으므로 건너뛴다
   const stuckTimer = setInterval(() => (provider.view && provider.view.visible) || provider.update('sessions'), STUCK_INTERVAL);
   if (stuckTimer.unref) stuckTimer.unref();
@@ -275,8 +347,11 @@ function register(context) {
       provider.reveal(sessionId);
     }),
     { dispose: () => provider.stop() },
+    { dispose: () => provider.pmTimer && clearInterval(provider.pmTimer) },
   );
+  // 창을 닫았다 열어도 교체 진행을 이어서 본다(R-4)
+  if (pm.busy()) provider.update('sessions');
   return provider;
 }
 
-module.exports = { register, VIEW_ID, REVEAL_COMMAND };
+module.exports = { register, VIEW_ID, REVEAL_COMMAND, readOrphans };

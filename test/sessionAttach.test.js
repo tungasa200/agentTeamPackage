@@ -59,8 +59,8 @@ try {
   assert.ok(/실행 중이 아닙니다. 먼저: session.ps1 start AB-commit/.test(out), `멈춘 세션\n${out}`);
   out = ps(['attach', 'WY-pm']);
   assert.ok(/역할 이름이 아닙니다: WY-pm/.test(out), `설정에 없는 이름\n${out}`);
-  out = ps(['stop', 'AB-pm']);
-  assert.ok(/역할 이름이 아닙니다: AB-pm/.test(out), `pm 예외는 attach에만\n${out}`);
+  out = ps(['start', 'AB-pm']);
+  assert.ok(/역할 이름이 아닙니다: AB-pm/.test(out), `pm 예외는 attach·stop에만(start는 start-pm)\n${out}`);
 
   // 살아 있음은 pid로 본다: 턴을 마치고 쉬는 백그라운드 세션도 state=done을 내지만 pid·status가 있다(2026-10-10 stop 회귀)
   write([
@@ -75,6 +75,13 @@ try {
   assert.ok(/이미 실행 중입니다\(q1\)/.test(out) && !/BG /.test(out), `쉬는 세션을 다시 띄우지 않음\n${out}`);
   out = ps(['health']);
   assert.ok(/AB-qa\s+idle/.test(out), `health는 살아 있으면 status\n${out}`);
+  assert.ok(/AB-pm\s+없음/.test(out) && out.indexOf('AB-pm') < out.indexOf('AB-commit'), `health에 pm 줄(맨 위, agent:false여도)\n${out}`);
+  // pm 멈춤(0.10.0, 세션 현황 [멈춤]): 이름으로 최신 백그라운드 pm
+  write([{ id: 'pm7', name: 'AB-pm', kind: 'background', state: 'done', status: 'idle', pid: 207, startedAt: 2, sessionId: 'p7' }]);
+  out = ps(['stop', 'AB-pm']);
+  assert.ok(/STOP pm7/.test(out), `pm도 stop\n${out}`);
+  out = ps(['health']);
+  assert.ok(/AB-pm\s+idle/.test(out), `health pm 상태\n${out}`);
   // pid가 없으면 state가 무엇이든 멈춘 것
   write([{ id: 'q2', name: 'AB-qa', kind: 'background', state: 'working', startedAt: 1, sessionId: 'i' }]);
   out = ps(['stop', 'AB-qa']);
@@ -91,6 +98,20 @@ try {
   assert.ok(/대화형 세션\(ide1\)의 창을 닫으세요/.test(out), `이전 대화형 pm 안내\n${out}`);
   out = ps(['start-pm']);
   assert.ok(/BG --bg --name AB-pm /.test(out) && !/resume-session/.test(out), `인수인계 없이\n${out}`);
+  // start-pm latest(0.10.0): 가장 최근 pm 인수인계(USERPROFILE의 .claude/session-data), 없으면 인수인계 없이
+  const home = path.join(tmp, 'home');
+  const sd = path.join(home, '.claude', 'session-data');
+  fs.mkdirSync(sd, { recursive: true });
+  out = ps(['start-pm', 'latest'], { USERPROFILE: home });
+  assert.ok(/인수인계: 없음/.test(out) && /BG --bg --name AB-pm /.test(out) && !/resume-session/.test(out), `latest, 인수인계 없음\n${out}`);
+  const older = path.join(sd, '2026-10-09-AB-pm-session.tmp');
+  const newer = path.join(sd, '2026-10-10-AB-pm-2-session.tmp');
+  fs.writeFileSync(older, 'x');
+  fs.writeFileSync(newer, 'x');
+  fs.writeFileSync(path.join(sd, '2026-10-11-AB-qa-session.tmp'), 'x');
+  fs.utimesSync(older, new Date(2026, 9, 9), new Date(2026, 9, 9));
+  out = ps(['start-pm', 'latest'], { USERPROFILE: home });
+  assert.ok(out.includes(`/ecc:resume-session ${newer.replace(/\\/g, '/')}`), `latest는 가장 최근 pm 인수인계(다른 역할 제외)\n${out}`);
   out = ps(['start-pm', `'${path.join(tmp, 'none-such.tmp')}'`]);
   assert.ok(/인수인계 파일이 없습니다/.test(out) && !/BG /.test(out), `없는 경로는 거부\n${out}`);
   // 이미 백그라운드 pm이 돌면 거부, -Force면 띄우고 이전 것을 멈추라고 알림

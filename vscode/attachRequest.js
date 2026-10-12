@@ -17,6 +17,9 @@ const requestFile = (env = process.env) =>
   env.WY_OPS_ATTACH_FILE || path.join(env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'wy-ops', 'attach-request.json');
 const norm = (p) => path.resolve(String(p)).replace(/[\\/]+$/, '').toLowerCase();
 const terminalName = (role) => `${role} 붙기`;
+// pm 교체: 붙기 터미널에 넣는 문구. pm이 pm-ops 절차(저장 → start-pm -Force → 이전 자신 stop)를 스스로 한다.
+// 제어 창 ⑦(templates/connect/host-control.ps1의 $RotateText)과 같은 문장이어야 한다(test/connect.test.js가 확인)
+const ROTATE_TEXT = 'pm 세션 교체 — 진행 중인 것을 저장하고 start-pm -Force로 새 pm을 띄운 뒤 이전 pm을 멈춰 줘';
 
 // 이 창의 폴더에 맞는 요청이면 { role, folder }, 아니면 null. 오래됐거나 깨진 요청은 지운다
 function readRequest(file, folder, now = Date.now()) {
@@ -94,4 +97,4 @@ class AttachWatcher {
   }
 }
 
-module.exports = { AttachWatcher, readRequest, openTerminal, requestFile, terminalName, FRESH };
+module.exports = { AttachWatcher, readRequest, openTerminal, requestFile, terminalName, FRESH, ROTATE_TEXT, SESSION_PS1 };

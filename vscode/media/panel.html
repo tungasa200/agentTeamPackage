@@ -18,6 +18,11 @@
     <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.46-3.54M13 2.5v2.75h-2.75" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 1.75 14.75 13.75H1.25Z" fill="currentColor"/><path d="M8 6v3.5" stroke="var(--on-warn)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".9" fill="var(--on-warn)"/></symbol>
     <symbol id="i-error" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="currentColor"/><path d="M8 4.75v3.75" stroke="var(--on-err)" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="11" r=".9" fill="var(--on-err)"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.25v9.5L12.5 8Z" fill="currentColor"/></symbol>
+    <symbol id="i-term" viewBox="0 0 16 16"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m4.5 6.25 2 1.75-2 1.75M8 10h3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 16 16"><path d="M2.75 5.5h9.5m-2.5-2.5 2.5 2.5-2.5 2.5M13.25 10.5h-9.5m2.5 2.5-2.5-2.5 2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
   </svg>
 
   <header class="bar">
@@ -27,6 +32,9 @@
       <svg class="ico"><use href="#i-refresh"/></svg><span>새로고침</span>
     </button>
   </header>
+
+  <!-- pm 제어 줄(0.10.0): pm은 아래 세션 표에 나오지 않고 여기에만. 내용은 panel.js renderPm -->
+  <section class="pm" id="pm" aria-labelledby="pm-h" hidden></section>
 
   <section class="block" aria-labelledby="h-mem">
     <div class="head">
@@ -58,6 +66,7 @@
       <ol class="procs is-loading" id="procs">
         <li class="skel"></li><li class="skel"></li><li class="skel"></li>
       </ol>
+      <p class="proc-orphans" id="proc-orphans" hidden></p>
     </div>
   </section>
 

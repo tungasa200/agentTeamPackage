@@ -67,7 +67,7 @@
 
 ### 2-3. 하루의 흐름
 
-1. **pm 창을 엽니다.** 프로젝트 폴더 터미널에서 `claude --name AB-pm`. pm은 진행현황 문서를 읽고 오늘 할 일을 정합니다.
+1. **pm을 띄웁니다.** VS Code 왼쪽 막대 WY Ops → 세션 현황 맨 위 pm 줄의 **[pm 시작]**(0.10.0, 4-2). pm은 화면 뒤(백그라운드 세션)에서 진행현황 문서를 읽고 오늘 할 일을 정합니다. 말을 걸려면 **[붙기]**. 터미널에서는 `session.ps1 start-pm latest` → `session.ps1 attach AB-pm`. 설치 마법사의 마지막 [pm 시작하고 VS Code 열기]도 같은 일을 합니다.
 2. **역할 세션을 띄웁니다.** pm이 `session.ps1 start AB-backend1`. 새 세션은 CLAUDE.md와 진행현황을 읽고 pm에 "시작" 한 줄을 보냅니다.
 3. **지시합니다.** pm이 `SendMessage`로 할 일·범위·검증 방법을 보냅니다.
 4. **보고를 받습니다.** 역할 세션은 세 가지 형식만 씁니다.
@@ -79,7 +79,7 @@
 7. **승인 카드.** 커밋 역할이 git 카드를 올리고, 사람이 승인하면 그 명령을 그대로 실행합니다. 푸시·PR·병합도 각각 카드를 거칩니다.
 8. **쉬는 세션을 멈춥니다.** pm이 `session.ps1 stop AB-qa`. 메모리를 돌려받고, 대화는 남아 다음 `start`에 이어집니다.
 
-PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. 필요한 세션만 `start`(컨텍스트가 크면 `rotate`)로 다시 띄웁니다.
+PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. pm은 세션 현황 [pm 시작], 역할 세션은 pm이 필요한 것만 `start`(컨텍스트가 크면 `rotate`)로 다시 띄웁니다.
 
 ### 2-4. 세션 교체
 
@@ -90,10 +90,10 @@ PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. 필요
 2. `session.ps1 prep AB-backend1` — 세션이 진행 중인 것만 `/ecc:save-session`으로 저장하고, 경로나 '진행 중 없음'을 알립니다.
 3. `session.ps1 rotate AB-backend1 <경로|none>` — 옛 세션을 멈추고 새 세션을 띄웁니다. 새 세션이 시작을 알리면 pm이 '멈춰 있는 동안 끝난 일'을 보냅니다.
 
-pm 자신:
-1. pm 창에서 `/ecc:save-session`(short-id는 pm 역할 이름).
-2. `session.ps1 start-pm <경로> -Force` — 새 pm을 백그라운드 세션으로 띄우고 이전 pm 세션 id를 알려 줍니다(백그라운드 pm이 이미 돌면 -Force 없이는 거부).
-3. 터미널에서 `session.ps1 attach <pm 역할>`로 새 pm에 붙고, 이전 pm은 `claude stop <이전 id>`(대화형 창이었으면 창 닫기). `session.ps1 pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력합니다.
+pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
+- 세션 현황 pm 줄에 '교체 권장'(컨텍스트가 `rotation.contextTokens` 이상, 기본 15만 토큰)이 뜨면 일이 끊기는 때에 [pm 교체]를 누릅니다. pm에 붙은 터미널('AB-pm 붙기')에 교체 문구가 들어가고, pm이 하던 턴을 마친 뒤 스스로 ① 진행 중인 것 저장(`/ecc:save-session`) ② `start-pm latest -Force`로 새 pm ③ 이전 자신 멈춤을 합니다. pm 줄은 이 네 단계(마지막 ④ 새 터미널로 붙기)를 보여 주고, 끝나면 새 pm에 붙은 터미널을 엽니다. 창을 닫아도 교체는 계속되고, 다시 열면 이어서 보여 줍니다.
+- 한 단계가 늦으면(저장 10분, 그 뒤 단계 60초) 멈추고 무엇이 안 됐는지와 지금 상태(이전 pm이 살아 있는지)를 보여 줍니다. [다시 시도]는 실패한 단계부터, [기록 보기]는 교체 기록 파일을 엽니다. 여유 메모리가 `memory.blockFreeMB`(기본 500MB) 미만이면 교체를 시작하지 않습니다.
+- 터미널로 직접: pm에서 `/ecc:save-session`(short-id는 pm 역할 이름) → `session.ps1 start-pm latest -Force`(백그라운드 pm이 이미 돌면 -Force 없이는 거부) → `session.ps1 attach <pm 역할>`로 새 pm에 붙고 이전 pm은 `claude stop <이전 id>`. `session.ps1 pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력합니다.
 
 ### 2-5. 기억은 파일에
 
@@ -125,7 +125,7 @@ pm 자신:
 | 4 Claude 로그인 | `claude auth login`이 브라우저를 열고, 마법사가 2초마다 로그인 여부를 확인합니다. 건너뛸 수 없음 | 브라우저에서 로그인 |
 | 5 GitHub 로그인 | 확인 코드를 크게 보여 주고 github.com/login/device를 엽니다. 로그인되면 `gh auth setup-git`. [나중에 하기] 가능(마침 화면 노랑 + 할 일 카드) | 코드 입력 |
 | 6 폴더 사용 허락 | [허락하기] → `install.js trust`가 `~/.claude.json`에 그 폴더의 허락을 기록(쓰기 전 `~/.claude.json.wy-ops-backup`). 실패하면 [Claude 창 열기]로 사람이 Yes를 고르고, 마법사가 기록을 확인하면 넘어갑니다 | (실패 때만) Yes |
-| 7 마침 | `doctor --json --todos` 결과를 프로그램 설치·프로젝트 폴더 준비·Claude 로그인·GitHub 로그인·폴더 사용 허락 다섯 줄로 요약. 남은 것은 줄마다 [지금 하기]. [VS Code 열기] | 남은 것만 |
+| 7 마침 | `doctor --json --todos` 결과를 프로그램 설치·프로젝트 폴더 준비·Claude 로그인·GitHub 로그인·폴더 사용 허락 다섯 줄로 요약. 남은 것은 줄마다 [지금 하기]. **[pm 시작하고 VS Code 열기]**(0.10.0): `session.ps1 start-pm latest`로 pm을 백그라운드로 띄운 뒤 VS Code를 엽니다(pm이 안 떠도 VS Code는 열고, 세션 현황 [pm 시작]으로 이어서). [VS Code만 열기]는 pm 없이. Claude 로그인·폴더 허락이 안 됐으면 [VS Code 열기]만 | 남은 것만 |
 
 - 기록은 `%TEMP%\wy-ops-setup-<시각>.log`에 남고 [로그 저장…]으로 바탕화면에 복사합니다.
 - 설치 중 [취소]는 지금 설치하던 프로그램이 끝난 뒤 닫습니다. 다시 실행하면 빠진 것만 채웁니다.
@@ -265,6 +265,8 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 - 모니터 없는 호스트는 화면이 1024×768로 잡힙니다. 브라우저 자동화(agent-browser 등)는 실행할 때 뷰포트 크기를 지정합니다(예: 1440×900). 화면 해상도는 바꾸지 않아도 됩니다.
 - 집 밖에서 호스트를 깨우는 일(Wake-on-LAN 중계)은 선택이며 호스트와 같은 망에 상주 장치가 필요합니다(제어 창은 위 '폰 중계'). 없으면 외출할 때 호스트를 재우지 않습니다.
 
+끊긴 SSH 접속이 남기는 프로세스(0.10.0): Remote-SSH 접속 하나마다 호스트에 PowerShell 3단과 VS Code 실행기 묶음(약 310MB)이 생깁니다. 접속이 끊겨도 Windows는 이 묶음을 끄지 않아 쌓입니다. 접속 PC의 SSH 로그인이 관리자라 묶음도 관리자 소유이고, 일반 세션은 끄지 못합니다. `templates/connect/ssh-orphans.ps1`이 묶음을 판정합니다. 다음 묶음은 남깁니다: 살아 있는 접속 아래, 지금 VS Code 서버(`~/.vscode-server/cli/servers/*/pid.txt`)를 품은 것, 가장 최근의 에이전트 호스트 관리 프로세스, 껍데기 말고 일하는 프로세스가 있는 것, 30분이 안 된 것(`-MinAgeMinutes`). 나머지만 정리 후보로 냅니다. doctor '호스트' 줄에 후보 수·MB가 보이고, 제어 창에서 붙을 때 정리됩니다. 바로 정리하려면 호스트의 관리자 PowerShell에서 `& "$env:USERPROFILE\.wy-tools\wy-ops\current\templates\connect\ssh-orphans.ps1" -Stop`을 실행합니다. 인수 없이 실행하면 판정만 하고 끄지 않습니다. 부모가 없다는 것만 보고 끄면 지금 쓰는 서버까지 끄게 되므로 직접 끄지 않습니다.
+
 ---
 
 ## 4. 매일 쓰기
@@ -306,6 +308,23 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | `?` | 단축키 안내 펼치기·접기 |
 
 ### 4-2. 세션 현황(사이드바)
+
+**pm 줄(맨 위, 0.10.0).** pm은 아래 표에 나오지 않고 여기에만 보입니다. 이름 옆 작은 글씨는 '개발 총괄'(원격 창이면 '호스트 <PC 이름>'), 오른쪽은 경과 시간(멈췄으면 멈춘 시각).
+
+| pm 상태 | 보이는 것 | 버튼 |
+|---|---|---|
+| 실행 중 | 작업 중·입력 대기, 컨텍스트 막대(토큰, 기준 선 = `rotation.contextTokens`) | [붙기] [pm 교체] [멈춤] |
+| 교체 권장 | 노란 상자, '교체 권장', 안내 한 줄 | [pm 교체]가 앞으로 |
+| 권한 승인 대기 | 빨간 상자, 기다리는 도구 한 줄 | [붙어서 답하기] [멈춤](교체는 숨김: 답하지 않은 권한 창이 사라지므로) |
+| 멈춤 | 멈춘 시각 또는 '아직 시작하지 않음' | [pm 시작](`session.ps1 start-pm latest`, 60초 안에 안 뜨면 오류와 [기록 보기]) |
+| 교체 중 | 네 단계 진행(2-4) | 없음 |
+| 직접 띄운 pm | 상태만, '직접 띄운 pm입니다' 안내 | 없음(그 창에서) |
+| pm 둘 | 교체가 반만 된 상태 | [이전 pm 멈춤] [붙기] |
+
+- **[붙기]**: 통합 터미널 'AB-pm 붙기'에서 `session.ps1 attach AB-pm`. 접속 PC 제어 창 ⑥과 같은 터미널이라 둘이 겹치면 하나만 보입니다. 터미널을 닫아도 pm은 계속 일합니다.
+- **[멈춤]**: 확인 창(Enter·Esc는 취소) 뒤 `session.ps1 stop AB-pm`. 대화는 남아서 [pm 시작]으로 이어집니다. 다른 역할 세션과 승인 카드는 그대로입니다.
+
+역할 세션 표:
 
 | 상태 | 뜻 | 할 일 |
 |---|---|---|
@@ -365,13 +384,13 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | 명령 | 언제 | 예시 |
 |---|---|---|
 | `list` | 역할 세션 목록과 상태 | `… session.ps1 list` |
-| `health` | 컨텍스트 확인(15만 토큰 이상이면 세션 교체 권장, `rotation.contextTokens`) | `… session.ps1 health` |
+| `health` | 컨텍스트 확인(15만 토큰 이상이면 세션 교체 권장, `rotation.contextTokens`). pm 줄이 맨 위 | `… session.ps1 health` |
 | `start` | 역할 세션 시작(종료된 세션은 재시작. 컨텍스트가 세션 교체 기준 이상이면 재시작하지 않고 `rotate`를 권함, `-Force`로 강행) | `… session.ps1 start AB-qa "로그인 화면 검증"` |
-| `stop` | 쉬는 세션 멈추기(메모리 반납, 트랜스크립트는 남음) | `… session.ps1 stop AB-qa` |
+| `stop` | 쉬는 세션 멈추기(메모리 반납, 트랜스크립트는 남음). pm도 됨(세션 현황 [멈춤]) | `… session.ps1 stop AB-qa` |
 | `prep` | 세션 교체 준비: 진행 중인 것만 저장하라고 지시 | `… session.ps1 prep AB-backend1` |
 | `rotate` | 컨텍스트가 길어진 세션을 새 세션으로 교체 | `… session.ps1 rotate AB-backend1 none` |
 | `pm-cmd` | pm 자신의 세션 교체 순서 출력(start-pm → 이전 pm 종료 → attach, 예전 대화형 한 줄 포함) | `… session.ps1 pm-cmd [경로]` |
-| `start-pm` | pm을 백그라운드 세션으로 띄우기(인수인계 경로·pm-ops 스킬·ListAgents 확인을 시작 지시로). 이미 돌면 거부, 세션 교체 중엔 `-Force` | `… session.ps1 start-pm <경로> -Force` |
+| `start-pm` | pm을 백그라운드 세션으로 띄우기(인수인계 경로·pm-ops 스킬·ListAgents 확인을 시작 지시로). `latest`는 가장 최근 pm 인수인계(없으면 없이, 세션 현황 [pm 시작]·마법사가 씀). 이미 돌면 거부, 세션 교체 중엔 `-Force` | `… session.ps1 start-pm latest`, `… start-pm <경로> -Force` |
 | `adopt` | 닫은 VS Code 세션의 대화를 백그라운드 역할 세션으로 옮기기 | `… session.ps1 adopt AB-qa <세션ID>` |
 | `pin` / `unpin` | 실행 중인 세션을 메모리 부족 정리에서 빼기 / 되돌리기 | `… session.ps1 pin AB-commit` |
 | `attach` | 실행 중인 역할 세션(pm 포함)에 붙기. 원격 터미널에서 쓰고, 빠져나와도 세션은 계속 돎 | `… session.ps1 attach AB-pm` |

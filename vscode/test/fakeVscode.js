@@ -81,6 +81,7 @@ function install({ workspace = null } = {}) {
       getConfiguration: (section) => ({ get: (k, d) => { const key = section ? `${section}.${k}` : k; return key in fake.settings ? fake.settings[key] : d; } }),
     },
     window: {
+      get terminals() { return fake.terminals; },
       registerWebviewViewProvider: (id, p) => { fake.viewProviders[id] = p; return { dispose() {} }; },
       registerWebviewPanelSerializer: (type, s) => { fake.serializers[type] = s; return { dispose() {} }; },
       createWebviewPanel: (type, title) => makePanel(type, title),

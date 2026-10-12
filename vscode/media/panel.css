@@ -182,6 +182,7 @@ h2 {
 }
 .proc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proc-count { color: var(--dim); font-size: 11px; margin-left: 4px; }
+.proc-orphans { margin: 8px 0 0; font-size: 12px; color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
 .proc-mem { font-size: 12px; }
 .proc-bar {
   grid-column: 1 / -1;
@@ -249,7 +250,7 @@ h2 {
   line-height: 16px;
   vertical-align: 1px;
 }
-.badge-warn { background: var(--warn); color: var(--on-warn); font-weight: 600; }
+.badge-warn { background: var(--warn); color: #1e1e1e; font-weight: 600; } /* 밝은 테마 --on-warn(흰색)은 노랑 위 2.9:1이라 두 테마 모두 어두운 글자(0.10.0) */
 
 .act { text-align: right; }
 .open-btn {
@@ -373,3 +374,58 @@ tr.st-row-offwarn:not(.warn-row) td:last-child { border-bottom-right-radius: 0; 
 tr.warn-row td:first-child { border-top-left-radius: 0; border-top-right-radius: 0; }
 .head h2 { flex: none; white-space: nowrap; }
 .head .aside { min-width: 0; text-align: right; }
+
+/* pm 제어 줄(0.10.0, design/pm-control 목업). 사람이 봐야 할 때만 바탕색이 바뀐다(세션 표 줄과 같은 규칙) */
+.pm { padding: 8px 0 14px; }
+:where(.pm) :is(p, ol, h3) { margin: 0; } /* 아래 클래스 여백이 이기게 */
+.pm-box { padding: 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); }
+.pm-box.is-warn { background: color-mix(in srgb, var(--warn) 9%, var(--bg)); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.pm-box.is-perm { background: color-mix(in srgb, var(--err) 10%, var(--bg)); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+.pm-box.is-error { border-color: color-mix(in srgb, var(--err) 55%, transparent); }
+.pm-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pm-name { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-name small { font-weight: 400; font-size: 11px; color: var(--dim); margin-left: 4px; }
+.pm-name .badge { margin-left: 6px; }
+.pm-top .elapsed { font-size: 11px; }
+.pm-line { display: flex; align-items: center; gap: 6px; margin-top: 4px; min-height: 18px; font-size: 12px; }
+.pm-why { color: var(--dim); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-pending { margin-top: 3px; font-family: var(--mono); }
+.pm-done { color: var(--ok); }
+.ctx { margin-top: 9px; }
+.ctx-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--dim); margin-bottom: 4px; }
+.ctx-row b { color: var(--fg); font-weight: 600; }
+.ctx .meter { height: 4px; }
+.ctx .limit { opacity: .7; }
+.ctx.is-over .fill { background: var(--warn); }
+.ctx.is-over .ctx-row b { color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
+.pm-acts { display: flex; gap: 6px; margin-top: 10px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 26px; padding: 0 10px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 2px; font: inherit; font-size: 12px; line-height: 1; cursor: pointer; white-space: nowrap; }
+.btn .ico { width: 13px; height: 13px; }
+.btn-pri { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.btn-pri:hover { background: var(--vscode-button-hoverBackground); }
+.btn-sec { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+.btn-sec:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.btn-ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+.btn-ghost:hover { background: var(--vscode-toolbar-hoverBackground); }
+.btn[aria-disabled="true"] { opacity: .5; cursor: default; }
+.grow { flex: 1 1 0; min-width: 0; }
+.pm-note { margin-top: 8px; font-size: 11.5px; color: var(--dim); line-height: 1.45; }
+.pm-note.warn { color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
+.pm-err { display: flex; gap: 6px; margin-top: 8px; font-size: 12px; color: var(--err); line-height: 1.45; }
+.pm-err .ico { margin-top: 2px; flex: none; }
+.steps4 { list-style: none; margin-top: 10px; padding: 0; display: grid; gap: 6px; }
+.steps4 li { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--dim); }
+.steps4 li.done { color: var(--fg); }
+.steps4 li.done .ico { color: var(--ok); }
+.steps4 li.cur { color: var(--accent); font-weight: 600; }
+.steps4 li.cur .ico { animation: spin 1.4s linear infinite; }
+.steps4 li.fail { color: var(--err); font-weight: 600; }
+.steps4 small { font-weight: 400; color: var(--dim); margin-left: auto; font-size: 11px; }
+.narrow { display: none; }
+body.vscode-high-contrast .pm-box.is-warn { outline: 1px dashed var(--warn); outline-offset: -1px; }
+body.vscode-high-contrast .pm-box.is-perm { outline: 1px dashed var(--err); outline-offset: -1px; }
+/* 좁은 폭(N-1): [멈춤]은 아이콘만(이름은 aria-label·title), "pm 교체"→"교체", "교체 기준"→"기준". 버튼 줄은 접히지 않는다 */
+@media (max-width: 259px) {
+  .wide { display: none; }
+  .narrow { display: inline; }
+}

@@ -71,6 +71,30 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert.strictEqual(provider.applyAcks([off([m1])])[0].offWarning, null, '다시 읽어도 숨김');
     assert.strictEqual(provider.applyAcks([off([m1, m2])])[0].offWarning.count, 1, '확인 뒤 새로 막힌 것만 다시 경고');
 
+    // pm 줄(0.10.0): ready에 pm 상태를 보내고, 버튼 메시지는 PmControl로(뒤이은 세션 읽기는 막아 둔다)
+    view.posts.length = 0;
+    view.send({ type: 'ready' });
+    const pmMsg = view.posts.find((m) => m.type === 'pm');
+    assert.ok(pmMsg && pmMsg.data.name === ops.pmRole && pmMsg.data.host === null, `pm 줄 상태
+${JSON.stringify(pmMsg)}`);
+    provider.update = async () => {};
+    const before = fake.terminals.length;
+    view.send({ type: 'pmAttach' });
+    await flush();
+    assert.ok(fake.terminals.length === before + 1 && fake.terminals.at(-1).opts.name === `${ops.pmRole} 붙기`, '[붙기] → pm 붙기 터미널');
+
+    // 끊긴 SSH 묶음 줄(0.10.0): 판정 스크립트 -Json의 candidates만. 스크립트 없음·실패·이상한 출력은 null(줄 숨김)
+    const { readOrphans } = require(path.join(EXT, 'sessionsView.js'));
+    const script = path.join(process.env.WY_APPROVALS_DIR, 'ssh-orphans.ps1');
+    assert.strictEqual(await readOrphans(script, async () => { throw new Error('부르면 안 됨'); }), null, '스크립트 없으면 부르지 않음');
+    fs.writeFileSync(script, '');
+    let called = null;
+    const json = '{"admin":false,"chains":[],"candidates":{"count":2,"mb":624},"stopped":null}';
+    assert.deepStrictEqual(await readOrphans(script, async (label, file, args, timeout) => { called = { file, args, timeout }; return `﻿${json}\r\n`; }), { count: 2, mb: 624 });
+    assert.ok(called.file === 'powershell.exe' && called.args.includes('-Json') && !called.args.includes('-Stop') && called.args.includes(script) && called.timeout >= 10000, JSON.stringify(called));
+    assert.strictEqual(await readOrphans(script, async () => { throw new Error('ssh-orphans 응답 없음'); }), null, '실패는 숨김');
+    assert.strictEqual(await readOrphans(script, async () => 'not json'), null);
+
     console.log('sessionsView 검사 통과');
   } finally {
     fake.uninstall();
