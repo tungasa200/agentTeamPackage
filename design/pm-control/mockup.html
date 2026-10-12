@@ -129,7 +129,6 @@
     background:var(--raise);
   }
   /* 사람이 봐야 할 때만 바탕색이 바뀐다(세션 표 줄과 같은 규칙) */
-  .pm-box.is-warn { background:color-mix(in srgb, var(--warn) 9%, var(--bg)); border-color:color-mix(in srgb, var(--warn) 45%, transparent); }
   .pm-box.is-perm { background:color-mix(in srgb, var(--err) 10%, var(--bg)); border-color:color-mix(in srgb, var(--err) 45%, transparent); }
   .pm-box.is-error { border-color:color-mix(in srgb, var(--err) 55%, transparent); }
   .pm-top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
@@ -145,8 +144,6 @@
   .ctx-row b { color:var(--fg); font-weight:600; }
   .ctx .meter { height:4px; }
   .ctx .limit { opacity:.7; }
-  .ctx.is-over .fill { background:var(--warn); }
-  .ctx.is-over .ctx-row b { color:color-mix(in srgb, var(--warn) 70%, var(--fg)); }
   .badge { display:inline-block; margin-left:6px; padding:0 6px; border-radius:999px; font-size:10.5px; line-height:16px; vertical-align:1px; font-weight:600; }
   /* 노랑 바탕 위 흰 글자는 밝은 테마에서 2.9:1이라 두 테마 모두 어두운 글자(6:1 이상) */
   .badge-warn { background:var(--warn); color:#1e1e1e; }
@@ -166,7 +163,6 @@
   .btn.is-focus { outline:1px solid var(--focus); outline-offset:2px; }
 
   .pm-note { margin-top:8px; font-size:11.5px; color:var(--dim); line-height:1.45; }
-  .pm-note.warn { color:color-mix(in srgb, var(--warn) 70%, var(--fg)); }
   .pm-err { display:flex; gap:6px; margin-top:8px; font-size:12px; color:var(--err); line-height:1.45; }
   .pm-err .ico { margin-top:2px; }
 
@@ -257,8 +253,8 @@
 <ol>
   <li><b>자리</b>(0.10.1에서 옮김, 사용자 요청 2026-10-12): 세션 표 블록(제목 "세션") 바로 위. 순서는 갱신 시각 줄 → 메모리 → 프로세스 → pm 줄 → 세션 표. 위아래 구분선과 여백은 다른 블록과 같다. 갱신 시각 줄은 패널 전체에 걸리는 도구 줄이라 그대로 맨 위에 둔다.</li>
   <li><b>세션 표에서 pm 줄을 뺀다</b>: 같은 세션이 두 군데 보이지 않게. 세션 표 요약(머리 오른쪽 "작업 중 n · 입력 대기 n")에서도 pm은 세지 않는다.</li>
-  <li><b>버튼 세 개까지만</b>: 상태마다 주 버튼 하나(파랑)만. 실행 중엔 [붙기]가 주 버튼, 교체 권장이면 [pm 교체]가 주 버튼으로 바뀐다. [멈춤]은 오른쪽 끝 테두리 버튼(자주 누르지 않는 것).</li>
-  <li><b>컨텍스트 크기</b>: 얇은 막대 + 교체 기준선(<code>rotation.transcriptMB</code>, 지금 2MB). 막대 끝은 기준의 1.5배. 기준을 넘으면 막대·숫자가 노랑, 상자 바탕이 옅은 노랑, 이름 옆 '교체 권장' 표.</li>
+  <li><b>버튼 세 개까지만</b>: 상태마다 주 버튼 하나(파랑)만. 실행 중엔 [붙기]가 주 버튼. 교체 권장이어도 그대로(0.10.2). [멈춤]은 오른쪽 끝 테두리 버튼(자주 누르지 않는 것).</li>
+  <li><b>컨텍스트 크기</b>: 얇은 막대 + 교체 기준선(<code>rotation.transcriptMB</code>, 지금 2MB). 막대 끝은 기준의 1.5배. 기준을 넘으면 이름 옆 '교체 권장' 배지만 붙는다. 노란 상자·막대·숫자와 안내 문구는 0.10.2에서 뺐다(사용자 피드백 2026-10-12: 정신없음. 막대가 기준선을 넘는 것과 배지로 충분).</li>
   <li><b>상태 이름은 세션 표와 같은 말</b>: 작업 중 / 입력 대기 / 권한 승인 대기. 멈춘 상태만 pm 줄에서 "멈춤"(세션 표의 "종료됨" 대신 — 버튼 [멈춤]과 같은 말로, 다시 [pm 시작]할 수 있음을 드러내려고).</li>
   <li><b>로컬 창·원격 창 같은 모양</b>: 원격 창에서도 같은 상자. 다른 점은 이름 옆 작은 글씨 '호스트 <이름>' 한 줄뿐(R-1). 버튼이 하는 일은 같고, [붙기]는 지금 창(원격이면 원격 창)의 통합 터미널에서 붙는다.</li>
 </ol>
@@ -301,23 +297,22 @@
 </div>
 
 <!-- P-2 교체 권장 -->
-<div class="shot"><div class="cap">P-2 실행 중 <span>— 교체 권장(기준 넘음)</span></div>
+<div class="shot"><div class="cap">P-2 실행 중 <span>— 교체 권장(기준 넘음). 0.10.2부터 평소 상자·버튼 그대로, 배지만</span></div>
 <div class="side vs-dark">
   <div class="vtitle"><b>WY OPS: 세션 현황</b></div>
   <div class="wv">
     <header class="bar"><p class="stamp">14:32:05 갱신</p><button class="icon-btn"><svg class="ico"><use href="#i-refresh"/></svg><span>새로고침</span></button></header>
     <section class="pm" aria-labelledby="pm2-h">
-      <div class="pm-box is-warn">
+      <div class="pm-box">
         <div class="pm-top"><h3 id="pm2-h" class="pm-name">MY-pm<span class="badge badge-warn">교체 권장</span></h3><span class="elapsed">6시간 40분</span></div>
         <div class="pm-line"><span class="state st-input"><svg class="ico"><use href="#i-waiting"/></svg>입력 대기</span></div>
-        <div class="ctx is-over" style="--used:.83;--limit:66.7%">
+        <div class="ctx" style="--used:.83;--limit:66.7%">
           <div class="ctx-row"><span>컨텍스트 <b>2.5MB</b></span><span>교체 기준 2MB</span></div>
           <div class="meter" role="meter" aria-label="pm 컨텍스트 크기" aria-valuemin="0" aria-valuemax="3" aria-valuenow="2.5"><div class="fill"></div><div class="limit"></div></div>
         </div>
-        <p class="pm-note warn">대화가 길어져 앞 내용을 흐리게 기억합니다. 일이 끊기는 때에 교체하세요.</p>
         <div class="pm-acts">
-          <button class="btn btn-pri grow"><svg class="ico"><use href="#i-swap"/></svg>pm 교체</button>
-          <button class="btn btn-sec grow"><svg class="ico"><use href="#i-term"/></svg>붙기</button>
+          <button class="btn btn-pri grow"><svg class="ico"><use href="#i-term"/></svg>붙기</button>
+          <button class="btn btn-sec grow"><svg class="ico"><use href="#i-swap"/></svg>pm 교체</button>
           <button class="btn btn-ghost" aria-label="pm 멈춤"><svg class="ico"><use href="#i-stop"/></svg>멈춤</button>
         </div>
       </div>
@@ -494,12 +489,11 @@
   <div class="wv">
     <header class="bar"><p class="stamp">14:32:05 갱신</p><button class="icon-btn"><svg class="ico"><use href="#i-refresh"/></svg><span>새로고침</span></button></header>
     <section class="pm">
-      <div class="pm-box is-warn">
+      <div class="pm-box">
         <div class="pm-top"><h3 class="pm-name">MY-pm<span class="badge badge-warn">교체 권장</span></h3><span class="elapsed">6시간 40분</span></div>
         <div class="pm-line"><span class="state st-working"><svg class="ico"><use href="#i-working"/></svg>작업 중</span></div>
-        <div class="ctx is-over" style="--used:.83;--limit:66.7%"><div class="ctx-row"><span>컨텍스트 <b>2.5MB</b></span><span>교체 기준 2MB</span></div><div class="meter"><div class="fill"></div><div class="limit"></div></div></div>
-        <p class="pm-note warn">대화가 길어져 앞 내용을 흐리게 기억합니다. 일이 끊기는 때에 교체하세요.</p>
-        <div class="pm-acts"><button class="btn btn-pri grow"><svg class="ico"><use href="#i-swap"/></svg>pm 교체</button><button class="btn btn-sec grow"><svg class="ico"><use href="#i-term"/></svg>붙기</button><button class="btn btn-ghost"><svg class="ico"><use href="#i-stop"/></svg>멈춤</button></div>
+        <div class="ctx" style="--used:.83;--limit:66.7%"><div class="ctx-row"><span>컨텍스트 <b>2.5MB</b></span><span>교체 기준 2MB</span></div><div class="meter"><div class="fill"></div><div class="limit"></div></div></div>
+        <div class="pm-acts"><button class="btn btn-pri grow"><svg class="ico"><use href="#i-term"/></svg>붙기</button><button class="btn btn-sec grow"><svg class="ico"><use href="#i-swap"/></svg>pm 교체</button><button class="btn btn-ghost"><svg class="ico"><use href="#i-stop"/></svg>멈춤</button></div>
       </div>
     </section>
     <div class="fadeout"><section class="block"><div class="head"><h2>세션</h2><span class="aside">작업 중 2 · 입력 대기 1</span></div>
@@ -509,7 +503,7 @@
     </section></div>
   </div>
 </div>
-<div class="notes">경고색 글자는 밝은 테마에서 흐리므로 기존 규칙대로 전경색과 70:30으로 섞는다(<code>.s-stuck</code>와 같음). '교체 권장' 표 글자는 두 테마 모두 어두운 글자(#1e1e1e) — 기존 <code>--on-warn</code>(밝은 테마 흰색)은 노랑 위에서 2.9:1이라 쓰지 않는다(기존 세션 표 <code>.badge-warn</code>도 같은 문제, 함께 고칠 것을 권함). 아래 세션 표에 pm 줄이 없다.</div>
+<div class="notes">'교체 권장' 표 글자는 두 테마 모두 어두운 글자(#1e1e1e) — 기존 <code>--on-warn</code>(밝은 테마 흰색)은 노랑 위에서 2.9:1이라 쓰지 않는다(기존 세션 표 <code>.badge-warn</code>도 같은 문제, 함께 고칠 것을 권함). 아래 세션 표에 pm 줄이 없다.</div>
 </div>
 
 <!-- R-1 원격 창 -->
@@ -593,7 +587,7 @@
 <tr><th>자리</th><th>문구</th></tr>
 <tr><td>pm 줄 머리</td><td>MY-pm (역할 이름, 접두어 따라 바뀜) · 작은 글씨 "개발 총괄"(원격 창은 "호스트 &lt;이름&gt;") · 오른쪽 경과 "2시간 12분" / 멈춤이면 "어제 22:15에 멈춤" / 처음이면 "아직 시작하지 않음"</td></tr>
 <tr><td>상태</td><td>작업 중 / 입력 대기 / 권한 승인 대기 / 멈춤 / 시작하는 중…</td></tr>
-<tr><td>컨텍스트</td><td>컨텍스트 1.3MB · 교체 기준 2MB(좁으면 "기준 2MB") · 표 "교체 권장" · 안내 "대화가 길어져 앞 내용을 흐리게 기억합니다. 일이 끊기는 때에 교체하세요."</td></tr>
+<tr><td>컨텍스트</td><td>컨텍스트 1.3MB · 교체 기준 2MB(좁으면 "기준 2MB") · 배지 "교체 권장"(안내 문구는 0.10.2에서 뺌)</td></tr>
 <tr><td>버튼</td><td>pm 시작 / 붙기 / 붙어서 답하기(권한 승인 대기) / pm 교체(좁으면 "교체") / 멈춤 / 다시 시도 / 기록 보기 / 닫기</td></tr>
 <tr><td>멈춤 안내</td><td>대화는 남아 있어 시작하면 이어서 일합니다. (처음) 시작하면 화면 뒤에서 일하고, [붙기]로 말을 걸 수 있습니다.</td></tr>
 <tr><td>시작 중</td><td>10초쯤 걸립니다. 다 뜨면 [붙기]가 켜집니다. / (실패) pm이 시작되지 않았습니다.</td></tr>

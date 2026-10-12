@@ -260,8 +260,8 @@
   }
 
   function ctxBlock(d) {
-    const over = d.tokens >= d.limit;
-    const box = el('div', 'ctx' + (over ? ' is-over' : ''));
+    // 기준을 넘어도 색은 그대로(0.10.2): '교체 권장' 배지 하나로 알린다
+    const box = el('div', 'ctx');
     const max = d.limit * 1.5; // 막대 끝 = 기준의 1.5배, 기준 선은 2/3 지점
     box.style.setProperty('--used', String(Math.min(d.tokens / max, 1)));
     box.style.setProperty('--limit', ((d.limit / max) * 100).toFixed(1) + '%');
@@ -355,8 +355,6 @@
     } else {
       // running · interactive(직접 띄운 pm) · two(pm이 둘)
       const view = STATES[d.view] ? d.view : 'input';
-      const warn = d.mode === 'running' && d.rotate && view !== 'permission';
-      if (warn) box.classList.add('is-warn');
       if (view === 'permission') box.classList.add('is-perm');
       let small = whoSmall(d);
       if (d.rotate) {
@@ -394,10 +392,8 @@
       } else if (view === 'permission') {
         // 답하지 않은 권한 창을 두고 교체하면 그 요청이 사라지므로 교체는 숨긴다
         acts.append(pmBtn('pmAttach', 'pri', '붙어서 답하기', 'i-term'), stopBtn(false));
-      } else if (warn) {
-        box.append(el('p', 'pm-note warn', '대화가 길어져 앞 내용을 흐리게 기억합니다. 일이 끊기는 때에 교체하세요.'));
-        acts.append(pmBtn('pmRotate', 'pri', rotateLabel(), 'i-swap'), pmBtn('pmAttach', 'sec', '붙기', 'i-term'), stopBtn(false));
       } else {
+        // 교체 권장도 평소와 같은 상자·버튼(0.10.2, 사용자 피드백): 알림은 이름 옆 배지만
         acts.append(pmBtn('pmAttach', 'pri', '붙기', 'i-term'), pmBtn('pmRotate', 'sec', rotateLabel(), 'i-swap'), stopBtn(false));
       }
     }
