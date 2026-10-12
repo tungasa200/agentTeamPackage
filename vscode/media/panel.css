@@ -375,8 +375,9 @@ tr.warn-row td:first-child { border-top-left-radius: 0; border-top-right-radius:
 .head h2 { flex: none; white-space: nowrap; }
 .head .aside { min-width: 0; text-align: right; }
 
-/* pm 제어 줄(0.10.0, design/pm-control 목업). 사람이 봐야 할 때만 바탕색이 바뀐다(세션 표 줄과 같은 규칙) */
-.pm { padding: 8px 0 14px; }
+/* pm 제어 줄(0.10.0, design/pm-control 목업). 사람이 봐야 할 때만 바탕색이 바뀐다(세션 표 줄과 같은 규칙)
+   0.10.1부터 프로세스 블록과 세션 표 사이: 위아래 구분선·여백을 .block과 같게(아래 선은 세션 블록의 border-top) */
+.pm { padding: 12px 0 14px; border-top: 1px solid var(--line); }
 :where(.pm) :is(p, ol, h3) { margin: 0; } /* 아래 클래스 여백이 이기게 */
 .pm-box { padding: 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--raise); }
 .pm-box.is-warn { background: color-mix(in srgb, var(--warn) 9%, var(--bg)); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }

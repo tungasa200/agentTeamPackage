@@ -541,7 +541,7 @@ ${s.stuck.command || ''}`;
       $('sess-sum').textContent = '';
       return;
     }
-    // pm은 표가 아니라 맨 위 pm 줄에만 나온다(요약·역할 수에서도 뺀다)
+    // pm은 표가 아니라 표 바로 위 pm 줄에만 나온다(요약·역할 수에서도 뺀다)
     const sessions = msg.data.filter((s) => s.name !== pmName).map((s) => ({ name: s.name, s, st: STATES[s.view] ? s.view : 'input' }));
     const tableRoles = roles.filter((r) => r !== pmName);
     const seen = new Set(sessions.map((r) => r.name));
