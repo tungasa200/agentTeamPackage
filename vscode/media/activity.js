@@ -149,7 +149,7 @@
     return `<div class="chain" role="img" aria-label="${esc(`메시지 ${b.steps.length}개: ${b.steps.map((s) => STAGE[s.stage][1]).join(' → ')}`)}">${nodes.join('')}</div>`;
   }
 
-  // 현황판에는 진행 중(권한 대기·내 차례 포함) 묶음만 온다(최근에 움직인 순). 완료와 24시간 넘게 조용한 묶음은 확장(activityView.js)이 뺀다
+  // 현황판에는 진행 중(권한 대기·내 차례 포함) 묶음만 온다(최근에 움직인 순). 완료와 2시간 넘게 조용한(휴면) 묶음은 확장(activityView.js)이 뺀다
   function renderThreads() {
     if (!state.feed.length) return empty('아직 세션 간 메시지가 없습니다', `최근 ${state.windowHours}시간 안에 세션이 SendMessage로 주고받은 메시지가 여기에 묶여 보입니다.`);
     if (!state.bundles.length) return '<p class="none">진행 중인 스레드가 없습니다. 끝난 일의 메시지는 피드에 있습니다.</p>';

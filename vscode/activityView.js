@@ -13,8 +13,7 @@ const VIEW_TYPE = 'wyActivity';
 const OPEN_COMMAND = 'wyActivity.open';
 const INTERVAL = { transcripts: 3000, status: 10000 }; // 메시지는 10초 안에 보여야 한다(OPS-09)
 const MAX_BUNDLES = 40;
-const DORMANT_MS = 2 * 60 * 60 * 1000; // 진행 중 묶음이 이만큼 조용하면 '휴면'(dormant 표시만, 목록에는 남는다)
-const EXPIRE_MS = 24 * 60 * 60 * 1000; // 진행 중 묶음이 이만큼 조용하면 목록에서 뺀다(사용자 결정 2026-10-12)
+const DORMANT_MS = 2 * 60 * 60 * 1000; // 진행 중 묶음이 이만큼 조용하면 '휴면'으로 보고 현황판에서 뺀다(사용자 결정 2026-10-12)
 const LANE_HOURS = 12; // 시간 보기가 고를 수 있는 가장 긴 범위
 const LANE_STEP = 30000;
 
@@ -188,18 +187,16 @@ class ActivityView {
       const blockedBy = b.state !== 'done' ? b.sessions.find((n) => views.get(n) === 'permission') : null;
       const state = blockedBy ? 'perm' : card && b.state !== 'done' ? 'me' : b.state;
       // 현황판에는 진행 중(권한 대기·내 차례 포함)만 보낸다. 완료([완료]·재검증 통과 뒤 확인 회신만 붙은 것 포함)는 뺀다.
-      // 권한 대기·대기 카드가 걸린 묶음은 사람 손을 기다리는 중이라 오래 조용해도 남긴다
+      // 휴면(DORMANT_MS 넘게 조용함)도 뺀다. 권한 대기·대기 카드가 걸린 묶음은 사람 손을 기다리는 중이라 오래 조용해도 남긴다
       if (state === 'done') continue;
-      const quiet = now - Date.parse(b.lastAt);
       const waiting = state === 'perm' || state === 'me';
-      if (!waiting && quiet > EXPIRE_MS) continue;
+      if (!waiting && now - Date.parse(b.lastAt) > DORMANT_MS) continue;
       if (bundles.length >= MAX_BUNDLES) continue; // 단계 색은 남은 묶음도 채운다
       bundles.push({
         key: b.key,
         taskId: b.taskId,
         title: b.title,
         state,
-        dormant: !waiting && quiet > DORMANT_MS,
         startedAt: b.startedAt,
         lastAt: b.lastAt,
         sessions: b.sessions,

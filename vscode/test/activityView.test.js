@@ -143,12 +143,12 @@ test('완료 묶음은 현황판에서 빠지고, 확인 회신이 붙어도 완
   }
 });
 
-test('2시간 넘게 조용한 진행 중 묶음은 휴면 표시, 24시간 넘으면 목록에서 빠지고, 권한 대기·대기 카드는 남는다', () => {
+test('2시간 넘게 조용한 진행 중 묶음(휴면)은 현황판에서 빠지고, 새 메시지가 오면 돌아오며, 권한 대기·대기 카드는 남는다', () => {
   const { fake, view, dir } = setup();
   try {
     const file = path.join(dir, 'pm.jsonl');
     fs.writeFileSync(file, [line({ type: 'agent-name', agentName: 'WY-pm' }),
-      recv(10, 'WY-qa', 'q1', 'P2-01 확인 부탁'), // 그냥 조용해진 묶음 → 휴면
+      recv(10, 'WY-qa', 'q1', 'P2-01 확인 부탁'), // 그냥 조용해진 묶음 → 휴면이라 빠짐
       recv(10, 'WY-backend1', 'w1', 'P2-02 실행 전 권한 대기'), // 참여 세션이 권한 대기 → 진행 중 유지
       recv(10, 'WY-browser', 'c1', 'P2-03 콘솔 작업 카드 올림'), // 대기 카드 걸림 → 진행 중 유지
       recv(10, 'WY-design', 'd1', '[완료] P2-04 목업 끝')].join('\n') + '\n'); // 완료는 처음부터 빠진다
@@ -161,27 +161,27 @@ test('2시간 넘게 조용한 진행 중 묶음은 휴면 표시, 24시간 넘�
     fake.commands['wyActivity.open']();
     const panel = fake.panels.find((p) => p.type === 'wyActivity');
     const latest = () => panel.posts.filter((m) => m.type === 'state').pop().state;
-    const kinds = (st) => Object.fromEntries(st.bundles.map((b) => [b.taskId, b.dormant ? 'dormant' : 'running']));
+    const shown = (st) => st.bundles.map((b) => b.taskId).sort();
 
     // 10분 전 메시지: 아직 아무것도 휴면 아님
     panel.send({ type: 'ready' });
-    assert.deepStrictEqual(kinds(latest()), { 'P2-01': 'running', 'P2-02': 'running', 'P2-03': 'running' });
+    assert.deepStrictEqual(shown(latest()), ['P2-01', 'P2-02', 'P2-03']);
 
-    // 3시간 뒤: 조용한 묶음만 휴면 표시(목록에는 남음), 권한 대기·대기 카드 묶음은 진행 중
+    // 3시간 뒤: 조용한 묶음만 빠지고, 권한 대기·대기 카드 묶음은 남는다
     view.clock = () => now + 3 * 3600000;
     view.refresh();
-    assert.deepStrictEqual(kinds(latest()), { 'P2-01': 'dormant', 'P2-02': 'running', 'P2-03': 'running' });
+    assert.deepStrictEqual(shown(latest()), ['P2-02', 'P2-03']);
 
-    // 25시간 뒤: 조용한 묶음은 빠지고, 사람 손을 기다리는 묶음은 남는다
+    // 25시간 뒤에도 사람 손을 기다리는 묶음은 남는다
     view.clock = () => now + 25 * 3600000;
     view.refresh();
-    assert.deepStrictEqual(kinds(latest()), { 'P2-02': 'running', 'P2-03': 'running' });
+    assert.deepStrictEqual(shown(latest()), ['P2-02', 'P2-03']);
     view.clock = () => now + 3 * 3600000;
 
-    // 휴면 묶음에 새 메시지가 오면 다시 진행 중
+    // 휴면 묶음에 새 메시지가 오면 다시 보인다
     fs.appendFileSync(file, line({ type: 'user', isMeta: true, timestamp: new Date(now + 3 * 3600000 - 60000).toISOString(), origin: { kind: 'peer', name: 'WY-qa', msg_id: 'q2', body: 'P2-01 다시 확인' }, message: { role: 'user', content: '…' } }) + '\n');
     view.refresh();
-    assert.strictEqual(kinds(latest())['P2-01'], 'running', '깨어남');
+    assert.ok(shown(latest()).includes('P2-01'), '깨어남');
     fs.rmSync(path.join(root, 'requests', 'card-browser.json'));
   } finally {
     fake.uninstall();
