@@ -247,8 +247,17 @@ function screenBehavior(jsdom) {
   assert.deepStrictEqual([...s.errors, ...s2.errors, ...s3.errors, ...s4.errors, ...s5.errors, ...s6.errors], [], '화면 오류 없음');
 }
 
+// 선택지 input은 .sr-only(position:absolute)라 기준 상자가 없으면 .wy에 붙어 .dt와 함께 스크롤되지 않는다.
+// 그러면 아래쪽 선택지를 누를 때 포커스가 input을 보이게 하려고 문서를 끌어올려 머리 탭이 사라진다(jsdom은 배치를 안 해서 CSS로 확인).
+function srOnlyAnchor() {
+  const css = fs.readFileSync(path.join(MEDIA, 'approvals.css'), 'utf8');
+  const rule = (sel) => (css.match(new RegExp('^' + sel.replace('.', '\.') + ' \{([^}]*)\}', 'm')) || [])[1] || '';
+  for (const sel of ['.opt', '.dt', '.scroll']) assert.ok(/position: *relative/.test(rule(sel)), sel + '에 position: relative');
+}
+
 try {
   extensionWiring();
+  srOnlyAnchor();
   const jsdom = findJsdom();
   if (jsdom) screenBehavior(jsdom);
   else console.log('jsdom 없음: 화면 동작 검사는 건너뜀(NODE_PATH에 jsdom이 든 node_modules를 주면 돈다)');
