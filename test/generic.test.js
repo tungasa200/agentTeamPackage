@@ -14,12 +14,16 @@ const slash = (p) => p.replace(/\\/g, '/');
 //    허용: 옛 확장 id(이 PC 전환 정리용, OLD_EXT)
 const ALLOWED = ['erp-project.erp-session-dashboard'];
 const BAD = [/WY-/, /\berp\b/i, /erp-project/i, /worklog/i];
+// 검사하지 않는 폴더: 시험·의존성·git, 도구 저장소 자신의 프로젝트 운영 파일(최상위 .claude/·docs/, 배포에서도 빠짐)
+const skipDir = (name, rel) => ['test', 'node_modules', '.git'].includes(name) || rel === '.claude' || rel === 'docs';
+assert.ok(skipDir('.claude', '.claude') && skipDir('docs', 'docs'), '최상위 .claude/·docs/는 검사 밖');
+assert.ok(!skipDir('docs', 'vscode/docs') && !skipDir('.claude', 'templates/.claude') && !skipDir('lib', 'lib'), '제품 파일은 계속 검사');
 function files(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     const rel = slash(path.relative(PKG, p));
     if (e.isDirectory()) {
-      if (['test', 'node_modules', '.git'].includes(e.name)) continue;
+      if (skipDir(e.name, rel)) continue;
       files(p, out);
     } else if (/\.(js|ps1|json|html|css|svg)$/.test(e.name) || (e.name.endsWith('.md') && rel.startsWith('templates/'))) {
       if (!e.name.endsWith('.test.js')) out.push(p);

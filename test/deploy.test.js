@@ -36,6 +36,9 @@ try {
   put('vscode/test/a.test.js', 'x');
   put('lib/x.test.js', 'x');
   put('vscode/hooks/wy-approval-guard.js', '// hook');
+  put('.claude/agents/x.md', 'x');
+  put('docs/plan.md', 'x');
+  put('vscode/docs/keep.md', 'x');
   const c1 = commit('v1');
 
   // 1. 첫 배포: 버전 폴더·current·deployed.json, 테스트 제외, 껍데기 폴더
@@ -45,6 +48,8 @@ try {
   const cur = path.join(dir, 'current');
   assert.ok(fs.existsSync(path.join(cur, 'vscode', 'hooks', 'wy-approval-guard.js')), 'current로 훅에 닿음');
   assert.ok(!fs.existsSync(path.join(cur, 'vscode', 'test')) && !fs.existsSync(path.join(cur, 'lib', 'x.test.js')), '테스트는 설치하지 않음');
+  assert.ok(!fs.existsSync(path.join(cur, '.claude')) && !fs.existsSync(path.join(cur, 'docs')), '패키지 최상위 .claude/·docs/는 설치하지 않음');
+  assert.ok(fs.existsSync(path.join(cur, 'vscode', 'docs', 'keep.md')), '하위 폴더의 docs/는 설치함');
   const dep = JSON.parse(fs.readFileSync(path.join(cur, 'deployed.json'), 'utf8'));
   assert.deepStrictEqual([dep.version, dep.commit, dep.stubHash], ['0.6.0', c1, r1.stubHash]);
   const sp = JSON.parse(fs.readFileSync(path.join(cur, 'stub-ext', 'package.json'), 'utf8'));

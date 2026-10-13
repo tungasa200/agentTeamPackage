@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "project": "agentTeamPackage",
+  "product": "agentTeamPackage",
+  "rolePrefix": "OPS-",
+  "pmRole": "OPS-pm",
+  "commitRole": "OPS-commit",
+  "rotation": {
+    "transcriptMB": 5,
+    "contextTokens": 150000,
+    "notifyTokens": 200000
+  },
+  "memory": {
+    "warnFreeMB": 1024,
+    "blockFreeMB": 500
+  },
+  "approvals": {
+    "namespace": "agentTeamPackage",
+    "ttlMinutes": 60
+  },
+  "docs": {
+    "progress": "docs/진행현황.md",
+    "decisions": "docs/결정기록.md"
+  },
+  "wyOpsVersion": "0.11.2",
+  "roles": [
+    {
+      "name": "OPS-commit",
+      "summary": "커밋·버전관리 전담",
+      "agent": true,
+      "group": "commit",
+      "template": "commit"
+    },
+    {
+      "name": "OPS-pm",
+      "summary": "개발 총괄: 작업 지시, 보고 취합, 중요 결정을 사용자에게 올림, 문서(docs/) 담당",
+      "agent": false,
+      "group": "pm"
+    },
+    {
+      "name": "OPS-dev1",
+      "summary": "개발 — 담당 `vscode/ (VS Code 확장)`, 같은 역할의 공용 파일 담당",
+      "agent": true,
+      "group": "dev",
+      "template": "backend",
+      "area": "vscode/ (VS Code 확장)",
+      "lead": true
+    },
+    {
+      "name": "OPS-dev2",
+      "summary": "개발 — 담당 `lib/·templates/·설치·세션 스크립트`",
+      "agent": true,
+      "group": "dev",
+      "template": "backend",
+      "area": "lib/·templates/·설치·세션 스크립트",
+      "lead": false
+    },
+    {
+      "name": "OPS-review",
+      "summary": "검증: 패키지 전체 시험·doctor·문서 대조·실사용 점검",
+      "agent": true,
+      "group": "review",
+      "template": "qa"
+    }
+  ],
+  "stack": "custom",
+  "verify": {
+    "setup": null,
+    "build": null,
+    "test": "Get-ChildItem test,vscode/test -Filter *.test.js | ForEach-Object { node $_.FullName; if ($LASTEXITCODE) { throw $_.Name } }; node gen-agents.test.js",
+    "typecheck": null,
+    "lint": null,
+    "format": null
+  },
+  "stackNotes": [],
+  "tools": []
+}

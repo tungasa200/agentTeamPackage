@@ -1,3 +1,8 @@
 deployed.json
 stub-ext/
 node_modules/
+
+# WY Ops
+.claude/settings.local.json
+.claude/wy-ops.local.json
+.claude/*.bak-*
