@@ -368,12 +368,16 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | `update` | 운영 도구를 새 버전으로. 패키지 저장소를 pull(확인)하고 설치본을 갱신한 뒤 생성 파일을 다시 만듦. 사람이 고친 생성 파일은 덮지 않고 차이만 보여 줌 | `<설치> update` (미리 보기 `--dry-run`, pull 생략 `--no-pull`) → Reload |
 | `gen` | `.claude/ops`의 역할 원본·pm-ops 부록을 고친 뒤 역할 파일·스킬 다시 만들기 | `<설치> gen` |
 | `deploy` | 설치본만 패키지 저장소의 HEAD로 갱신. `--dev`는 작업 사본을 바로 연결(개발용) | `<설치> deploy` |
-| `rollback` | 새 버전에 문제가 있을 때 이전 버전으로 | `<설치> rollback` → Reload |
+| `rollback` | 새 버전에 문제가 있을 때 이전 버전으로. `rollback --list`로 설치본 목록(*가 지금 쓰는 것), `rollback <버전 폴더>`로 특정 버전 | `<설치> rollback` → Reload |
 | `export` / `import` / `restore` | 개인 상태 옮기기([NEW-PC.md](NEW-PC.md) 3장) | `<설치> export --out D:\move.zip` |
 | `quickstart` | 한 줄 설치: 이 PC 설치 + 프로젝트 붙이기 + 로그인·신뢰 안내 + 점검 요약(3-0b) | `C:\tools\wy-ops\install.ps1 quickstart` |
 | `global` / `setup` / `init` | 설치를 단계별로 직접(3-1~3-3) | — |
 | `host` | 이 PC를 원격 호스트로(관리자 PowerShell, 3-5). `--dry-run`은 목록만. `--add-key`는 접속 PC 공개키 등록 | `<설치> host`, `<설치> host --add-key 'ssh-ed25519 AAAA… 주석'` |
 | `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기·호스트 제어 창(3-5) | `<설치> connect <별칭> --host <Tailscale 이름>` |
+
+rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다른 버전이면 확장도 다시 깝니다. 버전 없이 두 번 하면 더 옛 버전이 아니라 최신과 직전 사이만 오가니, 더 옛 버전은 이름을 주세요. 프로젝트의 생성물(.claude/agents·skills)은 되돌리지 않으니 템플릿이 바뀐 배포를 되돌렸다면 `<설치> gen`을 다시 하세요.
+
+0.13.0으로 올린 뒤 각 프로젝트에서 `<설치> setup`을 한 번 실행하세요(승인 보호 deny 줄 2개 추가). 실행 전에는 doctor 'deny 줄'이 실패로 나옵니다.
 
 공통 옵션: `--yes`(확인 없이 진행), `--project <폴더>`, `--skip-extension`, `--skip-extras`(함께 까는 도구 건너뜀), `--skip-install`(없는 도구를 설치하지 않고 알리기만).
 
