@@ -1,5 +1,5 @@
 ﻿# 역할 세션을 백그라운드 Claude 세션으로 실행·멈춤·세션 교체(rotate)한다. pm 역할(wy-ops.json의 pmRole)이 실행한다.
-#   session.ps1 list                    역할 세션 목록(VS Code 세션 포함)
+#   session.ps1 list                    이 프로젝트의 역할 세션 목록(VS Code 세션 포함). 모든 명령이 이름 접두사와 작업 폴더로 이 프로젝트 세션만 본다
 #   session.ps1 health                  역할별(pm 포함) 컨텍스트(토큰·MB)·마지막 활동, 세션 교체 권장 표시
 #   session.ps1 start <역할> [지시]     멈춘 세션이 있으면 대화를 이어서, 없으면 역할 파일로 새로 시작한다
 #                                       멈춘 세션의 컨텍스트가 세션 교체 기준(토큰) 이상이면 재시작하지 않고 rotate를 권한다(-Force로 강행)
@@ -63,7 +63,19 @@ $Transcripts = "$env:USERPROFILE\.claude\projects\" + ($Repo -replace '[^A-Za-z0
 if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -and -not ($Cmd -in 'attach','stop' -and $Role -eq $PmRole)) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
 
 # PowerShell 5.1의 ConvertFrom-Json은 JSON 배열을 한 덩어리로 넘기므로 괄호로 풀어서 넘긴다
-function Get-Sessions { (claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
+# 이 PC의 모든 프로젝트 세션(pins.json처럼 PC 전체를 보는 정리에만 쓴다)
+function Get-AllSessions { (claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
+# 이 프로젝트 세션(MP-01): 이름이 역할 접두사(rolePrefix, 없으면 pm 역할 이름)로 시작하고 작업 폴더(cwd)가 저장소이거나 그 아래.
+# 다른 프로젝트가 같은 이름을 써도 섞이지 않는다. 대소문자·슬래시 차이는 무시
+$NamePrefix = if ($Ops.rolePrefix) { $Ops.rolePrefix } else { $PmRole }
+function Norm-Path($p) { ([string]$p -replace '/', '\').TrimEnd('\').ToLowerInvariant() }
+$RepoKey = Norm-Path $Repo
+function Get-Sessions {
+  Get-AllSessions | Where-Object {
+    $c = Norm-Path $_.cwd
+    $_.name -and $_.name.StartsWith($NamePrefix, [StringComparison]::OrdinalIgnoreCase) -and ($c -eq $RepoKey -or $c.StartsWith("$RepoKey\"))
+  }
+}
 function Get-Bg($name) {
   Get-Sessions | Where-Object { $_.kind -eq 'background' -and $_.name -eq $name } | Sort-Object startedAt -Descending | Select-Object -First 1
 }
@@ -145,7 +157,12 @@ function Start-New($name, $handoff) {
 
 switch ($Cmd) {
   'list' {
-    Get-Sessions | Sort-Object name | Format-Table name, kind, @{n='상태';e={ Get-State $_ }}, id -AutoSize
+    $all = @(Get-Sessions)
+    $all | Sort-Object name | Format-Table name, kind, @{n='상태';e={ Get-State $_ }}, @{n='실행';e={ if (Test-Running $_) { 'O' } else { '-' } }}, id -AutoSize
+    # 중복은 실행 중(pid 있음)만 센다. 멈춘 항목(pm 교체 직후 이전 pm 등)은 같은 이름이어도 중복이 아니다
+    foreach ($g in @($all | Where-Object { Test-Running $_ } | Group-Object name | Where-Object { $_.Count -gt 1 })) {
+      "중복 실행: $($g.Name) ($(($g.Group | ForEach-Object { $_.id }) -join ', '))"
+    }
   }
   'health' {
     $all = Get-Sessions
@@ -242,7 +259,7 @@ switch ($Cmd) {
   'start-pm' {
     # 경로는 두 번째 자리($Role)로 들어온다. 'none'이나 빈 값이면 인수인계 없이 시작
     $h = @($Role, $Prompt) | Where-Object { $_ -and $_ -ne 'none' } | Select-Object -First 1
-    # latest: 가장 최근 pm 인수인계 파일(제어 창 ⑤·세션 현황 [pm 시작]·설치 마침이 씀). 없으면 인수인계 없이
+    # latest: 가장 최근 pm 인수인계 파일(세션 현황 [pm 시작]·설치 마침이 씀). 없으면 인수인계 없이
     if ($h -eq 'latest') { $f = Get-Handoff $PmRole; $h = if ($f) { $f.FullName } else { $null }; "인수인계: $(if ($h) { $h } else { '없음' })" }
     if ($h -and -not (Test-Path $h)) { throw "인수인계 파일이 없습니다: $h" }
     $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
@@ -250,7 +267,8 @@ switch ($Cmd) {
     if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force"; break }
     $load = if ($h) { "먼저 /ecc:resume-session $($h -replace '\\','/') 로 인수인계를 불러오고, " } else { "먼저 CLAUDE.md와 $($ProgressDoc)를 읽고, " }
     $first = "[$PmRole 시작] 이 세션은 호스트에서 백그라운드로 도는 $PmRole(개발 총괄)입니다. 사용자는 session.ps1 attach $PmRole 로 붙어 대화합니다. pm-ops 스킬을 따르세요. " +
-             $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요."
+             $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요. " +
+             "ListAgents에 자기 말고 같은 $PmRole 이름이 보이면 교체 직후 남은 항목입니다. 중복 $PmRole 여부는 session.ps1 list의 실행 중(pid 있음) 항목으로만 판단하고, 실행 중 $PmRole 이 하나면 경고하지 않습니다. $PmRole 이름으로 SendMessage를 보내지 마세요."
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $first = $first -replace '"', "'"
     Start-Bg @('--bg', '--name', $PmRole, $first)
@@ -263,12 +281,14 @@ switch ($Cmd) {
     $pinFile = "$env:USERPROFILE\.claude\jobs\pins.json"
     $all = @(Get-Sessions)
     $pins = @()
+    # 고정 목록은 PC 하나에 하나(다른 프로젝트 세션도 들어 있음): 정리는 모든 세션 기준
+    $any = @(Get-AllSessions)
     if (Test-Path $pinFile) {
       try { $pins = @([IO.File]::ReadAllText($pinFile, [Text.Encoding]::UTF8) | ConvertFrom-Json | ForEach-Object { $_ }) }
       catch { throw "고정 목록을 읽지 못했습니다: $pinFile" }
     }
     # 멈춘 세션·없는 세션의 id는 정리한다
-    $live = @($all | Where-Object { Test-Running $_ } | ForEach-Object { $_.id })
+    $live = @($any | Where-Object { Test-Running $_ } | ForEach-Object { $_.id })
     $kept = @($pins | Where-Object { $_ -in $live })
     $s = $all | Where-Object { $_.kind -eq 'background' -and $_.name -eq $Role } | Sort-Object startedAt -Descending | Select-Object -First 1
     if ($Cmd -eq 'pin') {

@@ -22,7 +22,7 @@
     "progress": "docs/진행현황.md",
     "decisions": "docs/결정기록.md"
   },
-  "wyOpsVersion": "0.11.2",
+  "wyOpsVersion": "0.13.0",
   "roles": [
     {
       "name": "OPS-commit",

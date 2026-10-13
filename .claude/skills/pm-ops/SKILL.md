@@ -95,7 +95,8 @@ choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르�
 - **멈춘 세션은 그동안 온 회신을 못 받는다.** 재시작할 때 지시에 "멈춰 있는 동안 끝난 일"(커밋 해시, 병합, 결정)을 넣는다. `docs/진행현황.md`의 "역할별 다음 할 일"을 지시·완료 때마다 갱신한다.
 - **메모리는 세션을 시작한 뒤 잰다.** 세션이 시작될 때 순간 수백 MB를 쓴다. 무거운 작업 지시는 시작한 상태에서 500MB 이상이면 진행. 동시 세션 수는 고정하지 않고 메모리를 보며 늘린다.
 - 세션 교체: `health`의 권장이 '세션 교체'(컨텍스트 15만 토큰 이상, 토큰을 못 읽으면 5MB 이상)이거나 큰 작업·단계가 끝났으면 `prep` → 회신(경로 또는 진행 중 없음) → `rotate` → 새 세션 시작 회신 → 끝난 일 전달. 작업 경계에 맞추면 인수인계 없이(`none`) 세션을 교체한다.
-- OPS-pm 세션 교체(백그라운드 OPS-pm): 보통은 사용자가 세션 현황 pm 줄의 [pm 교체]를 누르면 붙기 터미널로 "pm 세션 교체 — 진행 중인 것을 저장하고 start-pm -Force로 새 pm을 띄운 뒤 이전 pm을 멈춰 줘"가 들어온다(접속 PC 제어 창 ⑦도 같은 문장). 받으면 하던 턴을 마친 뒤: 자기 진행 중인 것만 `/ecc:save-session`(short-id OPS-pm) → `start-pm <경로> -Force`(새 OPS-pm을 띄우고 이전 세션 id를 알려 줌) → 사용자에게 "`session.ps1 attach OPS-pm`로 새 pm에 붙으세요" 한 줄(세션 현황이 지켜보다 새 터미널로 붙여 준다) → 마지막 동작으로 이전 자신을 `claude stop <이전 id>`(대화형 창이었으면 사용자가 창을 닫음). 그 사이 같은 이름이 둘이라 `ListAgents`의 ref로 구분한다. `pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력한다.
+- OPS-pm 세션 교체(백그라운드 OPS-pm): 보통은 사용자가 세션 현황 pm 줄의 [pm 교체]를 누르면 붙기 터미널로 "pm 세션 교체 — 진행 중인 것을 저장하고 start-pm -Force로 새 pm을 띄운 뒤 이전 pm을 멈춰 줘"가 들어온다. 받으면 하던 턴을 마친 뒤: 자기 진행 중인 것만 `/ecc:save-session`(short-id OPS-pm) → `start-pm <경로> -Force`(새 OPS-pm을 띄우고 이전 세션 id를 알려 줌) → 사용자에게 "`session.ps1 attach OPS-pm`로 새 pm에 붙으세요" 한 줄(세션 현황이 지켜보다 새 터미널로 붙여 준다) → 마지막 동작으로 이전 자신을 `claude stop <이전 id>`(대화형 창이었으면 사용자가 창을 닫음). 그 사이 같은 이름이 둘이라 `ListAgents`의 ref로 구분한다. `pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력한다.
+- **새 OPS-pm이 시작한 직후 `ListAgents`에 자기 말고 같은 OPS-pm 이름이 보이면 교체 직후 남은 항목이다.** 멈춘 이전 pm이 몇 분 동안 'busy'로 남는다(`claude agents --json --all`에서는 stopped, pid 없음). 중복 OPS-pm 여부는 `session.ps1 list`의 실행 중(pid 있음) 항목으로만 판단한다(실행 중인 같은 이름이 둘이면 list가 '중복 실행'을 출력). 실행 중 OPS-pm이 하나면 경고하지 않고, OPS-pm 이름으로 `SendMessage`를 보내지 않는다.
 - 백그라운드 세션의 권한 요청 창은 사용자가 승인할 수 없다. 지시에 "권한 요청이 필요한 동작은 하지 말고 [차단]"을 넣고(역할 파일에도 있음), 대시보드의 승인 대기(노랑 삼각형)는 진짜 승인 대기다. 입력 대기(초록 점)는 일을 마치고 쉬는 상태.
 - `claude attach`로 깨운 백그라운드 세션은 `--agent` 없이 재시작될 수 있다. 그러면 가드 훅이 그 세션을 OPS-commit로 보지 않아 커밋이 막힌다. 사용자가 권한 요청 때문에 attach했으면 그 뒤 OPS-commit은 `rotate OPS-commit none`으로 세션을 교체한다. attach는 `!`로는 안 되고 별도 터미널에서 해야 한다.
 - VS Code Reload Window를 하면 패널 세션 이름이 풀린다. 백그라운드 세션은 영향 없다.
@@ -118,28 +119,37 @@ OPS-pm은 VS Code Claude 패널 대신 두 방식 중 하나로 실행한다. �
 - 단계 브랜치 병합은 OPS-commit, 사용자 승인
 - 새 단계 브랜치 생성과 배정
 
-## 프로젝트 부록 (agentTeamPackage)
+## 프로젝트 부록 (agentTeamPackage, 도구 wy-ops)
 
-위 절차에 더해 이 프로젝트에서만 지키는 것. 위와 다르면 이 부록을 따른다. init이 만든 초안이다. 아래 각 절의 안내 문장을 이 프로젝트의 규칙으로 바꿔 쓰고, 해당 없는 절은 지운다. 고친 뒤에는 `install.ps1 gen`으로 스킬을 다시 만든다(update는 사람이 고친 이 파일을 덮지 않는다).
+위 절차에 더해 이 프로젝트에서만 지키는 것. 위와 다르면 이 부록을 따른다. 고친 뒤에는 `install.ps1 gen`으로 스킬을 다시 만든다(update는 사람이 고친 이 파일을 덮지 않는다).
 
 ### 0. 늘 지키는 것
-- (여기에: 사용자와 쓰는 언어, 역할 세션 목록, 비밀값 위치처럼 매번 지킬 규칙. 예: 역할 세션은 OPS-commit·OPS-planner·OPS-backend·OPS-frontend·OPS-qa. 이름이 역할과 다른 세션에는 짐작해서 보내지 않는다.)
+- **사용자에게 하는 말, 승인 센터 카드, 다른 세션에 보내는 메시지는 모두 한국어로 쓴다.** 다른 세션이 영어로 보고해도 pm은 한국어로 정리한다(erp에서 사용자가 명시한 규칙, 여기도 같음).
+- 역할 세션: OPS-commit·OPS-dev1(`vscode/`, 공용 파일)·OPS-dev2(`lib/`·`templates/`·`install.ps1`·`gen-*.js`·`scripts/`)·OPS-review(코드 수정 안 함). 이름이 역할과 다른 세션에는 짐작해서 보내지 않는다.
+- **중복 pm 판단은 `ListAgents`로 하지 않는다.** pm 교체 직후 멈춘 이전 OPS-pm이 몇 분 동안 `ListAgents`에 busy로 남는다(KI-03, 2026-10-13 실측). `session.ps1 list` 또는 `claude agents --json --all`에서 pid가 있는 OPS-pm이 하나면 경고하지 않는다.
+- 이 저장소는 도구 원본이고, erp-project는 그 설치본(`~/.wy-tools/wy-ops/current`)을 쓰는 고객이다. 배포·rollback·승인 가드 훅 변경은 erp 세션에도 바로 영향을 준다(DEP-01·DEP-03).
 
 ### 1. 작업 지시
-- (여기에: 작업 ID 체계(WBS·요구사항·화면 ID), 지시문에 꼭 넣을 근거, 세션 사이 경계를 맞춰야 하는 파일(마이그레이션 번호·계약 파일 등).)
-- (화면 작업이면 디자인 점검 단계를 지시문에 넣는다: 프론트에는 커밋 요청 전 `/impeccable harden`, 디자인 담당에는 단계 끝 발행 전 `/impeccable audit`. 지시문에 없으면 아무도 쓰지 않는다.)
+- 작업 ID: 요구사항정의서 ID(SEP·MP·DEP·INS 등), 진행 ID(ENH-nn·HC-nn·KI-nn), 결정 D-nn. 지시에 이 중 근거 ID를 넣는다.
+- 경계: `templates/`를 고치면 생성물(`.claude/agents`·`.claude/skills/pm-ops`)은 배포 뒤 `install.ps1 gen`으로만 바뀐다. 두 dev가 같은 파일을 만지지 않게 한다(공용 파일은 OPS-dev1).
 
 ### 2. 보고 처리
-- (여기에: [완료]를 확인하는 방법(원격 브랜치 로그·CI), 결정을 사용자에게 올릴 것과 pm이 정할 것의 경계, 결정 기록·문서 개정 순서, [결함] 처리 방식.)
+- [완료] 확인: `git log --oneline origin/main`, `git status --short`. CI가 없으므로 검증은 세션 보고의 시험 결과와 OPS-commit 사본 시험이다.
+- 결정 기록과 문서(`docs/`)는 OPS-pm이 직접 쓴다(planner 없음). 요구사항정의서·작업계획서 변경은 `docs/개정대기.md`에 쌓고 단계 끝에 일괄 개정한다(DOC-02).
+- [결함](OPS-review): 재현·기대·실제·담당을 그대로 넘긴다. 배포를 막는지 pm이 정해 OPS-review에 회신한다.
 
 ### 3. 메모리
-- (여기에: 이 PC의 메모리 크기와 동시에 돌릴 수 있는 세션 수, 무거운 작업 목록, 모자랄 때의 대응. 기준값은 wy-ops.json memory를 따른다.)
+- 무거운 작업: 전체 시험(test·vscode/test *.test.js + gen-agents.test.js), OPS-commit 사본 시험, doctor 두 저장소. 서버·브라우저는 거의 안 쓴다.
 
 ### 4. 커밋 묶음
-- (여기에: 같은 푸시에 넣어야 하는 커밋 조합(예: API 스냅샷과 생성 타입), 전체 검증을 어디서 하는지(PR CI 등).)
+- 제품 파일(lib·vscode·templates·install.ps1·package.json)은 배포 전에 모두 커밋되어 있어야 한다. deploy는 HEAD를 복사한다.
+- 문서 커밋은 다음 코드 묶음과 함께 요청해 카드 수를 줄인다. 푸시는 배포 묶음 때.
 
 ### 6-1. 세션
-- (여기에: 세션 운영에서 겪은 이 프로젝트 고유의 사례와 대응.)
+- 승인 카드(choice·todo 포함)는 Write 도구로 쓰고, 쓴 직후 `./vscode/approvalStore.js`의 `readRequest(파일, id)`로 `broken`이 없는지 확인한 뒤 알린다. 셸로 승인 폴더를 다루면 승인 가드가 오탐한다(KI-02).
+- 멈춘 세션을 `session.ps1 start <역할> "지시"`로 다시 띄우면 새 id 복사본이 뜨고 옛 id는 blocked로 남는다. 기능 문제는 없다.
+- 스크립트와 안내 명령은 `claude.cmd`로 부른다(기본 실행 정책에서 claude.ps1이 막힘).
 
 ### 7. 단계 마무리
-- (여기에: 단계 끝 PR·병합 방식, 병합 전후 확인, 문서 일괄 개정 담당.)
+- 배포 관문(S1 이후 매 배포): 전체 시험 → doctor 두 저장소 → OPS-review 문서 대조 → 배포 승인 카드 → `install.ps1 deploy` → 승인 가드 probe(DEP-03) → 두 저장소 `install.ps1 gen`(필요하면 `setup`) → 진행현황 갱신. 절차서 원본은 OPS-review 보고(2026-10-13).
+- deploy·rollback·setup·gen은 설치본(`~/.wy-tools`)과 settings.local.json에 쓰므로 승인 가드가 역할 세션에서 막는다(2026-10-13 OPS-dev2가 deploy에서 막힘). 처음부터 사용자가 터미널에서 실행하는 할 일 카드(명령 순서를 steps에)로 올리고, 세션은 결과를 읽기만으로 확인한다. 세션이 우회하지 않는다.
