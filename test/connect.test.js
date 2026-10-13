@@ -47,6 +47,7 @@ try {
   const vsixFiles = [];
   let tailscale = false;
   const calls = [];
+  const lnkArgs = {}; // 바로가기 경로 → '대상\r\n인수'(shortcutInfo가 읽는 형식)
   const run = (cmd, args) => {
     calls.push([cmd, ...args].join(' '));
     if (cmd === 'tailscale') return { status: tailscale ? 0 : null, stdout: '', stderr: '' };
@@ -68,8 +69,12 @@ try {
     }
     if (cmd === 'powershell') {
       const m = args[2].match(/CreateShortcut\('([^']+)'\)/);
-      assert.ok(args[2].includes(`'--folder-uri "vscode-remote://ssh-remote+wy-host/c:/projects/my-project"'`));
-      assert.ok(args[2].includes(path.join(codeDir, 'Code.exe')), 'Code.exe를 대상으로');
+      if (/\$s\.Arguments$/.test(args[2])) return { status: 0, stdout: (lnkArgs[m[1]] || '') + '\r\n', stderr: '' };
+      if (path.basename(m[1]) === 'wy-host.lnk') {
+        assert.ok(args[2].includes(`'--folder-uri "vscode-remote://ssh-remote+wy-host/c:/projects/my-project"'`));
+        assert.ok(args[2].includes(path.join(codeDir, 'Code.exe')), 'Code.exe를 대상으로');
+      }
+      lnkArgs[m[1]] = `x\r\n${args[2].match(/\$s\.Arguments = '([^']*)'/)[1]}`;
       fs.writeFileSync(m[1], 'LNK');
       return { status: 0, stdout: '', stderr: '' };
     }
@@ -82,10 +87,10 @@ try {
 
   // 3-1. --dry-run: 아무것도 바꾸지 않음
   let r = connect({ ...opts, dryRun: true }, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'manual', key: 'todo', config: 'todo', 'remote-ssh': 'todo', 'local-sound': 'todo', shortcut: 'todo', control: 'skip' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'manual', key: 'todo', config: 'todo', 'remote-ssh': 'todo', 'local-sound': 'todo', shortcut: 'todo', control: 'todo' });
   assert.ok(!fs.existsSync(path.join(home, '.ssh')) && !fs.readdirSync(desktop).length, 'dry-run은 쓰지 않음');
   assert.strictEqual(r.hostLine, null);
-  assert.ok(!calls.some((c) => /ssh-keygen|--install-extension|CreateShortcut/.test(c)));
+  assert.ok(!calls.some((c) => /ssh-keygen|--install-extension|\.Save\(\)/.test(c)));
 
   // 3-2. 거절
   r = connect(opts, { ...deps, confirm: () => false });
@@ -98,7 +103,8 @@ try {
   out.length = 0;
   r = connect(opts, deps);
   assert.ok(r.ok, JSON.stringify(r.results));
-  assert.ok(r.results.every((x) => x.state === 'done') && r.results.length === 5);
+  assert.ok(r.results.every((x) => x.state === 'done') && r.results.length === 6);
+  assert.ok(fs.existsSync(path.join(desktop, 'wy-host 제어.lnk')), '제어 창은 --folder·--attach 없이도(호스트 하나에 하나)');
   const cfg = fs.readFileSync(path.join(home, '.ssh', 'config'), 'utf8');
   assert.ok(cfg.startsWith(other.trimEnd()) && cfg.includes('Host wy-host\n    HostName wy-host\n    User dev\n    IdentityFile ~/.ssh/id_ed25519\n'));
   assert.strictEqual(fs.readFileSync(path.join(home, '.ssh', 'config.wy-bak'), 'utf8'), other, '원래 config 백업');
@@ -112,13 +118,13 @@ try {
   calls.length = 0;
   r = connect({ ...opts, yes: true }, { ...deps, confirm: () => assert.fail('바꿀 것이 없으면 묻지 않음') });
   assert.ok(r.ok && !r.results.length);
-  assert.ok(Object.entries(state(r.plan)).every(([id, s]) => s === (id === 'control' ? 'skip' : 'ok')), '--attach가 없으면 제어 창은 건너뜀');
+  assert.ok(Object.values(state(r.plan)).every((s) => s === 'ok'), JSON.stringify(state(r.plan)));
   assert.strictEqual(fs.readFileSync(path.join(home, '.ssh', 'id_ed25519'), 'utf8'), 'PRIVATE');
-  assert.ok(!calls.some((c) => /ssh-keygen|--install-extension|CreateShortcut/.test(c)));
+  assert.ok(!calls.some((c) => /ssh-keygen|--install-extension|\.Save\(\)/.test(c)));
 
   // 3-5. 호스트 주소가 바뀌면 그 블록만 갱신. 폴더가 없으면 바로가기 건너뜀
   r = connect({ alias: 'wy-host', host: '100.100.1.2', yes: true }, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'ok', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'skip', control: 'skip' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'ok', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'skip', control: 'ok' });
   assert.ok(fs.readFileSync(path.join(home, '.ssh', 'config'), 'utf8').includes('    HostName 100.100.1.2\n    User dev\n'));
 
   // 3-6. 개인 키만 있고 .pub이 없으면 손으로
@@ -129,33 +135,38 @@ try {
   rmTree(root);
 }
 
-// 4. 역할 이름 검사
-assert.throws(() => plan({ alias: 'wy-host', host: 'h', attach: 'AB pm' }), /--attach/);
+// 4. --attach는 쓰지 않음(HC-01): 받아도 검사하지 않고 무시, 한 줄 안내
+{
+  const none = path.join(os.tmpdir(), 'wy-connect-none-' + process.pid);
+  assert.doesNotThrow(() => plan({ alias: 'wy-host', host: 'h', attach: 'AB pm' }, { run: () => ({ status: 1, stdout: '' }), home: none, desktop: none }));
+}
 
-// 5. --attach·--passphrase(임시 홈, 가짜 명령)
+// 5. 제어 창(호스트 하나에 하나)·예전 붙기 바로가기 지우기·--passphrase(임시 홈, 가짜 명령)
 const root2 = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-connect2-'));
 try {
   const home = path.join(root2, 'home');
   const desktop = path.join(root2, 'desk');
   fs.mkdirSync(home);
   fs.mkdirSync(desktop);
-  const sshExe = path.join(root2, 'ssh.exe');
-  fs.writeFileSync(sshExe, '');
   let agentRunning = false;
   const added = new Set();
   const tty = [];
   const lnks = [];
-  const targets = {}; // 바로가기 경로 → 대상
+  const info = {}; // 바로가기 경로 → { target, args }
   const run = (cmd, args) => {
     if (cmd === 'tailscale') return { status: 0, stdout: '', stderr: '' };
     if (cmd === 'code') return { status: 0, stdout: `${REMOTE_SSH}@0.120.0\r\n${LOCAL_EXT}@${LOCAL_VER}\r\n`, stderr: '' };
     if (cmd === 'where') return { status: 0, stdout: path.join(root2, 'bin', 'code.cmd') + '\r\n', stderr: '' };
     if (cmd === 'powershell' && /Get-Service ssh-agent/.test(args[2])) return { status: 0, stdout: agentRunning ? 'Running\r\n' : 'Stopped\r\n', stderr: '' };
-    if (cmd === 'powershell' && /\)\.TargetPath$/.test(args[2])) return { status: 0, stdout: (targets[args[2].match(/CreateShortcut\('([^']+)'\)/)[1]] || '') + '\r\n', stderr: '' };
+    if (cmd === 'powershell' && /\$s\.Arguments$/.test(args[2])) {
+      const i = info[args[2].match(/CreateShortcut\('([^']+)'\)/)[1]] || { target: '', args: '' };
+      return { status: 0, stdout: `${i.target}\r\n${i.args}\r\n`, stderr: '' };
+    }
     if (cmd === 'powershell' && /CreateShortcut/.test(args[2])) {
       lnks.push(args[2]);
-      targets[args[2].match(/CreateShortcut\('([^']+)'\)/)[1]] = args[2].match(/TargetPath = '([^']+)'/)[1];
-      fs.writeFileSync(args[2].match(/CreateShortcut\('([^']+)'\)/)[1], 'LNK');
+      const lnk = args[2].match(/CreateShortcut\('([^']+)'\)/)[1];
+      info[lnk] = { target: args[2].match(/TargetPath = '([^']+)'/)[1], args: args[2].match(/\$s\.Arguments = '([^']*)'/)[1] };
+      fs.writeFileSync(lnk, 'LNK');
       return { status: 0, stdout: '', stderr: '' };
     }
     if (cmd === 'ssh-keygen' && args[0] === '-lf') return { status: 0, stdout: '256 SHA256:fakefp wy-ops-connect-wy-host (ED25519)\n', stderr: '' };
@@ -173,32 +184,38 @@ try {
     if (cmd === 'ssh-add') added.add('256 SHA256:fakefp wy-ops-connect-wy-host (ED25519)');
     return { status: 0 };
   };
-  const deps = { run, runTty, home, desktop, sshExe, tailscaleExe: path.join(root2, 'none.exe'), say: () => {}, confirm: () => true };
+  const said = [];
+  const deps = { run, runTty, home, desktop, tailscaleExe: path.join(root2, 'none.exe'), say: (s = '') => said.push(s), confirm: () => true };
   const state = (p) => Object.fromEntries(p.steps.map((s) => [s.id, s.state]));
+  const ctlScript = path.join(home, '.wy-tools', 'connect', 'host-control.ps1');
+  const ctlLnkFile = path.join(desktop, 'wy-host 제어.lnk');
 
-  // 5-1. 폴더 없으면 attach 바로가기 건너뜀
-  let r = connect({ alias: 'wy-host', host: 'wy-host', attach: 'AB-pm', dryRun: true }, deps);
-  assert.strictEqual(state(r.plan).attach, 'skip');
+  // 5-1. 예전 설치(0.8.5~): '<별칭> <역할>' 붙기 바로가기(-AttachOnly), -Folder·-Role이 붙은 제어 창 바로가기, 다른 바로가기
+  const oldAttach = path.join(desktop, 'wy-host AB-pm.lnk');
+  const otherLnk = path.join(desktop, 'wy-host 메모.lnk');
+  for (const f of [oldAttach, otherLnk, ctlLnkFile]) fs.writeFileSync(f, 'LNK');
+  info[oldAttach] = { target: 'powershell.exe', args: `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${ctlScript}" -Alias wy-host -Folder "C:\\projects\\my-project" -Role AB-pm -AttachOnly` };
+  info[otherLnk] = { target: 'notepad.exe', args: 'C:\\memo.txt' };
+  info[ctlLnkFile] = { target: 'powershell.exe', args: `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${ctlScript}" -Alias wy-host -Folder "C:\\projects\\my-project" -Role AB-pm` };
 
-  // 5-2. ssh-agent가 멈춰 있으면 안내(손으로)·ssh-add 건너뜀, 키는 대화형으로 만듦
+  // 5-2. ssh-agent가 멈춰 있으면 안내(손으로)·ssh-add 건너뜀, 키는 대화형으로 만듦. --attach는 무시하고 안내 한 줄
   const opts = { alias: 'wy-host', host: 'wy-host', folder: 'C:\\projects\\my-project', attach: 'AB-pm', passphrase: true, yes: true };
-  r = connect(opts, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'todo', agent: 'manual', 'ssh-add': 'skip', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'todo', attach: 'todo', control: 'todo' });
+  let r = connect(opts, deps);
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'todo', agent: 'manual', 'ssh-add': 'skip', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'todo', 'old-attach': 'todo', control: 'todo' });
+  assert.ok(said.some((s) => s.includes('--attach AB-pm는 더 쓰지 않아 무시합니다')), said.join('\n'));
   assert.ok(!r.ok, '손으로 할 단계가 남음');
   assert.ok(r.results.every((x) => x.state === 'done'), JSON.stringify(r.results));
   assert.strictEqual(tty.length, 1);
-  assert.ok(fs.existsSync(path.join(desktop, 'wy-host AB-pm.lnk')));
-  const attachLnk = lnks.find((x) => x.includes('AB-pm.lnk'));
-  // 0.8.5: 새 콘솔 창(ssh -t) 대신 제어 창 스크립트 -AttachOnly(VS Code 원격 창 통합 터미널)
-  assert.ok(/TargetPath = '[^']*powershell\.exe'/.test(attachLnk) && attachLnk.includes('-WindowStyle Hidden') && attachLnk.includes('-Role AB-pm -AttachOnly') && attachLnk.includes('host-control.ps1'), attachLnk);
-  // 제어 창: 스크립트 사본 + 숨김 powershell 바로가기
-  const ctlScript = path.join(home, '.wy-tools', 'connect', 'host-control.ps1');
+  assert.ok(!fs.existsSync(oldAttach), '예전 붙기 바로가기는 지움');
+  assert.ok(fs.existsSync(otherLnk), '다른 바로가기는 그대로');
+  assert.ok(!lnks.some((x) => x.includes('AB-pm.lnk')), '붙기 바로가기를 새로 만들지 않음');
+  // 제어 창: 스크립트 사본 + 숨김 powershell 바로가기(-Folder·-Role 없음, 예전 인수면 다시 만듦)
   assert.strictEqual(fs.readFileSync(ctlScript, 'utf8'), fs.readFileSync(path.join(__dirname, '..', 'templates', 'connect', 'host-control.ps1'), 'utf8'));
   const ctlLnk = lnks.find((x) => x.includes('wy-host 제어.lnk'));
-  assert.ok(ctlLnk && /TargetPath = '[^']*powershell\.exe'/.test(ctlLnk) && ctlLnk.includes('-WindowStyle Hidden') && ctlLnk.includes(`-File "${ctlScript}" -Alias wy-host -Folder "C:\\projects\\my-project" -Role AB-pm`), ctlLnk);
-  assert.ok(fs.existsSync(path.join(desktop, 'wy-host 제어.lnk')));
+  assert.ok(ctlLnk && /TargetPath = '[^']*powershell\.exe'/.test(ctlLnk) && ctlLnk.includes('-WindowStyle Hidden') && ctlLnk.includes(`-File "${ctlScript}" -Alias wy-host'`), ctlLnk);
+  assert.ok(!/-Folder|-Role|-AttachOnly/.test(ctlLnk), ctlLnk);
 
-  // 5-3. 서비스를 켠 뒤 다시: ssh-add 한 번만, 그다음은 모두 이미 됨
+  // 5-3. 서비스를 켠 뒤 다시: ssh-add 한 번만, 그다음은 모두 이미 됨(지운 붙기 바로가기 단계도 없음)
   agentRunning = true;
   r = connect(opts, deps);
   assert.ok(r.ok, JSON.stringify(r.results));
@@ -208,18 +225,13 @@ try {
   assert.deepStrictEqual(tty.map((x) => x.split(' ')[0]), ['ssh-keygen', 'ssh-add']);
 
   // 5-4. 패키지 갱신으로 템플릿이 바뀌면(사본과 다르면) 제어 창만 다시
-  fs.appendFileSync(path.join(home, '.wy-tools', 'connect', 'host-control.ps1'), '# old\n');
+  fs.appendFileSync(ctlScript, '# old\n');
   r = connect(opts, deps);
   assert.deepStrictEqual(r.results, [{ id: 'control', state: 'done' }]);
-
-  // 5-5. 0.8.4까지의 붙기 바로가기(대상 ssh.exe)는 다시 만든다
-  targets[path.join(desktop, 'wy-host AB-pm.lnk')] = sshExe;
-  r = connect(opts, deps);
-  assert.deepStrictEqual(r.results, [{ id: 'attach', state: 'done' }]);
   r = connect(opts, deps);
   assert.deepStrictEqual(r.results, []);
 
-  // 5-6. 폰 중계(0.9.1): --wake-relay는 제어 창 설정 json에만(mac·broadcast 보존), 같으면 다시 쓰지 않음, 형식 검사
+  // 5-5. 폰 중계(0.9.1): --wake-relay는 제어 창 설정 json에만(mac·broadcast 보존), 같으면 다시 쓰지 않음, 형식 검사
   const cfgFile = path.join(home, '.wy-tools', 'connect', 'wy-host.json');
   fs.writeFileSync(cfgFile, '﻿' + JSON.stringify({ mac: '00-11-22-33-44-55', broadcast: '192.168.0.255' }));
   const relayOpts = { ...opts, wakeRelay: '100.64.0.9:8022' };
@@ -239,53 +251,33 @@ try {
   rmTree(root2);
 }
 
-// 6. 제어 창 스크립트 -SelfTest(창 없이 명령 문자열만): 붙기 인수는 attach 바로가기와 같고, 호스트 스크립트에 역할·경로가 들어간다
+// 6. 제어 창 스크립트 -SelfTest(창 없이 명령 문자열만): 깨우기·재우기·재부팅·종료·상태만, pm 기능 없음(HC-01)
 if (process.platform === 'win32') {
   const root3 = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-connect3-'));
   try {
     const cfg = path.join(root3, 'wy-host.json');
     const run6 = (withCfg) => {
       const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, '..', 'templates', 'connect', 'host-control.ps1'),
-        '-Alias', 'wy-host', '-Folder', 'C:\\projects\\my project\\', '-Role', 'AB.pm', '-Ssh', 'ssh.exe', '-Code', 'code.exe', '-ConfigPath', withCfg ? cfg : path.join(root3, 'none.json'), '-SelfTest'], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+        '-Alias', 'wy-host', '-Ssh', 'ssh.exe', '-ConfigPath', withCfg ? cfg : path.join(root3, 'none.json'), '-SelfTest'], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
       assert.strictEqual(r.status, 0, r.stderr);
       return Object.fromEntries(r.stdout.trim().split(/\r?\n/).map((l) => [l.slice(0, l.indexOf(':')), l.slice(l.indexOf(':') + 2)]));
     };
     let o = run6(false);
+    assert.deepStrictEqual(Object.keys(o), ['status', 'sleep', 'reboot', 'shutdown', 'wake', 'relay'], '남은 버튼만');
     const quick = 'ssh.exe -o BatchMode=yes -o ConnectTimeout=5 wy-host ';
-    // 붙기(0.8.5): 호스트에 요청 파일을 쓰고 VS Code 원격 창을 연다. 주소는 connect 바로가기와 같다
-    assert.strictEqual(o.open, `code.exe --folder-uri ${folderUri('wy-host', 'C:\\projects\\my project\\')}`);
     assert.strictEqual(o.sleep, quick + 'rundll32.exe powrprof.dll,SetSuspendState 0,1,0');
     assert.strictEqual(o.reboot, quick + 'shutdown /r /t 0');
     assert.strictEqual(o.shutdown, quick + 'shutdown /s /t 0');
     const decode = (line) => Buffer.from(line.split('-EncodedCommand ')[1], 'base64').toString('utf16le');
     const status = decode(o.status);
-    assert.ok(status.includes("$_.name -eq 'AB.pm'") && status.includes('claude agents --json --all') && status.includes('ConvertTo-Json'), status);
-    // pm 상태: 저장소 경로(끝 \ 제거)·설정 rotation.contextTokens(기본 150000)·session.ps1 health와 같은 토큰 계산
-    assert.ok(status.includes("$repo = 'C:\\projects\\my project'") && status.includes('limit = 150000') && status.includes('$c.rotation.contextTokens') && status.includes("'wy-ops.local.json'"), status);
-    assert.ok(status.includes("'input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'") && status.includes('isSidechain'), status);
-    assert.ok(o.rotate.includes('pm 세션 교체') && o.rotate.includes('start-pm -Force'), o.rotate);
-    // ⑦과 세션 현황 [pm 교체]는 같은 문구를 붙기 터미널에 넣는다(0.10.0)
-    assert.strictEqual(o.rotate, require('../vscode/attachRequest').ROTATE_TEXT, '교체 문구가 확장(attachRequest.ROTATE_TEXT)과 같음');
-    // ⑤는 start-pm latest(인수인계 찾기는 session.ps1 한 곳, 0.10.0)
-    const startPm = decode(o.startpm);
-    assert.ok(startPm.includes("& 'C:\\projects\\my project\\.claude\\skills\\pm-ops\\scripts\\session.ps1' start-pm latest"), startPm);
-    assert.ok(!startPm.includes('session-data'), startPm);
-    const attachReq = decode(o.attach);
-    assert.ok(o.attach.startsWith(quick), o.attach);
-    assert.ok(attachReq.includes("folder = 'C:\\projects\\my project'; role = 'AB.pm'") && attachReq.includes("'attach-request.json'") && attachReq.includes('ToUniversalTime'), attachReq);
-    // 이전 접속 정리(0.10.0): 붙기 때 호스트 설치본의 ssh-orphans.ps1 -Stop -Json, 없으면 건너뜀. 결과는 정리한 것이 있을 때만 한 줄
-    const orphans = decode(o.orphans);
-    assert.ok(o.orphans.startsWith(quick), o.orphans);
-    assert.ok(orphans.includes("'.wy-tools\\wy-ops\\current\\templates\\connect\\ssh-orphans.ps1'") && orphans.includes('& $f -Stop -Json') && orphans.includes('"skipped":true'), orphans);
-    assert.strictEqual(o.orphanFmt, '이전 접속 정리: 2개 묶음·624MB (프로세스 1개는 끄지 못함)');
-    assert.strictEqual(o.orphanNone, '|', '후보 없음·ssh 실패는 아무것도 적지 않음');
+    assert.ok(o.status.startsWith(quick) && status.includes('MacAddress') && status.includes('ConvertTo-Json'), status);
+    assert.ok(!/claude|pm|repo/i.test(status), `상태에 pm·프로젝트 없음\n${status}`);
     const ctl = fs.readFileSync(path.join(__dirname, '..', 'templates', 'connect', 'host-control.ps1'), 'utf8');
-    const openAttach = ctl.slice(ctl.indexOf('function Open-Attach'));
-    assert.ok(openAttach.indexOf("Start-Ssh 'orphans'") >= 0 && openAttach.indexOf("Start-Ssh 'orphans'") < openAttach.indexOf("Start-Ssh 'attach'"), '⑥ 붙기 앞에서 정리를 따로 띄움');
-    assert.ok(/\$AttachOnly[\s\S]*Remote\.orphans\.cmd/.test(ctl), '붙기 바로가기(-AttachOnly)도 정리를 띄움');
+    assert.ok(!/AttachOnly|start-pm|\$Role|\$Folder|ssh-orphans|attach-request/.test(ctl), '제어 창에 pm·프로젝트 기능 없음');
+    assert.ok(ctl.includes('각 프로젝트 VS Code 창의 세션 현황에서 pm을 다시 띄우세요'), '재부팅 확인 문구');
     assert.ok(o.wake.startsWith('MAC'), o.wake);
-    fs.writeFileSync(cfg, JSON.stringify({ mac: '00-11-22-33-44-55', broadcast: '192.168.0.255' }));
     assert.strictEqual(o.relay, '없음');
+    fs.writeFileSync(cfg, JSON.stringify({ mac: '00-11-22-33-44-55', broadcast: '192.168.0.255' }));
     o = run6(true);
     assert.ok(o.wake.startsWith('UDP 192.168.0.255:9 102'), o.wake);
     assert.strictEqual(o.relay, '없음');

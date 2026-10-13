@@ -5,6 +5,9 @@ const fs = require('fs');
 const os = require('os');
 const { rmTree, copyTree } = require('../lib/fsx');
 const path = require('path');
+// 기기 명부는 승인 바탕 폴더의 전역 명부(.trust)를 본다: 실제 홈 대신 임시 폴더로(approvalStore를 싣기 전에)
+const approvalsBase = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-doctor-ap-'));
+process.env.WY_APPROVALS_DIR = approvalsBase;
 const doctor = require('../lib/doctor');
 const { writeTodo } = require('../lib/todo');
 const store = require('../vscode/approvalStore');
@@ -47,6 +50,7 @@ function makePc(name, { home: homeName = 'home' } = {}) {
   json(settingsFile, { permissions: { deny: template.deny, allow: ['WebSearch'] }, hooks });
   // 플러그인 밖의 함께 까는 도구는 기본 시험에서 꺼 둔다(따로 시험)
   json(path.join(repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'X-pm', commitRole: 'X-commit', roles: [{ name: 'X-pm' }, { name: 'X-commit', agent: true }], approvals: { namespace: 'p' }, extras: { off: NON_PLUGIN } });
+  json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' } });
   write(path.join(repo, '.claude', 'agents', 'X-commit.md'), '# X-commit\n경로는 ~/.claude/wy-approvals\n');
   write(path.join(repo, '.gitignore'), ['node_modules', '.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*'].join('\n') + '\n');
   const approvalsRoot = path.join(home, '.claude', 'wy-approvals', 'p');
@@ -430,7 +434,43 @@ try {
     r = byId(doctor.checkAll(pc.opts)).host;
     assert.ok(r.level === 'warn' && r.detail.includes('AC 대기 1800초'), JSON.stringify(r));
   }
+
+  // 공용 워킹트리(INS-03): settings.json에 worktree.bgIsolation이 없으면 주의 + init 다시 실행 안내, 있으면 통과
+  {
+    const pc = makePc('bgiso');
+    const shared = path.join(pc.repo, '.claude', 'settings.json');
+    let r = byId(doctor.checkAll(pc.opts))['bg-isolation'];
+    assert.ok(r.level === 'ok' && r.detail === 'worktree.bgIsolation=none', JSON.stringify(r));
+    json(shared, { env: { A: '1' }, worktree: {} });
+    r = byId(doctor.checkAll(pc.opts))['bg-isolation'];
+    assert.ok(r.level === 'warn' && r.detail.includes('worktree.bgIsolation 없음'), JSON.stringify(r));
+    assert.ok(r.fix.includes('install.ps1" init') && r.fix.includes('손으로'), r.fix);
+    rmTree(shared);
+    const cfg = path.join(pc.repo, '.claude', 'wy-ops.json');
+    json(cfg, { ...JSON.parse(fs.readFileSync(cfg, 'utf8')), rolePrefix: 'X-', stack: 'node' });
+    r = byId(doctor.checkAll(pc.opts))['bg-isolation'];
+    assert.ok(r.level === 'warn' && r.fix.includes('init --name p --prefix X- --stack node --yes'), r.fix);
+    write(shared, '{ 깨진');
+    assert.strictEqual(byId(doctor.checkAll(pc.opts))['bg-isolation'].level, 'warn', '깨진 settings.json은 주의');
+  }
+
+  // 승인 기기: 프로젝트 승인 폴더가 아니라 호스트 하나의 전역 명부를 센다
+  {
+    const trust = require('../vscode/approvalTrust');
+    const pc = makePc('devices');
+    rmTree(pc.approvalsRoot); // 프로젝트 승인 폴더가 없어도 기기 줄은 전역 명부를 본다
+    let r = byId(doctor.checkAll(pc.opts))['approval-devices'];
+    assert.ok(r.level === 'ok' && r.detail.includes('호스트 PC 로컬 VS Code 창'), JSON.stringify(r));
+    assert.ok(trust.trustPaths().devices.startsWith(approvalsBase), '명부는 임시 바탕 폴더 아래');
+    trust.ensureRoot(trust.newKey(), 'host');
+    r = byId(doctor.checkAll(pc.opts))['approval-devices'];
+    assert.ok(r.level === 'ok' && r.detail === '승인 기기 1대', JSON.stringify(r));
+    trust.requestJoin(trust.newKey(), 'laptop');
+    r = byId(doctor.checkAll(pc.opts))['approval-devices'];
+    assert.ok(r.level === 'warn' && r.detail.includes('등록 대기 1'), JSON.stringify(r));
+  }
   console.log('doctor 검사 통과');
 } finally {
   rmTree(base);
+  rmTree(approvalsBase);
 }

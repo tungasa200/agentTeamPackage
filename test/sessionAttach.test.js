@@ -43,14 +43,32 @@ try {
     });
     return (r.stdout || '') + (r.stderr || '');
   };
-  const write = (list) => fs.writeFileSync(agents, JSON.stringify(list));
+  // 세션은 이 저장소에서 띄운 것으로(cwd). 이름 접두사·작업 폴더가 다른 세션은 따로 시험(MP-01)
+  const repoDir = path.join(tmp, 'repo');
+  const write = (list) => fs.writeFileSync(agents, JSON.stringify(list.map((x) => ({ cwd: repoDir, ...x }))));
+
+  // MP-01: 이 프로젝트 세션만(이름 접두사 AND 작업 폴더가 저장소이거나 그 아래, 대소문자·슬래시 무시)
+  write([
+    { id: 'mine1', name: 'AB-qa', kind: 'background', state: 'done', status: 'idle', pid: 11, startedAt: 1, sessionId: 's1' },
+    { id: 'mine2', name: 'ab-commit', kind: 'background', state: 'done', startedAt: 1, sessionId: 's2', cwd: path.join(repoDir, '.claude', 'worktrees', 'x').replace(/\\/g, '/').toUpperCase() },
+    { id: 'other1', name: 'WY-pm', kind: 'background', state: 'done', status: 'idle', pid: 12, startedAt: 1, sessionId: 's3' },
+    { id: 'other2', name: 'AB-pm', kind: 'background', state: 'done', status: 'idle', pid: 13, startedAt: 9, sessionId: 's4', cwd: path.join(tmp, 'repo2') },
+    { id: 'other3', name: 'AB-dev', kind: 'background', state: 'done', startedAt: 1, sessionId: 's5', cwd: repoDir + '-copy' },
+  ]);
+  let out = ps(['list']);
+  assert.ok(/mine1/.test(out) && /mine2/.test(out), `이 프로젝트 세션은 보임\n${out}`);
+  assert.ok(!/other1|other2|other3/.test(out), `다른 접두사·다른 폴더(이름이 같거나 앞부분만 같은 폴더도)는 안 보임\n${out}`);
+  out = ps(['attach', 'AB-pm']);
+  assert.ok(/실행 중이 아닙니다/.test(out) && !/ATTACH/.test(out), `다른 프로젝트의 같은 이름 세션에 붙지 않음\n${out}`);
+  out = ps(['health']);
+  assert.ok(/AB-pm\s+없음/.test(out) && /AB-qa\s+idle/.test(out), `health도 이 프로젝트만\n${out}`);
 
   write([
     { id: 'old1', name: 'AB-pm', kind: 'background', state: 'stopped', startedAt: 1, sessionId: 'a' },
     { id: 'new2', name: 'AB-pm', kind: 'background', state: 'running', status: 'busy', pid: 102, startedAt: 2, sessionId: 'b' },
     { id: 'ide3', name: 'AB-qa', kind: 'interactive', status: 'idle', pid: 103, startedAt: 3, sessionId: 'c' },
   ]);
-  let out = ps(['attach', 'AB-pm']);
+  out = ps(['attach', 'AB-pm']);
   assert.ok(/ATTACH new2/.test(out), `pm 역할(agent:false)도 이름으로 최신 백그라운드 세션에 붙음\n${out}`);
   out = ps(['attach', 'AB-qa']);
   assert.ok(/AB-qa 백그라운드 세션이 실행 중이 아닙니다/.test(out) && !/ATTACH/.test(out), `백그라운드가 아니면 붙지 않음\n${out}`);

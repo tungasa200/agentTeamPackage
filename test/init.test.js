@@ -78,6 +78,25 @@ try {
   assert.strictEqual(R(Q, '.claude/wy-ops.json'), before, '있는 설정은 덮지 않음');
   assert.strictEqual(r5.files.find((f) => f.file === '.claude/wy-ops.json').action, 'unmanaged');
 
+  // 4b. 공용 워킹트리 설정(INS-03): settings.json 없으면 만들고, 다시 하면 그대로
+  assert.strictEqual(r1.bgIsolation, 'created');
+  assert.deepStrictEqual(JSON.parse(R(P, '.claude/settings.json')), { worktree: { bgIsolation: 'none' } });
+  assert.strictEqual(r2.bgIsolation, 'kept', '다시 하면 그대로');
+  // 다른 키는 보존하고 빠진 값만 더함
+  const S = path.join(tmp, 's');
+  put(S, '.claude/settings.json', JSON.stringify({ env: { A: '1' }, worktree: { other: true } }));
+  assert.strictEqual(init({ project: S, name: 's', prefix: 'S-', templatesDir: T }).bgIsolation, 'added');
+  assert.deepStrictEqual(JSON.parse(R(S, '.claude/settings.json')), { env: { A: '1' }, worktree: { other: true, bgIsolation: 'none' } });
+  // 이미 값이 있으면 덮지 않음, 깨진 JSON은 건드리지 않음
+  const W = path.join(tmp, 'w');
+  put(W, '.claude/settings.json', JSON.stringify({ worktree: { bgIsolation: 'worktree' } }));
+  assert.strictEqual(init({ project: W, name: 'w', prefix: 'W-', templatesDir: T }).bgIsolation, 'kept');
+  assert.strictEqual(JSON.parse(R(W, '.claude/settings.json')).worktree.bgIsolation, 'worktree');
+  const B = path.join(tmp, 'b');
+  put(B, '.claude/settings.json', '{ 깨진');
+  assert.strictEqual(init({ project: B, name: 'b', prefix: 'B-', templatesDir: T }).bgIsolation, 'broken');
+  assert.strictEqual(R(B, '.claude/settings.json'), '{ 깨진');
+
   // 5. 입력 검사
   assert.throws(() => init({ project: Q, name: 'a b', prefix: 'Q-', templatesDir: T }), /프로젝트 이름/);
   assert.throws(() => init({ project: Q, name: 'q', prefix: 'Q', templatesDir: T }), /접두사/);

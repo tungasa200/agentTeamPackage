@@ -1,5 +1,5 @@
 ﻿# 역할 세션을 백그라운드 Claude 세션으로 실행·멈춤·세션 교체(rotate)한다. pm 역할(wy-ops.json의 pmRole)이 실행한다.
-#   session.ps1 list                    역할 세션 목록(VS Code 세션 포함)
+#   session.ps1 list                    이 프로젝트의 역할 세션 목록(VS Code 세션 포함). 모든 명령이 이름 접두사와 작업 폴더로 이 프로젝트 세션만 본다
 #   session.ps1 health                  역할별(pm 포함) 컨텍스트(토큰·MB)·마지막 활동, 세션 교체 권장 표시
 #   session.ps1 start <역할> [지시]     멈춘 세션이 있으면 대화를 이어서, 없으면 역할 파일로 새로 시작한다
 #                                       멈춘 세션의 컨텍스트가 세션 교체 기준(토큰) 이상이면 재시작하지 않고 rotate를 권한다(-Force로 강행)
@@ -63,7 +63,19 @@ $Transcripts = "$env:USERPROFILE\.claude\projects\" + ($Repo -replace '[^A-Za-z0
 if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -and -not ($Cmd -in 'attach','stop' -and $Role -eq $PmRole)) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
 
 # PowerShell 5.1의 ConvertFrom-Json은 JSON 배열을 한 덩어리로 넘기므로 괄호로 풀어서 넘긴다
-function Get-Sessions { (claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
+# 이 PC의 모든 프로젝트 세션(pins.json처럼 PC 전체를 보는 정리에만 쓴다)
+function Get-AllSessions { (claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
+# 이 프로젝트 세션(MP-01): 이름이 역할 접두사(rolePrefix, 없으면 pm 역할 이름)로 시작하고 작업 폴더(cwd)가 저장소이거나 그 아래.
+# 다른 프로젝트가 같은 이름을 써도 섞이지 않는다. 대소문자·슬래시 차이는 무시
+$NamePrefix = if ($Ops.rolePrefix) { $Ops.rolePrefix } else { $PmRole }
+function Norm-Path($p) { ([string]$p -replace '/', '\').TrimEnd('\').ToLowerInvariant() }
+$RepoKey = Norm-Path $Repo
+function Get-Sessions {
+  Get-AllSessions | Where-Object {
+    $c = Norm-Path $_.cwd
+    $_.name -and $_.name.StartsWith($NamePrefix, [StringComparison]::OrdinalIgnoreCase) -and ($c -eq $RepoKey -or $c.StartsWith("$RepoKey\"))
+  }
+}
 function Get-Bg($name) {
   Get-Sessions | Where-Object { $_.kind -eq 'background' -and $_.name -eq $name } | Sort-Object startedAt -Descending | Select-Object -First 1
 }
@@ -263,12 +275,14 @@ switch ($Cmd) {
     $pinFile = "$env:USERPROFILE\.claude\jobs\pins.json"
     $all = @(Get-Sessions)
     $pins = @()
+    # 고정 목록은 PC 하나에 하나(다른 프로젝트 세션도 들어 있음): 정리는 모든 세션 기준
+    $any = @(Get-AllSessions)
     if (Test-Path $pinFile) {
       try { $pins = @([IO.File]::ReadAllText($pinFile, [Text.Encoding]::UTF8) | ConvertFrom-Json | ForEach-Object { $_ }) }
       catch { throw "고정 목록을 읽지 못했습니다: $pinFile" }
     }
     # 멈춘 세션·없는 세션의 id는 정리한다
-    $live = @($all | Where-Object { Test-Running $_ } | ForEach-Object { $_.id })
+    $live = @($any | Where-Object { Test-Running $_ } | ForEach-Object { $_.id })
     $kept = @($pins | Where-Object { $_ -in $live })
     $s = $all | Where-Object { $_.kind -eq 'background' -and $_.name -eq $Role } | Sort-Object startedAt -Descending | Select-Object -First 1
     if ($Cmd -eq 'pin') {
