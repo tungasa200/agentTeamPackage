@@ -68,6 +68,9 @@ try {
     { id: 'new2', name: 'AB-pm', kind: 'background', state: 'running', status: 'busy', pid: 102, startedAt: 2, sessionId: 'b' },
     { id: 'ide3', name: 'AB-qa', kind: 'interactive', status: 'idle', pid: 103, startedAt: 3, sessionId: 'c' },
   ]);
+  // list: 같은 이름이 둘이어도 멈춘 항목(pid 없음, pm 교체 직후 이전 pm)은 중복으로 세지 않음
+  out = ps(['list']);
+  assert.ok(/old1/.test(out) && /new2/.test(out) && !/중복 실행/.test(out), `멈춘 이전 pm은 중복 아님\n${out}`);
   out = ps(['attach', 'AB-pm']);
   assert.ok(/ATTACH new2/.test(out), `pm 역할(agent:false)도 이름으로 최신 백그라운드 세션에 붙음\n${out}`);
   out = ps(['attach', 'AB-qa']);
@@ -95,6 +98,13 @@ try {
   assert.ok(/AB-qa\s+idle/.test(out), `health는 살아 있으면 status\n${out}`);
   assert.ok(/AB-pm\s+없음/.test(out) && out.indexOf('AB-pm') < out.indexOf('AB-commit'), `health에 pm 줄(맨 위, agent:false여도)\n${out}`);
   // pm 멈춤(0.10.0, 세션 현황 [멈춤]): 이름으로 최신 백그라운드 pm
+  // 실행 중(pid 있음) 같은 이름이 둘이면 list가 '중복 실행'
+  write([
+    { id: 'p1', name: 'AB-pm', kind: 'background', status: 'busy', pid: 201, startedAt: 1, sessionId: 'p1' },
+    { id: 'p2', name: 'AB-pm', kind: 'background', status: 'idle', pid: 202, startedAt: 2, sessionId: 'p2' },
+  ]);
+  out = ps(['list']);
+  assert.ok(/중복 실행: AB-pm \(p1, p2\)/.test(out), `실행 중 둘이면 중복\n${out}`);
   write([{ id: 'pm7', name: 'AB-pm', kind: 'background', state: 'done', status: 'idle', pid: 207, startedAt: 2, sessionId: 'p7' }]);
   out = ps(['stop', 'AB-pm']);
   assert.ok(/STOP pm7/.test(out), `pm도 stop\n${out}`);
@@ -113,6 +123,7 @@ try {
   out = ps(['start-pm', `'${handoff}'`]);
   assert.ok(/BG --bg --name AB-pm /.test(out) && !/--agent/.test(out), `pm은 --agent 없이 --bg\n${out}`);
   assert.ok(out.includes(`/ecc:resume-session ${hp}`) && /ListAgents/.test(out) && /pm-ops/.test(out), `시작 지시: 인수인계·pm-ops·ListAgents\n${out}`);
+  assert.ok(/같은 AB-pm 이름이 보이면 교체 직후 남은 항목/.test(out) && /session\.ps1 list의 실행 중\(pid 있음\) 항목으로만 판단/.test(out) && /AB-pm 이름으로 SendMessage를 보내지 마세요/.test(out), `시작 지시: 교체 직후 남은 pm은 중복이 아님\n${out}`);
   assert.ok(/대화형 세션\(ide1\)의 창을 닫으세요/.test(out), `이전 대화형 pm 안내\n${out}`);
   out = ps(['start-pm']);
   assert.ok(/BG --bg --name AB-pm /.test(out) && !/resume-session/.test(out), `인수인계 없이\n${out}`);

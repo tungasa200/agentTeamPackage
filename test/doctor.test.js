@@ -222,6 +222,28 @@ try {
     assert.ok(r.level === 'fail' && r.detail.includes('contributes'), '해시 다름');
   }
 
+  // 5-1. 원격 창의 백그라운드 세션: PATH 맨 앞 remote-cli/code.cmd가 안내만 내고 exit 0 → remote-cli가 아닌 code로 다시
+  {
+    const pc = makePc('remotecli');
+    const REMOTE = 'C:\\Users\\me\\.vscode-server\\bin\\abc\\bin\\remote-cli\\code.cmd';
+    const DESKTOP = 'C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd';
+    const only = { status: 0, stdout: 'Command is only available in WSL or inside a Visual Studio Code terminal.\n' };
+    const base = pc.opts.run;
+    let wherePaths = [REMOTE, DESKTOP.replace(/\.cmd$/, ''), DESKTOP];
+    pc.opts.run = (cmd, args = []) => {
+      if (cmd === 'code' && args[0] === '--list-extensions') return only;
+      if (cmd === 'where' && args[0] === 'code') return { status: 0, stdout: wherePaths.join('\r\n') + '\r\n' };
+      if (cmd === DESKTOP && args[0] === '--list-extensions') return base('code', args);
+      return base(cmd, args);
+    };
+    let r = byId(doctor.checkAll(pc.opts)).extension;
+    assert.strictEqual(r.level, 'ok', `remote-cli를 건너뛰고 데스크톱 code로: ${JSON.stringify(r)}`);
+    assert.ok(byId(doctor.checkAll(pc.opts)).ledger.detail.includes('새로 시작'), '확장 목록을 쓰는 다른 줄도 같은 목록');
+    wherePaths = [REMOTE];
+    r = byId(doctor.checkAll(pc.opts)).extension;
+    assert.ok(r.level === 'fail' && r.detail.includes('실행하지 못함'), `다른 code가 없으면 빈 목록이 아니라 실행 못 함: ${JSON.stringify(r)}`);
+  }
+
   // 6. 플러그인: 필수 없음은 실패, version은 최소 버전(새 것은 통과, 낮으면 주의), 선택 없음은 통과
   {
     const pc = makePc('plugins');
@@ -462,6 +484,20 @@ try {
     let r = byId(doctor.checkAll(pc.opts))['approval-devices'];
     assert.ok(r.level === 'ok' && r.detail.includes('호스트 PC 로컬 VS Code 창'), JSON.stringify(r));
     assert.ok(trust.trustPaths().devices.startsWith(approvalsBase), '명부는 임시 바탕 폴더 아래');
+    // 옛 명부(승인 폴더/decisions/trust/devices.json, 뿌리 있음)가 있으면 '뿌리가 됨'이 아니라 '옛 명부를 가져옴'
+    {
+      const store = require('../vscode/approvalStore');
+      const k = trust.newKey();
+      const rootEntry = trust.sign(k, { type: 'root', pub: k.pub, name: 'old-host', at: new Date().toISOString(), by: trust.fingerprint(k.pub) });
+      const legacyFile = path.join(store.paths(path.join(approvalsBase, 'oldns')).decisions, 'trust', 'devices.json');
+      json(legacyFile, { entries: [{ type: 'note' }] });
+      r = byId(doctor.checkAll(pc.opts))['approval-devices'];
+      assert.ok(r.detail.includes('호스트 PC 로컬 VS Code 창'), `뿌리 없는 옛 명부는 가져오지 않으니 그대로: ${JSON.stringify(r)}`);
+      json(legacyFile, { entries: [rootEntry] });
+      r = byId(doctor.checkAll(pc.opts))['approval-devices'];
+      assert.ok(r.level === 'ok' && r.detail.includes('옛 명부 1곳(oldns)') && r.detail.includes('승인 센터를 열면 옛 명부를 가져옴') && !r.detail.includes('뿌리가 됨'), JSON.stringify(r));
+      rmTree(path.join(approvalsBase, 'oldns'));
+    }
     trust.ensureRoot(trust.newKey(), 'host');
     r = byId(doctor.checkAll(pc.opts))['approval-devices'];
     assert.ok(r.level === 'ok' && r.detail === '승인 기기 1대', JSON.stringify(r));

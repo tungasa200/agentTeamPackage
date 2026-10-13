@@ -60,4 +60,17 @@ assert.strictEqual(splitCommand('node "a'), null, '짝 안 맞음');
   assert.strictEqual(again.next.hooks.Stop.flatMap((g) => g.hooks).find((h) => scriptOf(h) === `${NEW}/wy-decision-wake.js`).asyncRewake, true);
 }
 
+// 8. deny: 기기 명부(.trust, ENH-01)와 승인 설정(config.json)을 막는다. 예전 줄만 있는 기존 프로젝트는 setup 병합 때 그 둘만 더 받고,
+//    사용자가 넣은 줄·순서는 그대로, 다시 돌리면 바꿀 것 없음
+{
+  const NEW = 'C:/t/hooks';
+  const added = ['Edit(~/.claude/wy-approvals/.trust/**)', 'Edit(~/.claude/wy-approvals/config.json)'];
+  const old = plan({}, NEW).next;
+  old.permissions.deny = old.permissions.deny.filter((d) => !added.includes(d)).concat('Edit(/my/own)');
+  const { next, changes } = plan(old, NEW);
+  assert.deepStrictEqual(changes, added.map((value) => ({ type: 'deny-add', value })), '빠진 두 줄만 더함');
+  assert.deepStrictEqual(next.permissions.deny.slice(-3), ['Edit(/my/own)', ...added], '기존 줄 뒤에 붙임');
+  assert.deepStrictEqual(plan(next, NEW).changes, [], '다시 돌리면 바꿀 것 없음');
+}
+
 console.log('settings 검사 통과');

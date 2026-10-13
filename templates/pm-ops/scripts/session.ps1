@@ -157,7 +157,12 @@ function Start-New($name, $handoff) {
 
 switch ($Cmd) {
   'list' {
-    Get-Sessions | Sort-Object name | Format-Table name, kind, @{n='상태';e={ Get-State $_ }}, id -AutoSize
+    $all = @(Get-Sessions)
+    $all | Sort-Object name | Format-Table name, kind, @{n='상태';e={ Get-State $_ }}, @{n='실행';e={ if (Test-Running $_) { 'O' } else { '-' } }}, id -AutoSize
+    # 중복은 실행 중(pid 있음)만 센다. 멈춘 항목(pm 교체 직후 이전 pm 등)은 같은 이름이어도 중복이 아니다
+    foreach ($g in @($all | Where-Object { Test-Running $_ } | Group-Object name | Where-Object { $_.Count -gt 1 })) {
+      "중복 실행: $($g.Name) ($(($g.Group | ForEach-Object { $_.id }) -join ', '))"
+    }
   }
   'health' {
     $all = Get-Sessions
@@ -262,7 +267,8 @@ switch ($Cmd) {
     if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force"; break }
     $load = if ($h) { "먼저 /ecc:resume-session $($h -replace '\\','/') 로 인수인계를 불러오고, " } else { "먼저 CLAUDE.md와 $($ProgressDoc)를 읽고, " }
     $first = "[$PmRole 시작] 이 세션은 호스트에서 백그라운드로 도는 $PmRole(개발 총괄)입니다. 사용자는 session.ps1 attach $PmRole 로 붙어 대화합니다. pm-ops 스킬을 따르세요. " +
-             $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요."
+             $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요. " +
+             "ListAgents에 자기 말고 같은 $PmRole 이름이 보이면 교체 직후 남은 항목입니다. 중복 $PmRole 여부는 session.ps1 list의 실행 중(pid 있음) 항목으로만 판단하고, 실행 중 $PmRole 이 하나면 경고하지 않습니다. $PmRole 이름으로 SendMessage를 보내지 마세요."
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $first = $first -replace '"', "'"
     Start-Bg @('--bg', '--name', $PmRole, $first)

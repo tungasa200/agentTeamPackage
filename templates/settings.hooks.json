@@ -5,6 +5,8 @@
     "Edit(~/.claude/wy-approvals/**/used/**)",
     "Edit(~/.claude/wy-approvals/**/sessions/**)",
     "Edit(~/.claude/wy-approvals/**/message-blocks.log)",
+    "Edit(~/.claude/wy-approvals/.trust/**)",
+    "Edit(~/.claude/wy-approvals/config.json)",
     "Edit(~/.wy-tools/**)",
     "Edit(/.claude/wy-ops.json)",
     "Edit(/.claude/wy-ops.local.json)",
