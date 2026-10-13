@@ -111,6 +111,9 @@ const row = (extra = {}) => ({ name: 'AB-pm', alive: true, view: 'input', contex
     t.pm.attach();
     assert.strictEqual(t.terminals.length, 1, '같은 터미널 재사용');
     assert.ok(t.terminals[0].name === 'AB-pm 붙기' && t.terminals[0].opts.shellArgs.join(' ').endsWith('attach AB-pm'));
+    // 붙기마다 pm-control.log에 '붙기: <pmRole> <폴더>' 한 줄
+    const attachLog = fs.readFileSync(t.pm.d.logFile, 'utf8').split('\n').filter((l) => / 붙기: /.test(l));
+    assert.deepStrictEqual(attachLog.map((l) => l.replace(/^\S+ /, '')), [`붙기: AB-pm ${t.pm.d.folder()}`, `붙기: AB-pm ${t.pm.d.folder()}`], '붙기 기록');
 
     // [pm 교체]: 열린 터미널이면 문구를 바로 넣는다
     t.pm.rotate();

@@ -7,7 +7,7 @@
 - **훅 6종**: 커밋은 커밋 역할만 승인을 받은 뒤 실행하게 하고(승인 가드), 백그라운드 세션의 권한 요청을 카드로 바꿉니다(권한 요청). 종료된 세션에 보내는 메시지를 막고(메시지 가드), 세션의 역할을 기록하고(세션 시작), 대화가 길어지면 세션 교체를 알리고(컨텍스트 크기), 카드가 처리되면 올린 세션을 깨웁니다(결정 깨우기). 각각 `vscode/hooks/`의 `wy-approval-guard`·`wy-permission`·`wy-message-guard`·`wy-session-start`·`wy-context-size`·`wy-decision-wake`입니다.
 - **역할 생성**: 역할 파일(`.claude/agents/<역할>.md`), pm 운영 스킬(`pm-ops`), 세션 실행·세션 교체 스크립트(`session.ps1`)를 만듭니다.
 - **점검·이전**: `doctor`로 설치 상태를 확인하고, `export`·`restore`로 개인 상태를 새 PC로 옮깁니다.
-- **원격(선택)**: 한 PC를 호스트로 두고 다른 PC(노트북)에서 VS Code 원격 창으로 이어 씁니다. `host`·`connect`로 준비하고, 접속 PC의 제어 창에서 호스트 깨우기(집 밖에서는 폰 중계)·pm에 붙기를 합니다(0.8.x~0.9.1). 자세한 것은 [MANUAL.md](MANUAL.md) 3-5.
+- **원격(선택)**: 한 PC를 호스트로 두고 다른 PC(노트북)에서 VS Code 원격 창으로 이어 씁니다. `host`·`connect`로 준비하고, 접속 PC의 제어 창에서 호스트 깨우기(집 밖에서는 폰 중계)·재우기·재부팅·종료를 합니다. pm 붙기는 원격 창 세션 현황 pm 줄에서 합니다. 자세한 것은 [MANUAL.md](MANUAL.md) 3-5.
 
 사용법(팀이 일하는 흐름·설치·매일 쓰기·역할 바꾸기·패키지 고치기와 배포)은 [MANUAL.md](MANUAL.md), 새 PC 체크리스트는 [NEW-PC.md](NEW-PC.md), 카드 요청 파일 형식은 [vscode/README.md](vscode/README.md)에 있습니다.
 

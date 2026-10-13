@@ -186,6 +186,7 @@ class PmControl {
   attach() {
     const folder = this.d.folder();
     if (!folder || !this.name) return null;
+    this.log(`붙기: ${this.name} ${folder}`); // 어느 창(폴더)에서 어느 pm에 붙었는지 나중에 확인하려고
     return openTerminal(this.d.vscode, { role: this.name, folder });
   }
 
