@@ -254,7 +254,7 @@ switch ($Cmd) {
   'start-pm' {
     # 경로는 두 번째 자리($Role)로 들어온다. 'none'이나 빈 값이면 인수인계 없이 시작
     $h = @($Role, $Prompt) | Where-Object { $_ -and $_ -ne 'none' } | Select-Object -First 1
-    # latest: 가장 최근 pm 인수인계 파일(제어 창 ⑤·세션 현황 [pm 시작]·설치 마침이 씀). 없으면 인수인계 없이
+    # latest: 가장 최근 pm 인수인계 파일(세션 현황 [pm 시작]·설치 마침이 씀). 없으면 인수인계 없이
     if ($h -eq 'latest') { $f = Get-Handoff $PmRole; $h = if ($f) { $f.FullName } else { $null }; "인수인계: $(if ($h) { $h } else { '없음' })" }
     if ($h -and -not (Test-Path $h)) { throw "인수인계 파일이 없습니다: $h" }
     $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
