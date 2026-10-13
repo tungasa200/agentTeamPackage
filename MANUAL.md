@@ -77,7 +77,7 @@
 5. **결정은 사람에게 카드로.** pm은 사람이 정할 일을 결정 요청 카드로 올립니다. 사람이 승인 센터에서 고르면 pm이 세션에 전합니다.
 6. **커밋을 요청합니다.** 작업 세션은 git 명령을 직접 쓰지 않습니다. 커밋 역할에 파일 목록·커밋 메시지·브랜치를 보냅니다.
 7. **승인 카드.** 커밋 역할이 git 카드를 올리고, 사람이 승인하면 그 명령을 그대로 실행합니다. 푸시·PR·병합도 각각 카드를 거칩니다.
-8. **쉬는 세션을 멈춥니다.** pm이 `session.ps1 stop AB-qa`. 메모리를 돌려받고, 대화는 남아 다음 `start`에 이어집니다.
+8. **쉬는 세션을 멈춥니다.** 곧 쓸 세션은 대기로 두고, 1시간 넘게 안 쓸 세션은 pm이 `session.ps1 stop AB-qa`. 메모리를 돌려받고, 대화는 남습니다. 다음 작업 때 교체 기준(`rotation.contextTokens`) 이상이면 `rotate`, 미만이면 `start`로 이어 갑니다.
 
 PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. pm은 세션 현황 [pm 시작], 역할 세션은 pm이 필요한 것만 `start`(컨텍스트가 크면 `rotate`)로 다시 띄웁니다.
 
@@ -86,12 +86,12 @@ PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. pm은 
 대화가 길어지면 앞 내용을 흐리게 기억합니다. 역할 세션은 `/clear`로 비우지 않고 새 세션으로 바꿉니다.
 
 역할 세션(pm이 함):
-1. `session.ps1 health` — 역할별 컨텍스트 크기. '세션 교체'가 뜨면 교체합니다(기준 `rotation.contextTokens`, 기본 15만 토큰). 작업이 끝난 지점에서 합니다.
+1. `session.ps1 health` — 역할별 컨텍스트 크기. '세션 교체'가 뜨면 교체합니다(기준 `rotation.contextTokens`, 기본 10만 토큰). 작업이 끝난 지점에서 합니다.
 2. `session.ps1 prep AB-backend1` — 세션이 진행 중인 것만 `/ecc:save-session`으로 저장하고, 경로나 '진행 중 없음'을 알립니다.
 3. `session.ps1 rotate AB-backend1 <경로|none>` — 옛 세션을 멈추고 새 세션을 띄웁니다. 새 세션이 시작을 알리면 pm이 '멈춰 있는 동안 끝난 일'을 보냅니다.
 
 pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
-- 세션 현황 pm 줄에 '교체 권장'(컨텍스트가 `rotation.contextTokens` 이상, 기본 15만 토큰)이 뜨면 일이 끊기는 때에 [pm 교체]를 누릅니다. pm에 붙은 터미널('AB-pm 붙기')에 교체 문구가 들어가고, pm이 하던 턴을 마친 뒤 스스로 ① 진행 중인 것 저장(`/ecc:save-session`) ② `start-pm latest -Force`로 새 pm ③ 이전 자신 멈춤을 합니다. pm 줄은 이 네 단계(마지막 ④ 새 터미널로 붙기)를 보여 주고, 끝나면 새 pm에 붙은 터미널을 엽니다. 창을 닫아도 교체는 계속되고, 다시 열면 이어서 보여 줍니다.
+- 세션 현황 pm 줄에 '교체 권장'(컨텍스트가 `rotation.contextTokens` 이상, 기본 10만 토큰)이 뜨면 일이 끊기는 때에 [pm 교체]를 누릅니다. pm에 붙은 터미널('AB-pm 붙기')에 교체 문구가 들어가고, pm이 하던 턴을 마친 뒤 스스로 ① 진행 중인 것 저장(`/ecc:save-session`) ② `start-pm latest -Force`로 새 pm ③ 이전 자신 멈춤을 합니다. pm 줄은 이 네 단계(마지막 ④ 새 터미널로 붙기)를 보여 주고, 끝나면 새 pm에 붙은 터미널을 엽니다. 창을 닫아도 교체는 계속되고, 다시 열면 이어서 보여 줍니다.
 - 한 단계가 늦으면(저장 10분, 그 뒤 단계 60초) 멈추고 무엇이 안 됐는지와 지금 상태(이전 pm이 살아 있는지)를 보여 줍니다. [다시 시도]는 실패한 단계부터, [기록 보기]는 교체 기록 파일을 엽니다. 여유 메모리가 `memory.blockFreeMB`(기본 500MB) 미만이면 교체를 시작하지 않습니다.
 - 터미널로 직접: pm에서 `/ecc:save-session`(short-id는 pm 역할 이름) → `session.ps1 start-pm latest -Force`(백그라운드 pm이 이미 돌면 -Force 없이는 거부) → `session.ps1 attach <pm 역할>`로 새 pm에 붙고 이전 pm은 `claude stop <이전 id>`. `session.ps1 pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력합니다.
 
@@ -386,7 +386,7 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | 명령 | 언제 | 예시 |
 |---|---|---|
 | `list` | 역할 세션 목록과 상태 | `… session.ps1 list` |
-| `health` | 컨텍스트 확인(15만 토큰 이상이면 세션 교체 권장, `rotation.contextTokens`). pm 줄이 맨 위 | `… session.ps1 health` |
+| `health` | 컨텍스트 확인(10만 토큰 이상이면 세션 교체 권장, `rotation.contextTokens`). pm 줄이 맨 위 | `… session.ps1 health` |
 | `start` | 역할 세션 시작(종료된 세션은 재시작. 컨텍스트가 세션 교체 기준 이상이면 재시작하지 않고 `rotate`를 권함, `-Force`로 강행) | `… session.ps1 start AB-qa "로그인 화면 검증"` |
 | `stop` | 쉬는 세션 멈추기(메모리 반납, 트랜스크립트는 남음). pm도 됨(세션 현황 [멈춤]) | `… session.ps1 stop AB-qa` |
 | `prep` | 세션 교체 준비: 진행 중인 것만 저장하라고 지시 | `… session.ps1 prep AB-backend1` |

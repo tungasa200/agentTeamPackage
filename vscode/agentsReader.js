@@ -3,7 +3,7 @@
 //   readSessionStatus({ root, ops }) → [{ name, id, sessionId, kind, state, status, waitingFor, view, offReason, pending, roleMissing,
 //                                         startedAt, alive, offMessages, contextTokens, rotate, stuck }]
 //   stuck: 멈춤 의심(stuckTool.stuckOf, 백그라운드 세션이 도구 한 번에 기준 분 이상 묶임) 또는 null
-//   contextTokens: 현재 대화 토큰(contextSize.js, 못 읽으면 null) · rotate: rotation.contextTokens(기본 15만) 이상이면 true — session.ps1 health와 같은 기준
+//   contextTokens: 현재 대화 토큰(contextSize.js, 못 읽으면 null) · rotate: rotation.contextTokens(기본 10만) 이상이면 true — session.ps1 health와 같은 기준
 //   view(사용자 확정 2026-10-07, 네 가지): working(일하는 중) · input(입력 대기) · permission(권한 대기) · off(꺼짐)
 //   offReason(꺼짐일 때만): stopped(멈춤, claude stop) · done(스스로 끝남) · failed(오류로 끝남)
 //   offMessages(꺼짐일 때만): 꺼진 뒤 이 세션 앞으로 보내려다 막힌 메시지 [{ at, from, summary }] — '꺼진 뒤 메시지 옴' 경고의 근거

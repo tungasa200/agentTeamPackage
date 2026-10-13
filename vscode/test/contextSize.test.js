@@ -26,9 +26,9 @@ const assistant = (inp, read, create, extra) => line({ type: 'assistant', messag
     fs.writeFileSync(big, assistant(1, 1, 1) + '\n' + line({ type: 'user', pad: 'x'.repeat(1100 * 1024) }) + '\n' + assistant(3, 4, 5) + '\n');
     assert.strictEqual(readContextTokens(big), 12);
 
-    // 2. 기준값: 설정이 없으면 15만·20만
-    assert.deepStrictEqual(thresholds(null), { contextTokens: 150000, notifyTokens: 200000 });
-    assert.deepStrictEqual(thresholds({ rotation: { contextTokens: 1000 } }), { contextTokens: 1000, notifyTokens: 200000 });
+    // 2. 기준값: 설정이 없으면 10만·13만
+    assert.deepStrictEqual(thresholds(null), { contextTokens: 100000, notifyTokens: 130000 });
+    assert.deepStrictEqual(thresholds({ rotation: { contextTokens: 1000 } }), { contextTokens: 1000, notifyTokens: 130000 });
     assert.ok(transcriptFile('C:\\projects\\my-project', 'abc', 'H').endsWith(path.join('projects', 'C--projects-my-project', 'abc.jsonl')));
 
     // 3. 훅: 프로젝트 설정(roles)과 가짜 claude agents 목록

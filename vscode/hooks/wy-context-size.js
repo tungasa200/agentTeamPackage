@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Stop 훅: 역할 세션의 대화가 rotation.notifyTokens(기본 20만)를 넘으면 한 번만 "이 단계까지 마치고 보고한 뒤 세션 교체 요청"을 알린다.
+// Stop 훅: 역할 세션의 대화가 rotation.notifyTokens(기본 13만)를 넘으면 한 번만 "이 단계까지 마치고 보고한 뒤 세션 교체 요청"을 알린다.
 //   매 턴 대화 전체를 다시 읽으므로 비용 ≈ 턴 수 × 대화 크기(토큰 절감 2차, 사용자 결정 2026-10-07).
 //   세션당 한 번: 승인 폴더 sessions/<sessionId>.ctx-notified 표시 파일. 역할 세션이 아니어도 표시를 남겨 다시 확인하지 않는다.
 //   역할 판단: claude agents 목록에서 이 세션의 이름이 wy-ops.json roles(agent:true)인지. 넘은 뒤 한 번만 부른다.

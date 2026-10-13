@@ -7,8 +7,8 @@ const path = require('path');
 
 const TAIL_BYTES = 1024 * 1024; // 마지막 응답 줄은 끝 근처에 있다. 큰 도구 결과 줄이 끼어도 넉넉하게
 
-// 기본값: 교대 권장 15만(rotation.contextTokens), 훅 알림 20만(rotation.notifyTokens) — 사용자 결정 2026-10-07
-const DEFAULTS = { contextTokens: 150000, notifyTokens: 200000 };
+// 기본값: 교대 권장 10만(rotation.contextTokens), 훅 알림 13만(rotation.notifyTokens) — D-20(TOK-1, 2026-10-14)
+const DEFAULTS = { contextTokens: 100000, notifyTokens: 130000 };
 
 function thresholds(ops) {
   const r = (ops && ops.rotation) || {};
