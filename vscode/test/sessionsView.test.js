@@ -71,6 +71,11 @@ const flush = () => new Promise((r) => setImmediate(r));
     assert.strictEqual(provider.applyAcks([off([m1])])[0].offWarning, null, '다시 읽어도 숨김');
     assert.strictEqual(provider.applyAcks([off([m1, m2])])[0].offWarning.count, 1, '확인 뒤 새로 막힌 것만 다시 경고');
 
+    // 다른 프로젝트 메모리(D-15): pid가 없으면 프로세스 조회 없이 수만, webview로는 pids를 넘기지 않는다
+    const { withOthersMemory } = require(path.join(EXT, 'sessionsView.js'));
+    assert.deepStrictEqual(await withOthersMemory([{ project: 'a', count: 1, pids: [] }]), [{ project: 'a', count: 1 }], 'pid 없음 → 수만');
+    assert.deepStrictEqual(await withOthersMemory([]), [], '다른 프로젝트 없음');
+
     // pm 줄(0.10.0): ready에 pm 상태를 보내고, 버튼 메시지는 PmControl로(뒤이은 세션 읽기는 막아 둔다)
     view.posts.length = 0;
     view.send({ type: 'ready' });

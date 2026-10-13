@@ -188,6 +188,7 @@ h2 {
 .proc-orphans .open-btn:disabled { opacity: .6; cursor: default; }
 .orphans-result { margin: 6px 0 0; font-size: 11.5px; color: var(--dim); line-height: 1.45; }
 .orphans-result.is-error { color: var(--err); }
+.sess-others { margin: 8px 0 0; font-size: 11.5px; color: var(--dim); line-height: 1.45; }
 .proc-mem { font-size: 12px; }
 .proc-bar {
   grid-column: 1 / -1;

@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { buildStatus, isReachable, readMessageBlocks, MESSAGE_BLOCKS } = require('../agentsReader');
+const { buildStatus, isReachable, readMessageBlocks, splitByProject, treeMB, MESSAGE_BLOCKS } = require('../agentsReader');
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 const bg = (name, extra) => ({ name, kind: 'background', id: name.slice(-8), sessionId: `${name}-sid`, startedAt: 1, ...extra });
@@ -125,6 +125,47 @@ assert.deepStrictEqual(buildStatus([null, 3, { kind: 'background', state: 'weird
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// 8. 이 프로젝트 세션(D-15, session.ps1 Get-Sessions와 같은 기준): 접두사 + cwd가 저장소이거나 그 아래. 나머지는 폴더 이름별 수
+{
+  const ops = { rolePrefix: 'OPS-', pmRole: 'OPS-pm', root: 'C:/Projects/Tool' };
+  const list = [
+    live('OPS-pm', { cwd: String.raw`C:\projects\tool` }), // 대소문자·슬래시 무시
+    live('OPS-dev1', { cwd: 'C:\\projects\\tool\\.claude\\worktrees\\a\\' }), // worktree(그 아래), 끝 \ 무시
+    bg('OPS-review', { state: 'done', cwd: String.raw`C:\projects\tool` }), // 꺼진 이 프로젝트 세션도 표에
+    live('OPS-dev2', { cwd: String.raw`C:\projects\tool2` }), // 접두사는 맞지만 폴더가 다름(앞부분만 같은 폴더)
+    live('AB-pm', { cwd: String.raw`C:\projects\other-app` }),
+    live('AB-qa', { cwd: 'C:/projects/other-app/' }),
+    bg('AB-old', { state: 'done', cwd: String.raw`C:\projects\other-app` }), // 꺼진 세션은 세지 않음
+    { kind: 'interactive', cwd: String.raw`C:\projects\tool` }, // 이름 없는 세션은 요약 쪽
+    live('ops-x', { cwd: undefined }),
+  ];
+  const { mine, others } = splitByProject(list, ops);
+  assert.deepStrictEqual(mine.map((s) => s.name), ['OPS-pm', 'OPS-dev1', 'OPS-review'], '이 프로젝트 세션');
+  assert.deepStrictEqual(others, [{ project: 'other-app', count: 2, pids: [100, 100] }, { project: '폴더 모름', count: 1, pids: [100] }, { project: 'tool', count: 1, pids: [] }, { project: 'tool2', count: 1, pids: [100] }], '다른 프로젝트 요약(pid는 메모리 합산용)');
+  // 접두사가 없으면 pm 역할 이름으로
+  assert.deepStrictEqual(splitByProject(list, { pmRole: 'OPS-pm', root: 'C:/projects/tool' }).mine.map((s) => s.name), ['OPS-pm'], 'pm 이름으로');
+  // 설정이 없으면 이전처럼 모두
+  assert.strictEqual(splitByProject(list, null).mine.length, list.length, '설정 없음 → 모두');
+  assert.deepStrictEqual(splitByProject(list, null).others, []);
+}
+
+// 9. 다른 프로젝트 메모리(D-15): 세션 pid와 그 아래 자식 프로세스 전부의 합(MB). 겹치는 pid·없는 pid·자기 부모 순환은 한 번만
+{
+  const MB = 1048576;
+  const procs = [
+    { pid: 10, ppid: 1, bytes: 300 * MB }, // 세션 A
+    { pid: 11, ppid: 10, bytes: 100 * MB }, // A의 자식
+    { pid: 12, ppid: 11, bytes: 50 * MB }, // A의 손자
+    { pid: 20, ppid: 1, bytes: 200 * MB }, // 세션 B
+    { pid: 30, ppid: 1, bytes: 999 * MB }, // 다른 프로세스(안 셈)
+    { pid: 0, ppid: 0, bytes: 0 }, // 자기 부모(System Idle)
+  ];
+  assert.strictEqual(treeMB(procs, [10, 20]), 650, '세션 둘 + 자손');
+  assert.strictEqual(treeMB(procs, [10, 11, 10]), 450, '겹치는 pid는 한 번');
+  assert.strictEqual(treeMB(procs, [999]), 0, '없는 pid');
+  assert.strictEqual(treeMB(procs, [0]), 0, '자기 부모 순환');
 }
 
 console.log('sessionsReader 검사 통과');

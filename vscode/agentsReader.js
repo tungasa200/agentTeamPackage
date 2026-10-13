@@ -56,6 +56,65 @@ function isReachable(list, name) {
   return (list || []).some((s) => s && s.name === name && isAlive(s));
 }
 
+// 이 프로젝트 세션(D-15, session.ps1 Get-Sessions와 같은 기준): 이름이 역할 접두사(rolePrefix, 없으면 pm 역할 이름)로 시작하고
+// 작업 폴더(cwd)가 저장소이거나 그 아래(worktree). 대소문자·슬래시 차이는 무시. 설정이 없으면 판단하지 않는다(null)
+const normPath = (p) => String(p || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+function projectFilter(ops) {
+  const prefix = ops && (ops.rolePrefix || ops.pmRole);
+  if (!prefix || !ops.root) return null;
+  const repo = normPath(ops.root);
+  return (s) => {
+    const c = normPath(s && s.cwd);
+    return !!(s && s.name) && String(s.name).toLowerCase().startsWith(String(prefix).toLowerCase()) && (c === repo || c.startsWith(`${repo}\\`));
+  };
+}
+
+// 목록을 이 프로젝트 세션(mine)과 다른 프로젝트 요약(others: 살아 있는 세션을 cwd 폴더 이름별로 [{ project, count, pids }])으로 나눈다.
+// 이름 없는 세션·접두사는 맞지만 폴더가 다른 세션도 요약 쪽. 설정이 없으면 모두 mine(이전처럼)
+function splitByProject(list, ops) {
+  const mine = projectFilter(ops);
+  if (!mine) return { mine: list || [], others: [] };
+  const groups = new Map();
+  const out = [];
+  for (const s of list || []) {
+    if (!s || typeof s !== 'object') continue;
+    if (mine(s)) {
+      out.push(s);
+      continue;
+    }
+    if (!isAlive(s)) continue;
+    const project = path.win32.basename(String(s.cwd || '').replace(/[\\/]+$/, '')) || '폴더 모름';
+    const key = project.toLowerCase();
+    const g = groups.get(key) || { project, count: 0, pids: [] };
+    g.count += 1;
+    if (Number.isInteger(s.pid) && s.pid > 0) g.pids.push(s.pid);
+    groups.set(key, g);
+  }
+  return { mine: out, others: [...groups.values()].sort((a, b) => b.count - a.count || a.project.localeCompare(b.project)) };
+}
+
+// pid들과 그 아래 자식 프로세스 전부의 메모리 합(MB). procs: [{ pid, ppid, bytes }](Win32_Process 한 번 조회)
+function treeMB(procs, pids) {
+  const byPid = new Map();
+  const children = new Map();
+  for (const p of procs) {
+    byPid.set(p.pid, p);
+    if (!children.has(p.ppid)) children.set(p.ppid, []);
+    children.get(p.ppid).push(p.pid);
+  }
+  const seen = new Set();
+  const stack = pids.filter((pid) => byPid.has(pid));
+  let bytes = 0;
+  while (stack.length) {
+    const pid = stack.pop();
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    bytes += byPid.get(pid).bytes;
+    for (const c of children.get(pid) || []) if (c !== pid) stack.push(c);
+  }
+  return Math.round(bytes / 1048576);
+}
+
 // 이름마다 한 줄: 살아 있는 것 우선, 그다음 최신 startedAt (교대 전 세션은 숨긴다)
 function latestByName(list) {
   const best = new Map();
@@ -210,4 +269,4 @@ async function readSessionStatus({ root, ops = null, list, home } = {}) {
   return withContext(rows, ops, home);
 }
 
-module.exports = { readSessionStatus, readAgents, buildStatus, withContext, readMessageBlocks, isReachable, isAlive, PERMISSION_WAITS, INPUT_WAITS, MESSAGE_BLOCKS };
+module.exports = { readSessionStatus, readAgents, buildStatus, splitByProject, treeMB, withContext, readMessageBlocks, isReachable, isAlive, PERMISSION_WAITS, INPUT_WAITS, MESSAGE_BLOCKS };

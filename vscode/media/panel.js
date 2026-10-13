@@ -523,10 +523,19 @@ ${s.stuck.command || ''}`;
     return warnRow ? [tr, warnRow] : [tr];
   }
 
+  // 다른 프로젝트 세션 요약 한 줄(D-15). 세션 수와 메모리(세션·자식 프로세스 합, 못 재면 수만). 버튼 없음
+  function renderOthers(others) {
+    const p = $('sess-others');
+    const list = others || [];
+    p.hidden = !list.length;
+    p.textContent = list.length ? '다른 프로젝트: ' + list.map((o) => `${o.project} 세션 ${o.count}개${Number.isFinite(o.mb) ? ` · 약 ${o.mb}MB` : ''}`).join(' · ') : '';
+  }
+
   function renderSessions(msg) {
     const body = $('sess-body');
     body.classList.remove('is-loading');
     body.replaceChildren();
+    renderOthers(msg.error ? [] : msg.others);
     if (msg.error) {
       const td = el('td');
       td.colSpan = 4;
@@ -603,7 +612,7 @@ ${s.stuck.command || ''}`;
     $('orphans-stop').hidden = !d.admin;
     p.title = d.admin
       ? '30분 넘게 쓰이지 않은 묶음만 끕니다(지금 서버·살아 있는 접속은 남김). 10분에 한 번 저절로도 정리합니다'
-      : '정리는 SSH 원격 창(관리자 권한)에서 됩니다. 접속 PC의 제어 창에서 붙어도 정리됩니다';
+      : '정리는 SSH 원격 창(관리자 권한)에서 됩니다';
     p.hidden = false;
   }
 

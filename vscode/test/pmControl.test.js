@@ -4,8 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { PmControl, psArgs } = require('../pmControl');
-const { ROTATE_TEXT } = require('../attachRequest');
+const { PmControl, psArgs, ROTATE_TEXT } = require('../pmControl');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-pmctl-'));
 const home = path.join(tmp, 'home');

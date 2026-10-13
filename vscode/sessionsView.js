@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { loadOpsConfig } = require('./opsConfig');
 const { rootFor } = require('./approvalStore');
-const { readSessionStatus, readAgents } = require('./agentsReader');
+const { readSessionStatus, readAgents, splitByProject, treeMB } = require('./agentsReader');
 const { notifyStuck } = require('./stuckTool');
 const { PmControl } = require('./pmControl');
 const { OrphanCleaner, AUTO_GAP_MS } = require('./orphanCleaner');
@@ -69,15 +69,33 @@ function workspaceDir() {
 // 세션 상태: claude agents + 권한 요청 파일 + 세션 등록 기록(agentsReader, 계획 2.2).
 // 멈춤 의심인 세션은 여기서 pm 세션에 한 번 알린다(stuckTool.notifyStuck, 같은 도구 호출로는 한 번)
 // pmAgents: pm 줄이 교체 전·후 pm을 함께 보려고 이름별 한 줄로 줄이기 전 pm 항목을 따로 넘긴다
+// 표는 이 프로젝트 세션만, 다른 프로젝트는 others(폴더 이름별 세션 수·메모리 MB)로 표 아래 한 줄(D-15)
 async function readSessions() {
   const dir = workspaceDir();
   const root = rootFor(dir);
   const ops = dir ? loadOpsConfig(dir) : null;
   const list = await readAgents();
-  const rows = await readSessionStatus({ root, ops, list });
+  const { mine, others } = splitByProject(list, ops);
+  const rows = await readSessionStatus({ root, ops, list: mine });
   for (const r of rows) if (r.stuck) notifyStuck(root, r, (ops && ops.pmRole) || null);
   const pm = ops && ops.pmRole;
-  return { rows, pmAgents: pm ? list.filter((s) => s && s.name === pm) : [] };
+  return { rows, others: await withOthersMemory(others), pmAgents: pm ? mine.filter((s) => s && s.name === pm) : [] };
+}
+
+// 다른 프로젝트 메모리: Win32_Process 한 번 조회(0.2~1초)로 세션 pid와 자식 프로세스를 합한다. 실패하면 수만(mb 없음)
+const PROC_TREE_PS = 'Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,WorkingSetSize | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.WorkingSetSize)" }';
+async function withOthersMemory(others) {
+  const strip = ({ pids, ...o }) => o;
+  if (!others.some((o) => o.pids.length)) return others.map(strip);
+  let procs;
+  try {
+    const out = await run('프로세스 목록', 'powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', PROC_TREE_PS]);
+    procs = out.split(/\r?\n/).map((l) => l.trim().split(/\s+/).map(Number)).filter((a) => a.length === 3 && a.every(Number.isFinite))
+      .map(([pid, ppid, bytes]) => ({ pid, ppid, bytes }));
+  } catch {
+    return others.map(strip);
+  }
+  return others.map((o) => (o.pids.length ? { ...strip(o), mb: treeMB(procs, o.pids) } : strip(o)));
 }
 
 // 메모리 경고 선(wy-ops.json memory, D-86): warnFreeMB 미만 주의, blockFreeMB 미만 위험
@@ -259,11 +277,13 @@ class Provider {
         let msg;
         try {
           let data = await (source === 'orphans' ? this.cleaner.read() : READERS[source]());
+          let extra = {};
           if (source === 'sessions') {
             if (this.pm) this.pm.observe(data.pmAgents, data.rows.find((r) => r.name === this.pm.name));
+            extra = { others: data.others || [] };
             data = this.applyAcks(data.rows);
           }
-          msg = { type: source, data, at: Date.now() };
+          msg = { type: source, data, ...extra, at: Date.now() };
         } catch (err) {
           msg = { type: source, error: firstLine(err), at: Date.now() };
         }
@@ -374,4 +394,4 @@ function register(context) {
   return provider;
 }
 
-module.exports = { register, VIEW_ID, REVEAL_COMMAND, Provider };
+module.exports = { register, VIEW_ID, REVEAL_COMMAND, Provider, withOthersMemory };

@@ -1,7 +1,7 @@
 // 세션 현황 맨 위 pm 제어 줄(0.10.0, design/pm-control 목업 P-1~P-8): pm 상태를 한 덩어리로 만들고 버튼을 처리한다.
 // sessionsView가 세션을 읽을 때마다 observe(pm의 claude agents 항목, pm 상태 줄)를 부르고, view()를 webview에 보낸다.
 //   [pm 시작]  session.ps1 start-pm latest(가장 최근 pm 인수인계). 60초 안에 백그라운드 pm이 안 뜨면 오류
-//   [붙기]     attachRequest.openTerminal — 접속 PC 제어 창 ⑥과 같은 터미널 이름('<pm> 붙기')
+//   [붙기]     통합 터미널 '<pm> 붙기'에서 session.ps1 attach <pm>(살아 있으면 그 터미널을 다시 보여 줌)
 //   [pm 교체]  붙기 터미널에 ROTATE_TEXT를 넣으면 pm이 스스로 저장 → start-pm -Force → 이전 pm stop을 한다(반자동).
 //              이 줄은 그 진행을 4단계로 지켜본다. 진행은 workspaceState에 두어 창을 닫았다 열어도 이어서 본다
 //   [멈춤]     확인 창(Enter = 취소) 뒤 session.ps1 stop <pm>
@@ -11,7 +11,29 @@ const os = require('os');
 const path = require('path');
 const { isAlive } = require('./agentsReader');
 const { transcriptFile, thresholds } = require('./contextSize');
-const { openTerminal, terminalName, ROTATE_TEXT, SESSION_PS1 } = require('./attachRequest');
+
+const SESSION_PS1 = path.join('.claude', 'skills', 'pm-ops', 'scripts', 'session.ps1');
+const terminalName = (role) => `${role} 붙기`;
+// pm 교체: 붙기 터미널에 넣는 문구. pm이 pm-ops 절차(저장 → start-pm -Force → 이전 자신 stop)를 스스로 한다
+const ROTATE_TEXT = 'pm 세션 교체 — 진행 중인 것을 저장하고 start-pm -Force로 새 pm을 띄운 뒤 이전 pm을 멈춰 줘';
+
+// 살아 있는 같은 이름 터미널을 보여 주거나 새로 띄운다
+function openTerminal(vscode, { role, folder }) {
+  const name = terminalName(role);
+  const live = vscode.window.terminals.find((t) => t.name === name && !t.exitStatus);
+  if (live) {
+    live.show();
+    return { reused: true, terminal: live };
+  }
+  const terminal = vscode.window.createTerminal({
+    name,
+    cwd: folder,
+    shellPath: 'powershell.exe',
+    shellArgs: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(folder, SESSION_PS1), 'attach', role],
+  });
+  terminal.show();
+  return { reused: false, terminal };
+}
 
 const STORE_KEY = 'wyOps.pmRotation';
 const START_LIMIT = 60 * 1000; // [pm 시작]·교체 2~3단계: 이 안에 안 되면 실패
@@ -316,4 +338,4 @@ class PmControl {
   }
 }
 
-module.exports = { PmControl, psArgs, STEPS, STORE_KEY };
+module.exports = { PmControl, psArgs, STEPS, STORE_KEY, ROTATE_TEXT };
