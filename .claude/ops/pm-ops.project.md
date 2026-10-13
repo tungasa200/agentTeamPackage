@@ -31,3 +31,4 @@
 
 ### 7. 단계 마무리
 - 배포 관문(S1 이후 매 배포): 전체 시험 → doctor 두 저장소 → OPS-review 문서 대조 → 배포 승인 카드 → `install.ps1 deploy` → 승인 가드 probe(DEP-03) → 두 저장소 `install.ps1 gen`(필요하면 `setup`) → 진행현황 갱신. 절차서 원본은 OPS-review 보고(2026-10-13).
+- deploy·rollback·setup·gen은 설치본(`~/.wy-tools`)과 settings.local.json에 쓰므로 승인 가드가 역할 세션에서 막는다(2026-10-13 OPS-dev2가 deploy에서 막힘). 처음부터 사용자가 터미널에서 실행하는 할 일 카드(명령 순서를 steps에)로 올리고, 세션은 결과를 읽기만으로 확인한다. 세션이 우회하지 않는다.
