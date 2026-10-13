@@ -19,15 +19,15 @@ try {
   assert.throws(() => run('apply', proj, hooks), /wy-context-size\.js/);
   assert.ok(!fs.existsSync(local));
   fs.writeFileSync(path.join(hooks, 'wy-context-size.js'), '');
-  assert.ok(run('plan', proj, hooks).some((l) => l.includes('+ env CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000')));
+  assert.ok(run('plan', proj, hooks).some((l) => l.includes('+ env CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000')));
   assert.ok(!fs.existsSync(local), 'plan은 쓰지 않음');
   run('apply', proj, hooks);
   const s = JSON.parse(fs.readFileSync(shared, 'utf8'));
-  assert.deepStrictEqual(s, { worktree: { bgIsolation: 'none' }, env: { FOO: '1', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '300000' } }, '다른 키 보존');
+  assert.deepStrictEqual(s, { worktree: { bgIsolation: 'none' }, env: { FOO: '1', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '200000' } }, '다른 키 보존');
   const l = JSON.parse(fs.readFileSync(local, 'utf8'));
   assert.deepStrictEqual(l.hooks.Stop[0].hooks[0].args, [`${hooks}/wy-context-size.js`]);
   assert.ok(run('apply', proj, hooks).every((x) => x.endsWith('바꿀 것 없음')), '두 번째는 바꿀 것 없음');
-  assert.strictEqual(planEnv({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '100' } }).changes[0], '~ env CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000');
+  assert.strictEqual(planEnv({ env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '100' } }).changes[0], '~ env CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000');
   console.log('tokenSettings 검사 통과');
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

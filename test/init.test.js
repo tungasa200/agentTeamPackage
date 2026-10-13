@@ -78,24 +78,47 @@ try {
   assert.strictEqual(R(Q, '.claude/wy-ops.json'), before, '있는 설정은 덮지 않음');
   assert.strictEqual(r5.files.find((f) => f.file === '.claude/wy-ops.json').action, 'unmanaged');
 
-  // 4b. 공용 워킹트리 설정(INS-03): settings.json 없으면 만들고, 다시 하면 그대로
+  // 4b. 공용 워킹트리·자동 압축 설정(INS-03, TOK-1): settings.json 없으면 만들고, 다시 하면 그대로(파일·백업 모두)
   assert.strictEqual(r1.bgIsolation, 'created');
-  assert.deepStrictEqual(JSON.parse(R(P, '.claude/settings.json')), { worktree: { bgIsolation: 'none' } });
+  assert.strictEqual(r1.autoCompact, 'created');
+  assert.deepStrictEqual(JSON.parse(R(P, '.claude/settings.json')), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000 });
   assert.strictEqual(r2.bgIsolation, 'kept', '다시 하면 그대로');
-  // 다른 키는 보존하고 빠진 값만 더함
+  assert.strictEqual(r2.autoCompact, 'kept', '다시 하면 그대로');
+  const before2 = R(P, '.claude/settings.json');
+  init({ project: P, name: 'sandbox', prefix: 'SB-', templatesDir: T });
+  assert.strictEqual(R(P, '.claude/settings.json'), before2, '세 번째도 바뀌는 것 없음');
+  assert.deepStrictEqual(fs.readdirSync(path.join(P, '.claude')).filter((f) => f.startsWith('settings.json.bak-')), [], '바꿀 것 없으면 백업도 없음');
+  // 다른 키는 보존하고 빠진 값만 더함. 두 값을 한 번에 써서 백업은 원래 내용 하나
   const S = path.join(tmp, 's');
-  put(S, '.claude/settings.json', JSON.stringify({ env: { A: '1' }, worktree: { other: true } }));
-  assert.strictEqual(init({ project: S, name: 's', prefix: 'S-', templatesDir: T }).bgIsolation, 'added');
-  assert.deepStrictEqual(JSON.parse(R(S, '.claude/settings.json')), { env: { A: '1' }, worktree: { other: true, bgIsolation: 'none' } });
-  // 이미 값이 있으면 덮지 않음, 깨진 JSON은 건드리지 않음
+  const sOrig = JSON.stringify({ env: { A: '1' }, worktree: { other: true } });
+  put(S, '.claude/settings.json', sOrig);
+  const rs = init({ project: S, name: 's', prefix: 'S-', templatesDir: T });
+  assert.deepStrictEqual([rs.bgIsolation, rs.autoCompact], ['added', 'added']);
+  assert.deepStrictEqual(JSON.parse(R(S, '.claude/settings.json')), { env: { A: '1' }, worktree: { other: true, bgIsolation: 'none' }, autoCompactWindow: 200000 });
+  const baks = fs.readdirSync(path.join(S, '.claude')).filter((f) => f.startsWith('settings.json.bak-'));
+  assert.strictEqual(baks.length, 1);
+  assert.strictEqual(R(S, `.claude/${baks[0]}`), sOrig, '백업은 원래 내용');
+  // 이미 값이 있으면 덮지 않음(한쪽만 있으면 빠진 쪽만), 깨진 JSON은 건드리지 않음
   const W = path.join(tmp, 'w');
   put(W, '.claude/settings.json', JSON.stringify({ worktree: { bgIsolation: 'worktree' } }));
-  assert.strictEqual(init({ project: W, name: 'w', prefix: 'W-', templatesDir: T }).bgIsolation, 'kept');
-  assert.strictEqual(JSON.parse(R(W, '.claude/settings.json')).worktree.bgIsolation, 'worktree');
+  const rw = init({ project: W, name: 'w', prefix: 'W-', templatesDir: T });
+  assert.deepStrictEqual([rw.bgIsolation, rw.autoCompact], ['kept', 'added']);
+  assert.deepStrictEqual(JSON.parse(R(W, '.claude/settings.json')), { worktree: { bgIsolation: 'worktree' }, autoCompactWindow: 200000 });
+  const A = path.join(tmp, 'a');
+  put(A, '.claude/settings.json', JSON.stringify({ autoCompactWindow: 500000, worktree: { bgIsolation: 'none' } }));
+  const ra = init({ project: A, name: 'a', prefix: 'A-', templatesDir: T });
+  assert.deepStrictEqual([ra.bgIsolation, ra.autoCompact], ['kept', 'kept']);
+  assert.strictEqual(JSON.parse(R(A, '.claude/settings.json')).autoCompactWindow, 500000, '있는 값은 덮지 않음');
   const B = path.join(tmp, 'b');
   put(B, '.claude/settings.json', '{ 깨진');
-  assert.strictEqual(init({ project: B, name: 'b', prefix: 'B-', templatesDir: T }).bgIsolation, 'broken');
+  const rb = init({ project: B, name: 'b', prefix: 'B-', templatesDir: T });
+  assert.deepStrictEqual([rb.bgIsolation, rb.autoCompact], ['broken', 'broken']);
   assert.strictEqual(R(B, '.claude/settings.json'), '{ 깨진');
+
+  // 4c. 패키지 기본 설정의 세션 교체 기준(TOK-1, D-20): 10만 교체 권장, 13만 훅 알림
+  const pkgOps = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'wy-ops.json'), 'utf8'));
+  assert.deepStrictEqual([pkgOps.rotation.contextTokens, pkgOps.rotation.notifyTokens], [100000, 130000]);
+  assert.ok(fs.readFileSync(path.join(__dirname, '..', 'templates', 'pm-ops', 'scripts', 'session.ps1'), 'utf8').includes('$RotateTokens = 100000'), 'session.ps1 기본값도 같음');
 
   // 5. 입력 검사
   assert.throws(() => init({ project: Q, name: 'a b', prefix: 'Q-', templatesDir: T }), /프로젝트 이름/);

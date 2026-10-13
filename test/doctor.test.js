@@ -50,7 +50,7 @@ function makePc(name, { home: homeName = 'home' } = {}) {
   json(settingsFile, { permissions: { deny: template.deny, allow: ['WebSearch'] }, hooks });
   // 플러그인 밖의 함께 까는 도구는 기본 시험에서 꺼 둔다(따로 시험)
   json(path.join(repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'X-pm', commitRole: 'X-commit', roles: [{ name: 'X-pm' }, { name: 'X-commit', agent: true }], approvals: { namespace: 'p' }, extras: { off: NON_PLUGIN } });
-  json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' } });
+  json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000 });
   write(path.join(repo, '.claude', 'agents', 'X-commit.md'), '# X-commit\n경로는 ~/.claude/wy-approvals\n');
   write(path.join(repo, '.gitignore'), ['node_modules', '.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*'].join('\n') + '\n');
   const approvalsRoot = path.join(home, '.claude', 'wy-approvals', 'p');
@@ -474,6 +474,24 @@ try {
     assert.ok(r.level === 'warn' && r.fix.includes('init --name p --prefix X- --stack node --yes'), r.fix);
     write(shared, '{ 깨진');
     assert.strictEqual(byId(doctor.checkAll(pc.opts))['bg-isolation'].level, 'warn', '깨진 settings.json은 주의');
+  }
+
+  // 자동 압축 기준(TOK-1): autoCompactWindow가 없으면 주의 + init 다시 실행 안내, 있으면 통과, settings env가 있으면 우선한다고 적음
+  {
+    const pc = makePc('autocompact');
+    const shared = path.join(pc.repo, '.claude', 'settings.json');
+    json(shared, { worktree: { bgIsolation: 'none' } });
+    let r = byId(doctor.checkAll(pc.opts))['auto-compact'];
+    assert.ok(r.level === 'warn' && r.detail.includes('autoCompactWindow 없음'), JSON.stringify(r));
+    assert.ok(r.fix.includes('install.ps1" init') && r.fix.includes('"autoCompactWindow": 200000'), r.fix);
+    json(shared, { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000 });
+    r = byId(doctor.checkAll(pc.opts))['auto-compact'];
+    assert.ok(r.level === 'ok' && r.detail === 'autoCompactWindow=200000', JSON.stringify(r));
+    json(shared, { autoCompactWindow: 200000, env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '300000' } });
+    r = byId(doctor.checkAll(pc.opts))['auto-compact'];
+    assert.ok(r.level === 'ok' && r.detail.includes('env CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000이 우선'), JSON.stringify(r));
+    write(shared, '{ 깨진');
+    assert.strictEqual(byId(doctor.checkAll(pc.opts))['auto-compact'].level, 'warn', '깨진 settings.json은 주의');
   }
 
   // 승인 기기: 프로젝트 승인 폴더가 아니라 호스트 하나의 전역 명부를 센다
