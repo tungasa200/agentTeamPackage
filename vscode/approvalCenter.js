@@ -16,6 +16,7 @@ const POLL = 15000; // 파일 감시가 놓친 변경을 잡는 느린 주기
 const ROLE_POLL = 30000; // 커밋 세션 역할 확인 주기(claude agents)
 
 const KEY_STATE = 'wyApprovals.deviceKey'; // 이 기기의 서명 키(globalState, 기기 단위)
+const ANCHORS_STATE = 'wyApprovals.anchors'; // 이 기기가 고정한 뿌리(기기 단위 하나). 옛 구조는 승인 폴더마다 'wyApprovals.anchors:<폴더>'
 
 // 기기 기본 이름: 확장은 늘 작업 폴더가 있는 쪽(호스트)에서 돌아 os.hostname()이 호스트 이름이다. 창 종류와 기기 id로 구분한다
 function deviceName() {
@@ -120,8 +121,8 @@ class ApprovalCenter {
     }
   }
 
-  // 기기 신뢰(접속 기기 N대): 키는 기기 단위(globalState는 기기의 VS Code마다 하나라 같은 기기의 창은 함께 쓴다).
-  // 뿌리 고정(anchors)은 승인 폴더마다. 명부가 없으면 이 기기가 뿌리가 된다.
+  // 기기 신뢰(접속 기기 N대): 키·뿌리 고정·기기 명부 모두 기기(호스트) 단위 하나다(globalState는 기기의 VS Code마다 하나라 같은 기기의 창은 함께 쓴다).
+  // 전역 명부가 없으면 옛 구조(승인 폴더마다 명부)에서 한 번 가져오고, 그것도 없으면 이 기기가 뿌리가 된다.
   loadTrust() {
     const state = this.context.globalState;
     let key = state && state.get(KEY_STATE);
@@ -130,23 +131,51 @@ class ApprovalCenter {
       if (state) state.update(KEY_STATE, key);
     }
     this.key = key;
-    this.anchorsKey = `wyApprovals.anchors:${this.root.toLowerCase()}`;
-    const anchors = state && state.get(this.anchorsKey);
-    this.anchors = Array.isArray(anchors) ? anchors : [];
+    const anchors = state && state.get(ANCHORS_STATE);
+    this.anchors = Array.isArray(anchors) ? anchors : null; // null: 새 키가 아직 없음 → 옛 고정에서 이어받는다(currentAnchors)
+    try {
+      trust.importLegacy(this.key, this.legacyAnchors().map((a) => a.fp));
+    } catch {
+      // 가져오지 못하면 전역 명부가 없을 때와 같다
+    }
     this.ensureRoot();
+  }
+
+  // 옛 구조의 승인 폴더별 고정('wyApprovals.anchors:<폴더>') 모두. 지우지 않고 읽기만 한다
+  legacyAnchors() {
+    const state = this.context.globalState;
+    if (!state || typeof state.keys !== 'function') return [];
+    const out = [];
+    for (const k of state.keys()) {
+      if (!k.startsWith(`${ANCHORS_STATE}:`)) continue;
+      const list = state.get(k);
+      if (Array.isArray(list)) for (const a of list) if (a && typeof a.fp === 'string' && typeof a.pub === 'string') out.push(a);
+    }
+    return out;
+  }
+
+  // 지금 쓰는 고정. 새 키가 없으면 옛 고정 중 전역 명부 뿌리와 같은 것만 이어받아 새 키에 남긴다
+  currentAnchors() {
+    if (this.anchors) return this.anchors;
+    const root = trust.rosterRoot(trust.readRoster());
+    const got = root ? this.legacyAnchors().filter((a) => a.fp === root.fp).slice(0, 1) : [];
+    if (!got.length) return [];
+    this.anchors = got;
+    this.saveAnchors();
+    return got;
   }
 
   // 명부가 없으면 이 기기가 뿌리가 된다. 원격 창(Remote-SSH)은 뿌리를 만들지 않는다: 원격 창 키는 호스트의
   // ~/.vscode-server에 있고 접속하는 노트북 모두가 함께 써서, 뿌리는 호스트 로컬 창이 맡는다
   ensureRoot() {
     if (vscode.env && vscode.env.remoteName) return;
-    if (trust.ensureRoot(this.root, this.key, deviceName())) {
+    if (trust.ensureRoot(this.key, deviceName())) {
       this.anchors = [{ fp: trust.fingerprint(this.key.pub), pub: this.key.pub }];
       this.saveAnchors();
     }
   }
 
-  // 명령 'WY: 기기 신뢰 고정 초기화': 이 기기에 고정한 뿌리를 비운다(명부를 새로 만든 뒤 옛 뿌리를 버릴 때).
+  // 명령 'WY: 기기 신뢰 고정 초기화': 이 기기에 고정한 뿌리를 비운다(명부를 새로 만든 뒤 옛 뿌리를 버릴 때). 옛 키는 건드리지 않는다.
   // 확인을 한 번 받는다. 비우면 지금 명부의 뿌리 지문을 비교해 다시 등록을 요청하는 안내가 뜬다
   async resetAnchors() {
     const pick = await vscode.window.showWarningMessage(
@@ -163,11 +192,11 @@ class ApprovalCenter {
   }
 
   saveAnchors() {
-    if (this.context.globalState) this.context.globalState.update(this.anchorsKey, this.anchors);
+    if (this.context.globalState) this.context.globalState.update(ANCHORS_STATE, this.anchors);
   }
 
   evaluateTrust() {
-    return trust.evaluate(trust.readRoster(this.root), this.key, this.anchors);
+    return trust.evaluate(trust.readRoster(), this.key, this.currentAnchors());
   }
 
   // 원장에 없거나 내용이 바뀐 결정 파일. 신뢰하는 기기가 서명한 결정은 믿는다.
@@ -184,7 +213,7 @@ class ApprovalCenter {
   devicesState(ev) {
     const last = new Map();
     for (const s of trust.readSigs(this.root).values()) if (s.at && (!last.has(s.fp) || s.at > last.get(s.fp))) last.set(s.fp, s.at);
-    const root = trust.rosterRoot(trust.readRoster(this.root));
+    const root = trust.rosterRoot(trust.readRoster());
     return {
       selfFp: ev.selfFp,
       selfShort: trust.shortFp(ev.selfFp),
@@ -194,7 +223,7 @@ class ApprovalCenter {
       root: root && { fp: root.fp, short: trust.shortFp(root.fp), name: root.name },
       list: ev.devices.map((d) => ({ ...d, lastSig: last.get(d.fp) || null })),
       // 등록 요청은 신뢰된 기기에서만 승인할 수 있다
-      joins: ev.selfStatus === 'member' ? trust.readJoins(this.root).filter((j) => !ev.trusted.has(j.fp) && !ev.revoked.has(j.fp)).map((j) => ({ ...j, short: trust.shortFp(j.fp) })) : [],
+      joins: ev.selfStatus === 'member' ? trust.readJoins().filter((j) => !ev.trusted.has(j.fp) && !ev.revoked.has(j.fp)).map((j) => ({ ...j, short: trust.shortFp(j.fp) })) : [],
     };
   }
 
@@ -347,26 +376,27 @@ class ApprovalCenter {
         this.reload();
       } else if (msg.type === 'pinRoot' && typeof msg.fp === 'string') {
         // 새 기기: 화면에 보인 뿌리 지문이 지금 명부의 뿌리와 같을 때만 고정하고 등록을 요청한다
-        const root = trust.rosterRoot(trust.readRoster(this.root));
+        const root = trust.rosterRoot(trust.readRoster());
         if (!root || root.fp !== msg.fp) throw new Error('명부의 뿌리가 바뀌었습니다. 지문을 다시 확인하세요');
-        if (!this.anchors.some((a) => a.fp === root.fp)) this.anchors.push({ fp: root.fp, pub: root.pub });
+        const anchors = this.currentAnchors();
+        this.anchors = anchors.some((a) => a.fp === root.fp) ? anchors : [...anchors, { fp: root.fp, pub: root.pub }];
         this.saveAnchors();
-        trust.requestJoin(this.root, this.key, String(msg.name || '').trim().slice(0, 60) || deviceName());
+        trust.requestJoin(this.key, String(msg.name || '').trim().slice(0, 60) || deviceName());
         this.reload();
       } else if ((msg.type === 'approveJoin' || msg.type === 'rejectJoin') && typeof msg.fp === 'string') {
         const ev = this.evaluateTrust();
         if (ev.selfStatus !== 'member') throw new Error('등록된 기기에서만 승인할 수 있습니다');
-        const join = trust.readJoins(this.root).find((j) => j.fp === msg.fp);
+        const join = trust.readJoins().find((j) => j.fp === msg.fp);
         if (!join) throw new Error('등록 요청이 없습니다');
-        if (msg.type === 'approveJoin') trust.approveJoin(this.root, this.key, join);
-        else trust.removeJoin(this.root, join.fp);
+        if (msg.type === 'approveJoin') trust.approveJoin(this.key, join);
+        else trust.removeJoin(join.fp);
         this.reload();
       } else if (msg.type === 'revokeDevice' && typeof msg.fp === 'string') {
         const ev = this.evaluateTrust();
         if (ev.selfStatus !== 'member') throw new Error('등록된 기기에서만 해제할 수 있습니다');
         if (msg.fp === ev.selfFp) throw new Error('이 기기는 다른 기기에서 해제하세요');
         if (!ev.devices.some((d) => d.fp === msg.fp) || ev.revoked.has(msg.fp)) throw new Error('해제할 기기가 없습니다');
-        trust.revokeDevice(this.root, this.key, msg.fp, store.listDecisionDigests(this.root));
+        trust.revokeDevice(this.key, msg.fp);
         this.reload();
       } else if (msg.type === 'reveal' && typeof msg.sessionId === 'string') {
         // 카드의 '세션 현황에서 보기'(B2-5)

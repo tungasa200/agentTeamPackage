@@ -12,6 +12,8 @@ fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
 fs.writeFileSync(path.join(proj, '.claude', 'wy-ops.json'), JSON.stringify({ commitRole: 'WY-commit', approvals: { namespace: 'ns' } }));
 const root = path.join(process.env.WY_APPROVALS_DIR, 'ns');
 const dir = (...x) => path.join(root, ...x);
+// 기기 명부는 기기(호스트) 단위 하나: 바탕 폴더의 .trust/
+const roster = path.join(process.env.WY_APPROVALS_DIR, '.trust', 'devices.json');
 
 const { install, EXT } = require('./fakeVscode');
 const writeReq = (id) => {
@@ -60,10 +62,10 @@ function device(name, memento, { remote = false } = {}) {
   assert.strictEqual(sr.devices.selfStatus, 'unpaired', '원격 창은 뿌리가 안 됨');
   assert.strictEqual(sr.devices.root, null, '명부 없음');
   assert.strictEqual(sr.devices.remote, true, '화면에 원격 창 안내');
-  assert.ok(!fs.existsSync(dir('decisions', 'trust', 'devices.json')), '원격 창은 명부를 만들지 않음');
+  assert.ok(!fs.existsSync(roster), '원격 창은 명부를 만들지 않음');
   R.fake.nextChoice = '초기화';
   await R.fake.commands['wyApprovals.resetTrustAnchors']();
-  assert.ok(!fs.existsSync(dir('decisions', 'trust', 'devices.json')), '초기화 명령도 원격 창에서는 뿌리를 만들지 않음');
+  assert.ok(!fs.existsSync(roster), '초기화 명령도 원격 창에서는 뿌리를 만들지 않음');
 
   // 1) 첫 기기(호스트 로컬 창): 명부가 없으면 자기가 뿌리(사용자 손 없음)
   const A = device('aaaa1111');
@@ -129,14 +131,14 @@ function device(name, memento, { remote = false } = {}) {
   trust.signDecision(root, evil, 'f2', require(path.join(EXT, 'approvalStore.js')).decisionDigest(fs.readFileSync(dir('decisions', 'f2.json'), 'utf8')));
   assert.ok(A.state().untrusted.includes('f2'), '모르는 키의 서명은 무효');
   // 명부에 자기 키를 보증 진술로 끼워 넣어도(서명자가 신뢰 밖) 신뢰하지 않는다
-  const roster = trust.readRoster(root);
+  const entries = trust.readRoster();
   const evilFp = trust.fingerprint(evil.pub);
-  roster.push(trust.sign(evil, { type: 'add', pub: evil.pub, name: '가짜', at: new Date().toISOString(), by: evilFp }));
-  fs.writeFileSync(dir('decisions', 'trust', 'devices.json'), JSON.stringify({ schema: 1, entries: roster }));
+  entries.push(trust.sign(evil, { type: 'add', pub: evil.pub, name: '가짜', at: new Date().toISOString(), by: evilFp }));
+  fs.writeFileSync(roster, JSON.stringify({ schema: 1, entries }));
   assert.ok(A.state().untrusted.includes('f2'), '자기 보증은 무효');
   assert.strictEqual(A.state().devices.list.find((d) => d.fp === evilFp).state, 'unknown', '목록에는 확인 안 됨으로');
   // 가짜 등록 요청은 사용자 승인 없이는 아무것도 바꾸지 않는다(카드만 뜬다)
-  trust.requestJoin(root, evil, '가짜 노트북');
+  trust.requestJoin(evil, '가짜 노트북');
   assert.ok(A.state().devices.joins.some((j) => j.fp === evilFp), '가짜 요청도 카드로(지문 비교로 거절)');
   A.send({ type: 'rejectJoin', fp: evilFp });
   assert.ok(!A.state().devices.joins.some((j) => j.fp === evilFp), '거절 → 사라짐');
@@ -187,10 +189,12 @@ function device(name, memento, { remote = false } = {}) {
   assert.strictEqual(sr.devices.selfStatus, 'unpaired');
 
   // doctor 요약
-  assert.deepStrictEqual(trust.summary(root), { devices: 2, revoked: 1, unknown: 1, joins: 0 }, 'doctor 요약(가짜 키는 확인 안 됨)');
+  assert.deepStrictEqual(trust.summary(root), { devices: 2, revoked: 1, unknown: 1, joins: 0 }, 'doctor 요약(가짜 키는 확인 안 됨, 옛 인자는 무시하고 전역 명부)');
+  assert.deepStrictEqual(trust.summary(), trust.summary(root), '인자 없이도 같은 요약');
+  assert.ok(!fs.existsSync(dir('decisions', 'trust', 'devices.json')), '승인 폴더에는 명부를 만들지 않음');
 
   // 6) 뿌리 옮기기: 명부를 지우고 C 기기 창을 다시 열면 C가 새 뿌리. 옛 뿌리를 고정한 A는 고정 초기화 명령으로 다시 등록
-  fs.rmSync(dir('decisions', 'trust', 'devices.json'));
+  fs.rmSync(roster);
   const C2 = device('cccc3333', C.fake.globalState);
   const s2 = C2.state();
   assert.strictEqual(s2.devices.root.fp, s2.devices.selfFp, 'C가 새 뿌리');

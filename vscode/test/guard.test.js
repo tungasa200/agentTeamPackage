@@ -34,6 +34,13 @@ const deny = [
   'echo {} > ~/.claude/wy-approvals/my-project/sessions/s.json',
   // 메시지 거부 기록(메시지 가드 훅이 씀) — 세션 현황 경고의 근거
   'echo {} >> ~/.claude/wy-approvals/my-project/message-blocks.log',
+  // 기기 명부(바탕 폴더 .trust/, ENH-01) — 신뢰 진술·등록 요청을 셸로 위조하지 못하게
+  'echo {} > ~/.claude/wy-approvals/.trust/devices.json',
+  'rm -rf ~/.claude/wy-approvals/.trust',
+  'rm ~/.claude/wy-approvals/.trust/join/x.json',
+  'cp evil.json ~/.claude/wy-approvals/.trust/join/abc.json',
+  `node -e "require('fs').writeFileSync(require('os').homedir() + '/.claude/wy-approvals/.trust/devices.json', '{}')"`,
+  'cd ~/.claude/wy-approvals/.trust && echo {} > devices.json',
   // .claude 하위 폴더에서 ..로 거슬러 올라가기, .claude 자체로 이동
   'cd ~/.claude/jobs/x && echo {} > ../../wy-approvals/my-project/decisions/a.json',
   'cd ~/.claude/jobs/x && cp a ../../settings.local.json',
@@ -175,6 +182,8 @@ const allow = [
   'ls -la ~/.claude/wy-approvals/my-project/decisions/',
   'cat ~/.claude/wy-approvals/my-project/sessions/s.json',
   'tail -5 ~/.claude/wy-approvals/my-project/message-blocks.log',
+  'cat ~/.claude/wy-approvals/.trust/devices.json',
+  'ls -la ~/.claude/wy-approvals/.trust/join/',
   // 맨 끝의 되돌리기 이동은 막지 않는다
   'pushd /tmp && echo x > a.txt && popd',
   'Push-Location C:/tmp; Set-Content a.txt 1; Pop-Location',

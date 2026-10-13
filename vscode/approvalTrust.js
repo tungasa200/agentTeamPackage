@@ -1,10 +1,11 @@
 // 승인 센터 기기 신뢰(출처 대조, 접속 기기 N대). 승인 센터 창이 여러 기기(호스트 창, Remote-SSH 노트북 창…)에 떠 있어도
 // 서로 쓴 결정을 '출처 불명'으로 띄우지 않으면서, 세션이 직접 만든 결정은 계속 잡는다.
 // - 키는 기기 단위 Ed25519. 개인키는 그 기기의 VS Code globalState에만 둔다(같은 기기의 창은 함께 쓴다).
-// - 공유 파일은 decisions/trust/ 아래(가드 훅이 세션의 decisions/ 쓰기를 막는다):
+// - 기기 명부는 기기(호스트) 단위 하나: 바탕 폴더의 .trust/ 아래(가드 훅이 세션의 쓰기를 막는다)
 //     devices.json  기기 명부: 서명한 진술 목록 [{ type: 'root'|'add'|'revoke', …, by, sig }]
-//     sigs/<id>.json 결정 서명 { id, digest, fp, sig }
 //     join/<fp>.json 등록 요청(확장이 쓴다) { pub, name, at, sig(자기 서명) }
+//   결정 서명은 결정과 같은 승인 폴더에: <승인 폴더>/decisions/trust/sigs/<id>.json { id, digest, fp, sig }
+//   옛 구조(승인 폴더마다 decisions/trust/devices.json)는 전역 명부가 없을 때 한 번 가져오는 자료로만 읽는다(importLegacy).
 // - 신뢰의 기준은 각 기기 globalState에 고정한 뿌리(anchors)와 자기 키다. 공유 파일만으로는 신뢰가 생기지 않는다.
 //   신뢰하는 키가 서명해 보증(add)한 키도 신뢰한다(사슬). 해제(revoke)는 그때 그 키로 서명돼 있던 결정·보증 목록만 계속 인정한다.
 // vscode에 의존하지 않아 doctor와 시험에서도 쓴다.
@@ -15,9 +16,26 @@ const store = require('./approvalStore');
 
 const FP_RE = /^[0-9a-f]{64}$/;
 
+// 전역 명부(devices·join). root를 주면 그 승인 폴더의 결정 서명 폴더(sigs)도
 function trustPaths(root) {
-  const dir = path.join(store.paths(root).decisions, 'trust');
-  return { dir, devices: path.join(dir, 'devices.json'), sigs: path.join(dir, 'sigs'), join: path.join(dir, 'join') };
+  const dir = path.join(store.ROOT, '.trust');
+  const out = { dir, devices: path.join(dir, 'devices.json'), join: path.join(dir, 'join') };
+  if (root) out.sigs = path.join(store.paths(root).decisions, 'trust', 'sigs');
+  return out;
+}
+
+// 옛 구조의 승인 폴더별 명부 폴더(가져오기 전용)
+const legacyDir = (root) => path.join(store.paths(root).decisions, 'trust');
+
+// 바탕 폴더 아래 모든 승인 폴더(namespace)와 바탕 폴더 자신
+function approvalRoots() {
+  let names = [];
+  try {
+    names = fs.readdirSync(store.ROOT, { withFileTypes: true }).filter((d) => d.isDirectory() && store.ID_RE.test(d.name)).map((d) => d.name).sort();
+  } catch {
+    // 바탕 폴더가 없으면 바탕 폴더만
+  }
+  return [...names.map((n) => path.join(store.ROOT, n)), store.ROOT];
 }
 
 // ---- 키 ----
@@ -56,17 +74,19 @@ function verify(pub, obj) {
 }
 
 // ---- 공유 파일 ----
-function readRoster(root) {
+function readEntries(file) {
   try {
-    const r = store.readJson(trustPaths(root).devices);
+    const r = store.readJson(file);
     return Array.isArray(r.entries) ? r.entries.filter((e) => e && typeof e === 'object') : [];
   } catch {
     return [];
   }
 }
 
-function writeRoster(root, entries, { create = false } = {}) {
-  const t = trustPaths(root);
+const readRoster = () => readEntries(trustPaths().devices);
+
+function writeRoster(entries, { create = false } = {}) {
+  const t = trustPaths();
   fs.mkdirSync(t.dir, { recursive: true });
   const body = JSON.stringify({ schema: 1, entries }, null, 2) + '\n';
   if (create) {
@@ -82,8 +102,8 @@ function writeRoster(root, entries, { create = false } = {}) {
   return true;
 }
 
-function appendStatement(root, stmt) {
-  writeRoster(root, [...readRoster(root), stmt]);
+function appendStatement(stmt) {
+  writeRoster([...readRoster(), stmt]);
 }
 
 function readSigs(root) {
@@ -106,8 +126,8 @@ function readSigs(root) {
   return out;
 }
 
-function readJoins(root) {
-  const dir = trustPaths(root).join;
+function readJoins() {
+  const dir = trustPaths().join;
   let files = [];
   try {
     files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
@@ -218,10 +238,10 @@ function signDecision(root, key, id, digest) {
 }
 
 // 명부가 없으면 자기를 뿌리로 만든다. 만들었으면 true
-function ensureRoot(root, key, name) {
-  if (readRoster(root).length) return false;
+function ensureRoot(key, name) {
+  if (readRoster().length) return false;
   const stmt = sign(key, { type: 'root', pub: key.pub, name, at: new Date().toISOString(), by: fingerprint(key.pub) });
-  return writeRoster(root, [stmt], { create: true });
+  return writeRoster([stmt], { create: true });
 }
 
 // 명부의 첫 뿌리(자기 서명이 맞는 것). 새 기기가 지문을 비교해 고정한다
@@ -232,38 +252,98 @@ function rosterRoot(entries) {
   return null;
 }
 
-function requestJoin(root, key, name) {
-  const t = trustPaths(root);
+// 옛 구조에서 한 번 가져오기: 전역 명부가 없을 때 승인 폴더마다 있던 명부(자기 서명 뿌리가 있는 것) 중 하나의 뿌리를 고른다.
+//   ① 이 기기 키가 뿌리 ② 이 기기가 고정했던 뿌리(pinnedFps, 옛 고정 키 모두) ③ 후보 뿌리가 모두 같음. 각 단계에서 뿌리가 하나로 정해질 때만.
+//   같은 뿌리 명부가 여럿이면 진술을 합친다(sig로 중복 제거, 순서 유지). 기다리는 등록 요청(join/)도 복사. 옛 파일은 그대로 둔다.
+// 돌려줌: { imported: true, root, from: [승인 폴더] } / { imported: false, reason: 'exists'|'none'|'ambiguous' }
+function importLegacy(key, pinnedFps = []) {
+  if (readRoster().length) return { imported: false, reason: 'exists' };
+  const cands = [];
+  for (const root of approvalRoots()) {
+    const entries = readEntries(path.join(legacyDir(root), 'devices.json'));
+    const r = rosterRoot(entries);
+    if (r) cands.push({ root, entries, fp: r.fp });
+  }
+  if (!cands.length) return { imported: false, reason: 'none' };
+  const roots = [...new Set(cands.map((c) => c.fp))];
+  const one = (fps) => (fps.length === 1 ? fps[0] : null);
+  const selfFp = key ? fingerprint(key.pub) : null;
+  const pinned = roots.filter((fp) => pinnedFps.includes(fp));
+  const pick = roots.includes(selfFp) ? selfFp : pinned.length ? one(pinned) : one(roots);
+  if (!pick) return { imported: false, reason: 'ambiguous' };
+  const from = cands.filter((c) => c.fp === pick);
+  const seen = new Set();
+  const merged = [];
+  for (const c of from) {
+    for (const e of c.entries) {
+      if (seen.has(e.sig)) continue;
+      seen.add(e.sig);
+      merged.push(e);
+    }
+  }
+  if (!writeRoster(merged, { create: true })) return { imported: false, reason: 'exists' }; // 다른 창이 먼저 만들었다
+  const t = trustPaths();
+  for (const c of from) {
+    let files = [];
+    try {
+      files = fs.readdirSync(path.join(legacyDir(c.root), 'join')).filter((f) => FP_RE.test(f.slice(0, -5)) && f.endsWith('.json'));
+    } catch {
+      continue;
+    }
+    fs.mkdirSync(t.join, { recursive: true });
+    for (const f of files) {
+      try {
+        fs.copyFileSync(path.join(legacyDir(c.root), 'join', f), path.join(t.join, f), fs.constants.COPYFILE_EXCL);
+      } catch {
+        // 이미 있으면 그대로
+      }
+    }
+  }
+  return { imported: true, root: pick, from: from.map((c) => c.root) };
+}
+
+function requestJoin(key, name) {
+  const t = trustPaths();
   fs.mkdirSync(t.join, { recursive: true });
   store.writeJsonAtomic(path.join(t.join, `${fingerprint(key.pub)}.json`), sign(key, { pub: key.pub, name, at: new Date().toISOString() }));
 }
 
-function removeJoin(root, fp) {
+function removeJoin(fp) {
   if (!FP_RE.test(String(fp))) return;
   try {
-    fs.unlinkSync(path.join(trustPaths(root).join, `${fp}.json`));
+    fs.unlinkSync(path.join(trustPaths().join, `${fp}.json`));
   } catch {
     // 이미 없음
   }
 }
 
-function approveJoin(root, key, join) {
-  appendStatement(root, sign(key, { type: 'add', pub: join.pub, name: join.name, at: new Date().toISOString(), by: fingerprint(key.pub) }));
-  removeJoin(root, join.fp);
+function approveJoin(key, join) {
+  appendStatement(sign(key, { type: 'add', pub: join.pub, name: join.name, at: new Date().toISOString(), by: fingerprint(key.pub) }));
+  removeJoin(join.fp);
 }
 
-// 해제: 그때 그 키로 서명돼 있던(내용이 그대로인) 결정과 그 키가 보증한 기기 목록을 함께 남긴다
-function revokeDevice(root, key, fp, digests) {
-  const sigs = readSigs(root);
-  const now = new Map(digests.map((d) => [d.id, d.digest]));
-  const keep = [...sigs.values()].filter((s) => s.fp === fp && now.get(s.id) === s.digest).map((s) => ({ id: s.id, digest: s.digest }));
-  const keepDevices = readRoster(root).filter((e) => e.type === 'add' && e.by === fp && e.pub).map((e) => fingerprint(e.pub));
-  appendStatement(root, sign(key, { type: 'revoke', fp, keep, keepDevices, at: new Date().toISOString(), by: fingerprint(key.pub) }));
+// 해제: 그때 그 키로 서명돼 있던(내용이 그대로인) 결정과 그 키가 보증한 기기 목록을 함께 남긴다.
+// 명부가 기기 단위라 결정은 바탕 폴더 아래 모든 승인 폴더에서 모은다
+function revokeDevice(key, fp) {
+  const keep = [];
+  const seen = new Set();
+  for (const root of approvalRoots()) {
+    const now = new Map(store.listDecisionDigests(root).map((d) => [d.id, d.digest]));
+    for (const s of readSigs(root).values()) {
+      const k = `${s.id}:${s.digest}`;
+      if (s.fp !== fp || now.get(s.id) !== s.digest || seen.has(k)) continue;
+      seen.add(k);
+      keep.push({ id: s.id, digest: s.digest });
+    }
+  }
+  const keepDevices = readRoster().filter((e) => e.type === 'add' && e.by === fp && e.pub).map((e) => fingerprint(e.pub));
+  appendStatement(sign(key, { type: 'revoke', fp, keep, keepDevices, at: new Date().toISOString(), by: fingerprint(key.pub) }));
 }
 
-// doctor용 요약: 기기의 고정 뿌리 대신 명부의 첫 뿌리를 기준으로 센다(뿌리 자체가 맞는지는 승인 센터의 지문 비교가 본다)
-function summary(root) {
-  const entries = readRoster(root);
+// doctor용 요약(전역 명부): 기기의 고정 뿌리 대신 명부의 첫 뿌리를 기준으로 센다(뿌리 자체가 맞는지는 승인 센터의 지문 비교가 본다).
+// 인자(옛 승인 폴더)는 받아도 쓰지 않는다
+function summary() {
+  const entries = readRoster();
   const r = rosterRoot(entries);
   if (!r) return { devices: 0, revoked: 0, unknown: 0, joins: 0 };
   const ev = evaluate(entries, null, [r]);
@@ -272,8 +352,8 @@ function summary(root) {
     devices: ev.trusted.size,
     revoked: ev.devices.filter((d) => d.state === 'revoked').length,
     unknown: ev.devices.filter((d) => d.state === 'unknown').length,
-    joins: readJoins(root).filter((j) => !known(j.fp)).length,
+    joins: readJoins().filter((j) => !known(j.fp)).length,
   };
 }
 
-module.exports = { trustPaths, newKey, fingerprint, shortFp, sign, verify, readRoster, readSigs, readJoins, evaluate, sigTrusted, signDecision, ensureRoot, rosterRoot, requestJoin, removeJoin, approveJoin, revokeDevice, summary };
+module.exports = { trustPaths, approvalRoots, newKey, fingerprint, shortFp, sign, verify, readRoster, readSigs, readJoins, evaluate, sigTrusted, signDecision, ensureRoot, rosterRoot, importLegacy, requestJoin, removeJoin, approveJoin, revokeDevice, summary };

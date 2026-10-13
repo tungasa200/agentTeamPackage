@@ -486,6 +486,7 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
    decisions/<id>.json   승인 센터가 쓰는 결정
    decisions.log         결정마다 한 줄(pm이 감시)
    used/<id>.json        승인으로 명령을 한 번 실행했다는 표시(가드 훅)
+기기 명부 ~/.claude/wy-approvals/.trust/   호스트에 하나(모든 프로젝트 공통). 승인 센터가 씀
 ```
 
 VS Code 확장(`wy-ops.wy-ops`)은 `current`를 읽는 얇은 껍데기입니다. 버전이 바뀌어도 다시 설치하지 않고 `Developer: Reload Window`만 합니다.
