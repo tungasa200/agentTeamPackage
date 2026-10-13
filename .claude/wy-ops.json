@@ -7,8 +7,8 @@
   "commitRole": "OPS-commit",
   "rotation": {
     "transcriptMB": 5,
-    "contextTokens": 150000,
-    "notifyTokens": 200000
+    "contextTokens": 100000,
+    "notifyTokens": 130000
   },
   "memory": {
     "warnFreeMB": 1024,
@@ -22,7 +22,7 @@
     "progress": "docs/진행현황.md",
     "decisions": "docs/결정기록.md"
   },
-  "wyOpsVersion": "0.13.0",
+  "wyOpsVersion": "0.14.0",
   "roles": [
     {
       "name": "OPS-commit",

@@ -27,7 +27,7 @@ $PmRole = $null
 # 역할 이름을 바꾼 프로젝트의 옛 이름(handoff.oldNames). 옛 인수인계 파일을 찾을 때만 쓴다
 $OldNames = @{}
 # 세션 교체 권장 기준: 현재 대화 토큰(마지막 응답의 input+cache_read+cache_creation). MB는 토큰을 못 읽을 때만 쓰는 호환 기준
-$RotateTokens = 150000
+$RotateTokens = 100000
 $RotateMB = 5
 $ProgressDoc = 'docs/진행현황.md'
 
