@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const { rmTree } = require('../lib/fsx');
 const { execFileSync } = require('child_process');
-const { deploy, deployDev, rollback, versions, currentTarget } = require('../lib/deploy');
+const { deploy, deployDev, rollback, list, ROLLBACK_NOTES, versions, currentTarget } = require('../lib/deploy');
 const stub = require('../lib/stub');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-dep-'));
@@ -87,6 +87,18 @@ try {
   assert.ok(fs.existsSync(path.join(dir, r5.name, 'deployed.json')), '되돌려도 새 버전 폴더는 남음');
   assert.throws(() => rollback({ dir, name: 'nope' }), /되돌릴 버전이 없습니다/);
   assert.ok(!fs.readdirSync(dir).some((n) => /current\.(new|old)$/.test(n)), '임시 정션이 남지 않음');
+  assert.deepStrictEqual([rb.to, rb.dir, rb.stubHash], [r4.name, dir, r4.stubHash], '직전 버전으로, 그 버전의 껍데기 해시를 돌려줌');
+  // 5-1. list: 배포 시각 기준 새것부터, current 표시
+  const ls = list(dir);
+  assert.deepStrictEqual(ls.map((v) => [v.name, v.current]), [[r5.name, false], [r4.name, true], [r3.name, false]]);
+  assert.deepStrictEqual([ls[2].version, ls[2].commit, typeof ls[2].deployedAt], ['0.6.0', c2, 'string']);
+  // 5-2. 이름 없이 다시 하면 더 옛것이 아니라 최신으로(최신 ↔ 직전), 더 옛것은 이름으로. 해시가 다른 버전이면 stubHash도 다름
+  assert.strictEqual(rollback({ dir }).to, r5.name, '두 번째 rollback은 최신으로 돌아감');
+  const rb3 = rollback({ dir, name: r3.name });
+  assert.deepStrictEqual([rb3.from, rb3.to], [r5.name, r3.name]);
+  assert.notStrictEqual(rb3.stubHash, r5.stubHash, '껍데기가 다른 버전으로 가면 해시가 다름(설치 쪽이 다시 깖)');
+  assert.strictEqual(ROLLBACK_NOTES.length, 2);
+  assert.deepStrictEqual(list(path.join(tmp, 'none')), [], '설치 폴더가 없으면 빈 목록');
 
   // 6. 껍데기 activate: 경로 바꾸기·'vscode' 이어 주기(가짜 vscode)
   {

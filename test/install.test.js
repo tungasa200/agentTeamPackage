@@ -40,6 +40,45 @@ try {
   assert.strictEqual(claudeTrusted('c:/Projects/MY-project/tools/x', home), true, '하위 폴더');
   assert.strictEqual(claudeTrusted('C:/projects/new', home), false, '신뢰 안 함');
   assert.strictEqual(claudeTrusted('C:/projects/my-project-2', home), false, '이름이 비슷한 다른 폴더');
+  // rollback CLI(S1): --list, 되돌린 버전의 껍데기 해시가 설치된 확장과 다르면 다시 깖(가짜 code.cmd·임시 홈·설치 폴더)
+  if (process.platform === 'win32') {
+    const { point } = require('../lib/deploy');
+    const tools = path.join(root, 'tools');
+    const dir = path.join(tools, 'wy-ops');
+    const ver = (name, hash, at) => {
+      const v = path.join(dir, name);
+      fs.mkdirSync(path.join(v, 'stub-ext'), { recursive: true });
+      fs.writeFileSync(path.join(v, 'deployed.json'), JSON.stringify({ version: name.split('-')[0], commit: name.split('-')[1], stubHash: hash, deployedAt: at }));
+      fs.writeFileSync(path.join(v, 'stub-ext', 'package.json'), JSON.stringify({ name: 'wy-ops', publisher: 'wy-ops', version: '0.0.1', engines: { vscode: '^1.85.0' }, wyOpsStubHash: hash }));
+    };
+    ver('0.1.0-aaa', 'hashA', '2026-01-01T00:00:00.000Z');
+    ver('0.2.0-bbb', 'hashB', '2026-01-02T00:00:00.000Z');
+    point(dir, '0.2.0-bbb');
+    const extDir = path.join(root, 'ext');
+    fs.mkdirSync(path.join(extDir, 'wy-ops.wy-ops-0.0.1'), { recursive: true });
+    fs.writeFileSync(path.join(extDir, 'wy-ops.wy-ops-0.0.1', 'package.json'), JSON.stringify({ wyOpsStubHash: 'hashB' }));
+    const bin = path.join(root, 'bin');
+    fs.mkdirSync(bin);
+    const called = path.join(bin, 'called.txt');
+    fs.writeFileSync(path.join(bin, 'code.cmd'), `@echo off\r\necho %*>>"${called}"\r\nexit /b 0\r\n`);
+    const home2 = path.join(root, 'home2');
+    fs.mkdirSync(home2);
+    const env = { ...process.env, WY_TOOLS_DIR: tools, USERPROFILE: home2, PATH: `${bin};${process.env.PATH}` };
+    const cli = (...a) => require('child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'lib', 'install.js'), ...a], { env, encoding: 'utf8' });
+    let o = cli('rollback', '--list');
+    assert.strictEqual(o.status, 0, o.stderr);
+    assert.deepStrictEqual(o.stdout.trim().split(/\r?\n/).map((l) => l.slice(0, 12)), ['* 0.2.0-bbb ', '  0.1.0-aaa '], `새것부터, current 표시: ${o.stdout}`);
+    assert.ok(!fs.existsSync(called), '--list는 아무것도 바꾸지 않음');
+    o = cli('rollback', '--extensions-dir', extDir);
+    assert.strictEqual(o.status, 0, o.stdout + o.stderr);
+    assert.ok(o.stdout.includes('0.2.0-bbb → 0.1.0-aaa'), o.stdout);
+    assert.ok(fs.existsSync(called) && fs.readFileSync(called, 'utf8').includes('--install-extension'), '해시가 다르면 다시 깖');
+    assert.ok(o.stdout.includes('최신 ↔ 직전') && o.stdout.includes('install.ps1 gen') && o.stdout.includes('Reload Window'), `안내 두 줄과 Reload: ${o.stdout}`);
+    fs.unlinkSync(called);
+    o = cli('rollback', '--extensions-dir', extDir);
+    assert.ok(o.stdout.includes('0.1.0-aaa → 0.2.0-bbb') && o.stdout.includes('최신입니다'), `두 번째는 최신으로, 해시가 같으면 건너뜀: ${o.stdout}`);
+    assert.ok(!fs.existsSync(called), '해시가 같으면 code를 부르지 않음');
+  }
   console.log('wy-ops install 검사 통과');
 } finally {
   rmTree(root);
