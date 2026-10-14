@@ -9,11 +9,13 @@
     ".claude/ops/roles/OPS-review.md": "55119e58b027a21d9773a4b4b8d3b378d110f0445eb025524b1d0f3b6b403be8",
     ".claude/ops/pm-ops.project.md": "e46bef4d5fd043d5792b2c29de427cd10959a303bb355d1744a68f1c1d05ab34",
     ".claude/ops/CLAUDE.part.md": "103d45906b2f9573faf9c3a88c13848413ccd93522d498118ee6d06baefe14c0",
-    ".claude/agents/OPS-commit.md": "9ba7280a062927464aa122cb67969889899011ec1ba72de30297abdf0000c938",
-    ".claude/agents/OPS-dev1.md": "245e21cdd50a9137ea9bdbc3100e401512d5f949e2ba1cf4028fa1324967032e",
-    ".claude/agents/OPS-dev2.md": "2a665a1c2e63c8d70a83d0550122212e176553f7a283081b05fd6319ef7c7977",
-    ".claude/agents/OPS-review.md": "86acc4847c2d874b185e661d04e36de040681466ddde6a9dceb2efbbb60845fd",
-    ".claude/skills/pm-ops/SKILL.md": "9fd84134bd6b4f6ad58a2fd1ad80f5475f12e672ff564f676d544c9c1719a07c",
-    ".claude/skills/pm-ops/scripts/session.ps1": "511df874eea631edee1e61af430b163bb38b1275aa1909ebd3e92840843710ca"
+    ".claude/agents/OPS-commit.md": "4ff268541fed53473e59f417f33dcfcecfe17bc93f6bbba415a8007453faa5e4",
+    ".claude/agents/OPS-dev1.md": "d519b7390b700a833e59442eb0b7b82db5dd11e76be41ac10368a9960f7cbb4d",
+    ".claude/agents/OPS-dev2.md": "44585515165e8ef441d753f766fa7f90bdd7ba6d3e7b346aaedd7ca1b0293b49",
+    ".claude/agents/OPS-review.md": "69ba1d55e0d542aa7146d69006864f610619e293dc462446173ddb7db6ba9efb",
+    ".claude/skills/pm-ops/SKILL.md": "33161aa2b438dfdb6a2bf565eaedb6e79e3e3ea7a201e0bab595682c958c1c49",
+    ".claude/skills/pm-ops/scripts/session.ps1": "0b7db1bd638c227a73f7c8737eabee4c4c60ccc1238c563a81ec7740e9c3a122",
+    ".claude/skills/wy-resume-session/SKILL.md": "6355af151cf2809556404f4a23796a6fd06c33ff630bb6d7743d534018b2f761",
+    ".claude/skills/wy-save-session/SKILL.md": "fc42063fb2fcfdc521c9e30cf624cb151b11f6dcb66f6cbbebf9356b0c295d5c"
   }
 }

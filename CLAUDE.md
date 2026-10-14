@@ -64,5 +64,5 @@ wy-ops(agentTeamPackage) 도구 프로젝트. 이 파일은 git으로 공유되�
 
 - 역할은 `.claude/agents/<역할>.md`에 있다. 이 파일은 생성물이다: 역할 문구는 `.claude/ops/roles/<역할>.md`를 고친다(모든 역할에 들어가는 공통 문구를 바꾸려면 `.claude/ops/agent.md`를 만든다. 없으면 패키지 기본 템플릿을 쓴다). pm-ops 스킬은 `.claude/ops/pm-ops.project.md`를 고친다. 세션 스크립트 `.claude/skills/pm-ops/scripts/session.ps1`도 생성물이다. 고친 뒤 `install.ps1 gen`으로 다시 만든다(설치 위치는 `~/.wy-tools/wy-ops/current/install.ps1`).
 - 진행 상황은 진행현황 문서, 결정은 결정기록 문서에 둔다(경로는 `.claude/wy-ops.json`의 `docs`).
-- 하던 일의 중간 상태(미커밋 파일, 반쯤 한 작업, 막힌 이유)만 `/ecc:save-session`으로 남긴다. short-id는 역할 이름이다.
+- 하던 일의 중간 상태(미커밋 파일, 반쯤 한 작업, 막힌 이유)만 `/wy-save-session`으로 남긴다. short-id는 역할 이름이다.
 - 세션 교체는 `OPS-pm`이 `session.ps1 prep <역할>` → `session.ps1 rotate <역할> <경로|none>`으로 한다.
