@@ -1,1 +1,11 @@
- { "worktree": { "bgIsolation": "none" }, "autoCompactWindow": 200000 }
+{
+  "worktree": {
+    "bgIsolation": "none"
+  },
+  "autoCompactWindow": 200000,
+  "enabledPlugins": {
+    "ecc@ecc": false,
+    "claude-mem@thedotmack": false,
+    "prompts.chat@prompts.chat": false
+  }
+}
