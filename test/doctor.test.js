@@ -302,6 +302,12 @@ try {
     json(sfile, { skillOverrides: { 'artifact-design': 'off' }, enabledPlugins: { 'impeccable@impeccable': false } });
     r = byId(doctor.checkAll(pc.opts))['context-standard'];
     assert.ok(r.level === 'warn' && r.detail.includes('artifact-design') && r.detail.includes('impeccable@impeccable'), `화면용이 꺼져 있음\n${JSON.stringify(r)}`);
+    // roles에 group·template 없이 이름만 있어도 화면 역할로 본다(이름에서 접두사·끝 숫자를 뗀 키)
+    const withGroup = JSON.parse(fs.readFileSync(pcfg, 'utf8'));
+    json(pcfg, { ...withGroup, roles: [{ name: 'AB-commit', summary: 'c', agent: true }, { name: 'AB-frontend2', summary: 'f', agent: true }] });
+    r = byId(doctor.checkAll(pc.opts))['context-standard'];
+    assert.ok(r.level === 'warn' && r.detail.includes('화면 역할이 있는데') && r.detail.includes('impeccable@impeccable'), `group 없는 화면 역할\n${JSON.stringify(r)}`);
+    json(pcfg, withGroup);
     json(sfile, { skillOverrides: { dataviz: 'on' } });
     // 화면 역할이 없으면 impeccable·artifact-*도 표준으로 끔
     const withOff = JSON.parse(fs.readFileSync(pcfg, 'utf8'));

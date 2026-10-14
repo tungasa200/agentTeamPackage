@@ -87,9 +87,13 @@ function quoteFrontmatter(text) {
 // '## 스킬 쓰는 때' 절(templates/skills.json, SKL D-23): 역할의 template → group → 이름에서 접두사·끝 숫자를 뗀 것 순으로 키를 찾는다.
 // 템플릿의 {{skillNotes}}는 다음 절 제목 바로 앞에 붙어 있으므로, 절이 있으면 끝에 빈 줄까지 넣고 없으면 빈 문자열
 const SKILLS = path.join(__dirname, 'templates', 'skills.json');
-function roleEntry(map, role) {
+// 역할이 맞춰 볼 키 후보(앞이 우선). init의 화면 역할 판정(contextStandard)도 같은 후보를 쓴다
+function roleKeys(role) {
   const short = String(role.name || '').replace(/^[A-Za-z0-9]+-/, '').replace(/\d+$/, '');
-  const key = [role.template, role.group, short].find((k) => k && Object.prototype.hasOwnProperty.call(map, k));
+  return [role.template, role.group, short].filter(Boolean);
+}
+function roleEntry(map, role) {
+  const key = roleKeys(role).find((k) => Object.prototype.hasOwnProperty.call(map, k));
   return key ? map[key] : [];
 }
 function skillNotes(role) {
@@ -189,4 +193,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { generate, readRole, fill, size, verifyList, verifyValue, stackLabel, isMap, dirLabel, skillNotes, toolsFrontmatter, yamlScalar, quoteFrontmatter, VERIFY_KEYS };
+module.exports = { generate, readRole, fill, size, verifyList, verifyValue, stackLabel, isMap, dirLabel, skillNotes, toolsFrontmatter, roleKeys, yamlScalar, quoteFrontmatter, VERIFY_KEYS };

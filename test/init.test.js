@@ -10,6 +10,12 @@ const { init, contextStandard } = require('../lib/init');
 // 시작 문맥 표준(TOK-4): 이 시험의 역할(commit·pm·qa)에는 화면 역할이 없어 impeccable·artifact-*도 끈다
 const STD = contextStandard({ roles: [{ group: 'qa' }] });
 const OFF = Object.fromEntries(STD.pluginsOff.map((id) => [id, false]));
+// 화면 역할 판정은 template → group → 이름(접두사·끝 숫자 뗀 것) 중 하나로(gen-agents keepTools와 같은 키 찾기)
+assert.strictEqual(contextStandard({ roles: [{ name: 'AB-pm' }, { name: 'AB-frontend2' }] }).screen, true, 'group 없이 이름 frontend2');
+assert.strictEqual(contextStandard({ roles: [{ name: 'AB-design', summary: 'd', agent: true }] }).screen, true, 'group 없이 이름 design');
+assert.strictEqual(contextStandard({ roles: [{ name: 'AB-x', template: 'frontend' }] }).screen, true, 'template frontend');
+assert.strictEqual(contextStandard({ roles: [{ name: 'AB-pm' }, { name: 'AB-dev1' }, { name: 'AB-review' }] }).screen, false, '화면 역할 없음');
+assert.strictEqual(STD.screen, false, 'group qa');
 const CTX = { skillOverrides: Object.fromEntries(STD.skillsOff.map((id) => [id, 'off'])), disableClaudeAiConnectors: true };
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-init-'));
