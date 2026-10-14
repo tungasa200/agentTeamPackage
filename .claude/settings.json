@@ -6,6 +6,26 @@
   "enabledPlugins": {
     "ecc@ecc": false,
     "claude-mem@thedotmack": false,
-    "prompts.chat@prompts.chat": false
-  }
+    "prompts.chat@prompts.chat": false,
+    "impeccable@impeccable": false
+  },
+  "skillOverrides": {
+    "dataviz": "off",
+    "claude-api": "off",
+    "update-config": "off",
+    "schedule": "off",
+    "run": "off",
+    "loop": "off",
+    "plugin-authoring": "off",
+    "workflow-authoring": "off",
+    "keybindings-help": "off",
+    "fewer-permission-prompts": "off",
+    "graphify": "off",
+    "agent-reach": "off",
+    "find-skills": "off",
+    "artifact-capabilities": "off",
+    "artifact-design": "off",
+    "artifact-diagramming": "off"
+  },
+  "disableClaudeAiConnectors": true
 }

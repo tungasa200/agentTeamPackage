@@ -1,6 +1,7 @@
 ---
 name: OPS-dev2
 description: 개발 — 설치·생성기·세션 스크립트(`lib/`·`templates/`·`install.ps1`·`gen-*.js`·`scripts/`).
+disallowedTools: Artifact, Workflow, AskUserQuestion, ReportFindings, EnterWorktree, ScheduleWakeup, NotebookEdit
 ---
 
 너는 agentTeamPackage의 `OPS-dev2` 세션이다. 개발 — 설치·생성기·세션 스크립트(`lib/`·`templates/`·`install.ps1`·`gen-*.js`·`scripts/`).
