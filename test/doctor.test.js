@@ -439,7 +439,7 @@ try {
     json(cfg, ops);
   }
 
-  // 검증 명령(STK): 하나도 없으면 주의(install.ps1 detect 제안), { 폴더: 명령 }의 폴더가 없으면 주의
+  // 검증 명령(STK): 하나도 없으면 주의(install.ps1 detect --apply 뒤 gen 안내), { 폴더: 명령 }의 폴더가 없으면 주의
   {
     const pc = makePc('verify');
     const cfg = path.join(pc.repo, '.claude', 'wy-ops.json');
@@ -448,7 +448,7 @@ try {
     assert.ok(v().level === 'ok' && v().detail === '테스트', JSON.stringify(v()));
     for (const verify of [undefined, {}, { build: null, test: '  ' }, { test: { web: '' } }]) {
       json(cfg, { ...ops, verify });
-      assert.ok(v().level === 'warn' && v().detail.includes('검증 명령이 없습니다') && v().fix.includes('install.ps1" detect'), JSON.stringify(verify));
+      assert.ok(v().level === 'warn' && v().detail.includes('검증 명령이 없습니다') && v().fix.includes('install.ps1" detect --apply') && v().fix.includes('gen'), JSON.stringify(verify));
     }
     json(cfg, { ...ops, verify: { build: { '.': 'npm run build', web: 'npm run build' }, test: { server: './gradlew test' } } });
     let r = v();

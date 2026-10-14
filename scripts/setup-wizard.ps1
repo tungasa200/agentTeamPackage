@@ -293,7 +293,7 @@ function Set-ProjectFolder([string]$dir) {
 # 검증 명령 미리 보기(install.js detect, 읽기만). 2단계에서는 Node.js가 아직 없을 수 있다 → 못 하면 설치할 때 알아낸다고만 안내
 function Get-DetectLines([string]$dir) {
   if ($Demo) { return @('폴더의 파일로 알아낸 검증 명령입니다.', '알아낸 폴더: java-gradle(backend/), node(frontend/)', '빌드: ./gradlew build (backend/) · npm run build (frontend/)', '테스트: ./gradlew test (backend/) · npm test (frontend/)') }
-  if (-not (Test-Path -LiteralPath $dir)) { return @('아직 없는 폴더입니다. 검증 명령은 비워 두고, 설치 뒤 .claude/wy-ops.json의 verify에 적습니다.') }
+  if (-not (Test-Path -LiteralPath $dir)) { return @('아직 없는 폴더입니다. 검증 명령은 비워 두고, 코드가 생긴 뒤 install.ps1 detect --apply로 채웁니다.') }
   try {
     $psi = New-Object Diagnostics.ProcessStartInfo 'node'
     $psi.Arguments = (Q (Join-Path $Pkg 'lib\install.js')) + ' detect --project ' + (Q (Join-Path $dir '.'))  # 끝 '\'가 닫는 따옴표를 먹지 않게(C:\는 C:로 자르면 드라이브의 현재 폴더가 됨)
