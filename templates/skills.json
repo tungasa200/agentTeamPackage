@@ -1,0 +1,26 @@
+{
+  "_comment": "역할 파일의 '## 스킬 쓰는 때' 절(SKL, D-22·D-23). gen-agents.js가 읽어 templates/agent.md의 {{skillNotes}} 자리에 넣는다. 키는 역할 템플릿 이름: 역할의 template → group → 이름에서 접두사·끝 숫자를 뗀 것 순으로 찾는다. 없거나 빈 목록이면 절을 넣지 않는다. 설치를 확인할 수 없는 스킬은 '목록에 있으면' 조건으로 적는다.",
+  "notes": {
+    "backend": [
+      "커밋 요청 전에 Skill 도구로 `code-review`를 불러 바뀐 부분을 점검하고, 고친 점을 보고에 적는다.",
+      "인증·권한·입력 처리·비밀값을 건드렸으면 `security-review`도 불러 점검한다.",
+      "한 작업에서 100줄 넘게 고쳤으면 커밋 요청 전에 `simplify`를 불러 정리한다."
+    ],
+    "frontend": [
+      "커밋 요청 전에 Skill 도구로 `code-review`를 불러 바뀐 부분을 점검하고, 고친 점을 보고에 적는다.",
+      "인증·권한·입력 처리·비밀값을 건드렸으면 `security-review`도 불러 점검한다.",
+      "한 작업에서 100줄 넘게 고쳤으면 커밋 요청 전에 `simplify`를 불러 정리한다."
+    ],
+    "qa": [
+      "검증할 기준 커밋을 받으면 `git archive` 사본에서 Skill 도구로 `code-review`를 불러 바뀐 부분을 점검하고, 찾은 것을 보고에 적는다.",
+      "인증·권한이 바뀐 커밋이면 `security-review`도 불러 점검한다."
+    ],
+    "planner": [
+      "docx·xlsx 문서를 만들거나 고칠 때 스킬 목록에 `anthropic-skills:docx`·`anthropic-skills:xlsx`가 있으면 불러 쓰고, 없으면 직접 만든다.",
+      "사용자 설명서를 만들 때 스킬 목록에 `app-docs`가 있으면 불러 쓴다."
+    ],
+    "design": [],
+    "commit": [],
+    "browser": []
+  }
+}

@@ -70,14 +70,16 @@
 
 ## 함께 까는 도구
 
-설치 때 아래 도구를 함께 설치합니다. 고른 역할에 꼭 필요한 것(frontend·design → impeccable, qa·design·browser → agent-browser, 세션 교체 → ecc)은 끌 수 없고, 나머지는 끌 수 있습니다. 끈 항목은 `.claude/wy-ops.json`의 `extras.off`에 남고, doctor는 이를 '꺼짐'으로 표시합니다(실패 아님).
+설치 때 아래 도구를 함께 설치합니다. 고른 역할에 꼭 필요한 것(frontend·design → impeccable, qa·design·browser → agent-browser)은 끌 수 없고, 나머지는 끌 수 있습니다. 끈 항목은 `.claude/wy-ops.json`의 `extras.off`에 남고, doctor는 이를 '꺼짐'으로 표시합니다(실패 아님).
+
+플러그인 ecc·claude-mem·prompts.chat은 선택이고 기본은 꺼짐입니다. `init`이 프로젝트의 `.claude/settings.json` `enabledPlugins`에 셋을 `false`로 넣어 그 프로젝트에서 끕니다. 세션 저장·재개는 wy-ops가 만드는 스킬 `/wy-save-session`·`/wy-resume-session`이 맡습니다.
 
 | 항목 | 설치 방법 |
 |---|---|
 | agent-browser, agent-browser MCP | npm 전역 설치, `agent-browser install`, 사용자 범위 MCP 등록 |
 | 전역 스킬 agent-reach, find-skills, graphify | 각 출처의 설치 명령(pipx·npx) |
 | headroom MCP | pipx |
-| 플러그인 ecc, impeccable, claude-mem, prompts.chat | `claude plugin install` |
+| 플러그인 impeccable, ecc·claude-mem·prompts.chat(선택·기본 꺼짐) | `claude plugin install` |
 
 Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. 이 저장소에는 다른 사람의 코드를 두지 않고 설치 명령만 둡니다(`extras.json`, `plugins.json`).
 

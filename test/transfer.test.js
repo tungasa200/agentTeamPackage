@@ -50,6 +50,12 @@ try {
   put(path.join(cA, 'session-data', '2026-10-09-aaaa-session.tmp'), `# Session\n**Project:** my-app\n**Worktree:** ${projA}\n`);
   put(path.join(cA, 'session-data', '2026-10-09-bbbb-session.tmp'), `# Session\n**Worktree:** ${path.join(projA, '.claude', 'worktrees', 'x')}\n`);
   put(path.join(cA, 'session-data', '2026-10-09-cccc-session.tmp'), `# Session\n**Project:** other\n**Worktree:** ${path.join(tmp, 'other')}\n`);
+  // wy-save-session 템플릿의 파일 형식 머리말(Project=basename, Worktree=절대 경로)을 그대로 채운 파일도 이 프로젝트 것으로 골라야 한다
+  const saveTpl = fs.readFileSync(path.join(__dirname, '..', 'templates', 'skills', 'wy-save-session', 'SKILL.md'), 'utf8');
+  const tplHead = saveTpl.split(/\r?\n/).filter((l) => /^\*\*(Project|Worktree):\*\*/.test(l));
+  assert.strictEqual(tplHead.length, 2, `템플릿에 Project·Worktree 줄\n${tplHead.join('\n')}`);
+  const filled = tplHead.map((l) => (l.startsWith('**Worktree:**') ? `**Worktree:** ${projA}` : `**Project:** ${path.basename(projA)}`));
+  put(path.join(cA, 'session-data', '2026-10-09-dddd-session.tmp'), `# Session: 2026-10-09\n\n${filled.join('\n')}\n`);
   put(path.join(cA, 'session-data', 'token-usage.js'), '//\n');
   put(path.join(cA, 'projects', projectKey(projA), 'abc.jsonl'), '{"type":"user"}\n');
   const hookA = path.join(homeA, '.wy-tools', 'hooks', 'a.js');
@@ -71,6 +77,7 @@ try {
     'approvals/used/r0.json',
     'handoff/2026-10-09-aaaa-session.tmp',
     'handoff/2026-10-09-bbbb-session.tmp',
+    'handoff/2026-10-09-dddd-session.tmp',
     'memory/MEMORY.md',
     'memory/rule.md',
     'memory/sub/deep.md',
@@ -91,7 +98,7 @@ try {
 
   // 3. import → 새 경로에 놓이고 해시가 같다, 결정 r1에 used 표시
   const im = importState({ project: projB, zip: out, home: homeB, include: P });
-  assert.strictEqual(im.files.length, 11);
+  assert.strictEqual(im.files.length, 12);
   assert.strictEqual(im.backupDir, null);
   const memB = path.join(homeB, '.claude', 'projects', projectKey(projB), 'memory');
   // settings.local.json은 경로를 바꿔 쓰므로 해시 대신 6에서 내용을 본다

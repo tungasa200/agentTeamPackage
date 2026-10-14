@@ -62,6 +62,16 @@ try {
   console.log('gen-agents 필터 검사 통과');
 }
 
+// '## 스킬 쓰는 때'(templates/skills.json, SKL D-23): template → group → 이름(접두사·끝 숫자 뗌) 순, 없거나 빈 목록이면 빈 문자열
+{
+  const { skillNotes } = require('./gen-agents');
+  assert.ok(/^## 스킬 쓰는 때\n- .*code-review/.test(skillNotes({ name: 'AB-backend2' })) && skillNotes({ name: 'AB-backend2' }).endsWith('\n\n'));
+  assert.ok(skillNotes({ name: 'AB-x', group: 'qa' }).includes('git archive'));
+  assert.ok(skillNotes({ name: 'AB-x', template: 'frontend', group: 'qa' }).includes('simplify'), 'template이 group보다 먼저');
+  for (const role of [{ name: 'AB-commit' }, { name: 'AB-design' }, { name: 'AB-search' }, { name: 'AB-pm' }]) assert.strictEqual(skillNotes(role), '', role.name);
+  console.log('gen-agents 스킬 절 검사 통과');
+}
+
 // 머리글 따옴표: description에 ': '가 들어가면 YAML이 깨져 claude --agent가 역할을 못 찾던 결함(2026-10-09).
 // 위험한 값만 큰따옴표로 감싸고, 안전한 값과 본문의 {{description}}은 그대로 둔다.
 {
@@ -106,6 +116,12 @@ try {
     assert.strictEqual(head[1], 'name: pm-ops');
     assert.ok(/^description: "P: x의 PM\(/.test(head[2]), head[2]);
     assert.strictEqual(head[3], '---');
+    // 함께 만드는 스킬(templates/skills/, SKL D-22): 설정값이 채워지고 /ecc: 명령에 기대지 않음
+    const extra = require('./gen-skill').generateExtra(r3);
+    assert.deepStrictEqual(extra.map((e) => e.name), ['wy-resume-session', 'wy-save-session']);
+    for (const e of extra) {
+      assert.ok(e.text.startsWith(`---\nname: ${e.name}\n`) && e.text.includes('PM') && e.text.includes('a.md') && !/\{\{|\/ecc:/.test(e.text), e.name);
+    }
   } finally {
     fs.rmSync(r3, { recursive: true, force: true });
   }

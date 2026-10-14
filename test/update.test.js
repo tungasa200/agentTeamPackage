@@ -54,7 +54,7 @@ try {
   const first = update({ project, version: '0.6.0' });
   // session.ps1 코어 템플릿은 WY-backend2가 옮겨 오는 중이라, 있을 때만 대상이다
   const hasPs1 = fs.existsSync(path.join(T, 'pm-ops', 'scripts', 'session.ps1'));
-  const want = ['.claude/agents/SB-backend.md', '.claude/agents/SB-browser.md', '.claude/agents/SB-commit.md', '.claude/agents/SB-design.md', '.claude/agents/SB-frontend.md', '.claude/agents/SB-planner.md', '.claude/agents/SB-qa.md', '.claude/skills/pm-ops/SKILL.md', ...(hasPs1 ? ['.claude/skills/pm-ops/scripts/session.ps1'] : [])];
+  const want = ['.claude/agents/SB-backend.md', '.claude/agents/SB-browser.md', '.claude/agents/SB-commit.md', '.claude/agents/SB-design.md', '.claude/agents/SB-frontend.md', '.claude/agents/SB-planner.md', '.claude/agents/SB-qa.md', '.claude/skills/pm-ops/SKILL.md', ...(hasPs1 ? ['.claude/skills/pm-ops/scripts/session.ps1'] : []), '.claude/skills/wy-resume-session/SKILL.md', '.claude/skills/wy-save-session/SKILL.md'];
   assert.deepStrictEqual(first.map((r) => r.file).sort(), want, '생성 파일 목록(pm은 역할 파일 없음)');
   assert.ok(first.every((r) => r.action === 'create'), '처음엔 모두 create');
   const agent = fs.readFileSync(path.join(project, '.claude', 'agents', 'SB-commit.md'), 'utf8');

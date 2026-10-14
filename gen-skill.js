@@ -8,6 +8,8 @@
 //   <저장소>/.claude/ops/pm-ops.project.md    프로젝트 부록(있으면 코어 뒤에 그대로 붙인다)
 //   tools/wy-ops/templates/pm-ops/scripts/*   스킬 스크립트(session.ps1). SKILL.md 옆 scripts/에 바이트 그대로 복사, --check 대상
 //     session.ps1을 고칠 때는 이 템플릿을 고치고 생성한다(.claude/skills/pm-ops/scripts/는 생성물)
+//   tools/wy-ops/templates/skills/<이름>/SKILL.md  함께 만드는 스킬(wy-save-session·wy-resume-session, D-23). 설정 자리표시자를 채워
+//     pm-ops 폴더와 나란히 .claude/skills/<이름>/SKILL.md에 쓴다(부록 없음), --check 대상
 // 실행할 때 부록을 따로 읽게 하면 빠뜨릴 수 있어, 한 파일로 합친다.
 const fs = require('fs');
 const path = require('path');
@@ -16,6 +18,7 @@ const { fill, quoteFrontmatter } = require('./gen-agents');
 
 const CORE = path.join(__dirname, 'templates', 'pm-ops', 'SKILL.md');
 const SCRIPTS = path.join(__dirname, 'templates', 'pm-ops', 'scripts');
+const EXTRA = path.join(__dirname, 'templates', 'skills');
 const read = (f) => fs.readFileSync(f, 'utf8').replace(/^﻿/, '').replace(/\r\n/g, '\n');
 
 function generate(root) {
@@ -25,6 +28,17 @@ function generate(root) {
   const addendum = path.join(root, '.claude', 'ops', 'pm-ops.project.md');
   if (fs.existsSync(addendum)) text = text.replace(/\n*$/, '\n\n') + read(addendum).replace(/\n*$/, '\n');
   return text;
+}
+
+// 함께 만드는 스킬: [{ name, text }]
+function generateExtra(root) {
+  const ops = loadOpsConfig(root);
+  if (!ops) throw new Error(`${root}/.claude/wy-ops.json을 읽지 못했습니다`);
+  if (!fs.existsSync(EXTRA)) return [];
+  return fs.readdirSync(EXTRA).sort().filter((n) => fs.existsSync(path.join(EXTRA, n, 'SKILL.md'))).map((n) => {
+    const src = path.join(EXTRA, n, 'SKILL.md');
+    return { name: n, text: quoteFrontmatter(fill(read(src), ops, src)) };
+  });
 }
 
 function main() {
@@ -37,18 +51,21 @@ function main() {
   if (!fs.existsSync(path.join(root, '.claude', 'wy-ops.json'))) throw new Error('프로젝트 설정(.claude/wy-ops.json)을 찾지 못했습니다. --root로 저장소를 지정하세요');
   const file = path.resolve(at('--out') || path.join(root, '.claude', 'skills', 'pm-ops', 'SKILL.md'));
   const text = generate(root);
+  const extras = generateExtra(root).map((e) => ({ file: path.join(path.dirname(path.dirname(file)), e.name, 'SKILL.md'), text: e.text }));
   // 스킬 스크립트(session.ps1 등): 코어 템플릿의 scripts/를 SKILL.md 옆 scripts/에 그대로 둔다. .ps1은 BOM이 필요하므로 바이트 그대로 복사
   const scripts = fs.existsSync(SCRIPTS) ? fs.readdirSync(SCRIPTS).sort().map((n) => ({ src: path.join(SCRIPTS, n), dest: path.join(path.dirname(file), 'scripts', n) })) : [];
   if (check) {
     let same = true;
-    const cur = fs.existsSync(file) ? read(file) : null;
-    if (cur === text) console.log(`같음  ${file}`);
-    else {
-      same = false;
-      const a = text.split('\n');
-      const b = (cur || '').split('\n');
-      const i = a.findIndex((l, k) => l !== b[k]);
-      console.log(cur === null ? `없음  ${file}` : `다름  ${file} (${i + 1}행)\n  생성: ${a[i]}\n  지금: ${b[i]}`);
+    for (const g of [{ file, text }, ...extras]) {
+      const cur = fs.existsSync(g.file) ? read(g.file) : null;
+      if (cur === g.text) console.log(`같음  ${g.file}`);
+      else {
+        same = false;
+        const a = g.text.split('\n');
+        const b = (cur || '').split('\n');
+        const i = a.findIndex((l, k) => l !== b[k]);
+        console.log(cur === null ? `없음  ${g.file}` : `다름  ${g.file} (${i + 1}행)\n  생성: ${a[i]}\n  지금: ${b[i]}`);
+      }
     }
     for (const s of scripts) {
       const ok = fs.existsSync(s.dest) && sameText(fs.readFileSync(s.dest), fs.readFileSync(s.src));
@@ -58,10 +75,12 @@ function main() {
     process.exit(same ? 0 : 1);
   }
   // 이미 있는 파일은 그 줄바꿈을 따른다(gen-agents.js와 같음)
-  const crlf = fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('\r\n');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, crlf ? text.replace(/\n/g, '\r\n') : text, 'utf8');
-  console.log(`썼음  ${file}${crlf ? ' (CRLF)' : ''}`);
+  for (const g of [{ file, text }, ...extras]) {
+    const crlf = fs.existsSync(g.file) && fs.readFileSync(g.file, 'utf8').includes('\r\n');
+    fs.mkdirSync(path.dirname(g.file), { recursive: true });
+    fs.writeFileSync(g.file, crlf ? g.text.replace(/\n/g, '\r\n') : g.text, 'utf8');
+    console.log(`썼음  ${g.file}${crlf ? ' (CRLF)' : ''}`);
+  }
   for (const s of scripts) {
     if (fs.existsSync(s.dest) && sameText(fs.readFileSync(s.dest), fs.readFileSync(s.src))) continue; // 줄바꿈만 다른 체크아웃은 그대로 둔다
     fs.mkdirSync(path.dirname(s.dest), { recursive: true });
@@ -69,7 +88,7 @@ function main() {
     console.log(`썼음  ${s.dest}`);
   }
   // 기본 위치에 썼으면 lock의 SKILL.md·스크립트 항목도 맞춘다(--out은 생성물이 아님)
-  if (!at('--out')) require('./lib/lock').recordWritten(root, [file, ...scripts.map((s) => s.dest)]);
+  if (!at('--out')) require('./lib/lock').recordWritten(root, [file, ...extras.map((g) => g.file), ...scripts.map((s) => s.dest)]);
 }
 
 // 줄바꿈(CRLF 체크아웃)만 다르면 같은 것으로 본다. BOM은 비교에 넣는다(.ps1에 필요)
@@ -84,4 +103,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { generate };
+module.exports = { generate, generateExtra };

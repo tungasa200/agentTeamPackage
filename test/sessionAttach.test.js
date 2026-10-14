@@ -122,11 +122,14 @@ try {
   write([{ id: 'ide1', name: 'AB-pm', kind: 'interactive', status: 'idle', pid: 101, startedAt: 1, sessionId: 'e' }]);
   out = ps(['start-pm', `'${handoff}'`]);
   assert.ok(/BG --bg --name AB-pm /.test(out) && !/--agent/.test(out), `pm은 --agent 없이 --bg\n${out}`);
-  assert.ok(out.includes(`/ecc:resume-session ${hp}`) && /ListAgents/.test(out) && /pm-ops/.test(out), `시작 지시: 인수인계·pm-ops·ListAgents\n${out}`);
+  assert.ok(out.includes(`/wy-resume-session ${hp}`) && /ListAgents/.test(out) && /pm-ops/.test(out), `시작 지시: 인수인계·pm-ops·ListAgents\n${out}`);
+  // KI-05: pm-ops 스킬 호출이 첫 동작(인수인계 불러오기보다 앞)
+  assert.ok(/가장 먼저 Skill 도구로 pm-ops 스킬을 불러오세요/.test(out) && out.indexOf('Skill 도구로 pm-ops') < out.indexOf('/wy-resume-session'), `시작 지시: pm-ops 스킬 먼저\n${out}`);
   assert.ok(/같은 AB-pm 이름이 보이면 교체 직후 남은 항목/.test(out) && /session\.ps1 list의 실행 중\(pid 있음\) 항목으로만 판단/.test(out) && /AB-pm 이름으로 SendMessage를 보내지 마세요/.test(out), `시작 지시: 교체 직후 남은 pm은 중복이 아님\n${out}`);
   assert.ok(/대화형 세션\(ide1\)의 창을 닫으세요/.test(out), `이전 대화형 pm 안내\n${out}`);
   out = ps(['start-pm']);
   assert.ok(/BG --bg --name AB-pm /.test(out) && !/resume-session/.test(out), `인수인계 없이\n${out}`);
+  assert.ok(out.indexOf('Skill 도구로 pm-ops') >= 0 && out.indexOf('Skill 도구로 pm-ops') < out.indexOf('CLAUDE.md와'), `인수인계 없이도 pm-ops 스킬 먼저\n${out}`);
   // start-pm latest(0.10.0): 가장 최근 pm 인수인계(USERPROFILE의 .claude/session-data), 없으면 인수인계 없이
   const home = path.join(tmp, 'home');
   const sd = path.join(home, '.claude', 'session-data');
@@ -140,7 +143,7 @@ try {
   fs.writeFileSync(path.join(sd, '2026-10-11-AB-qa-session.tmp'), 'x');
   fs.utimesSync(older, new Date(2026, 9, 9), new Date(2026, 9, 9));
   out = ps(['start-pm', 'latest'], { USERPROFILE: home });
-  assert.ok(out.includes(`/ecc:resume-session ${newer.replace(/\\/g, '/')}`), `latest는 가장 최근 pm 인수인계(다른 역할 제외)\n${out}`);
+  assert.ok(out.includes(`/wy-resume-session ${newer.replace(/\\/g, '/')}`), `latest는 가장 최근 pm 인수인계(다른 역할 제외)\n${out}`);
   out = ps(['start-pm', `'${path.join(tmp, 'none-such.tmp')}'`]);
   assert.ok(/인수인계 파일이 없습니다/.test(out) && !/BG /.test(out), `없는 경로는 거부\n${out}`);
   // 이미 백그라운드 pm이 돌면 거부, -Force면 띄우고 이전 것을 멈추라고 알림
@@ -180,7 +183,7 @@ try {
 
   // pm-cmd: 원격 운용 순서(start-pm -Force → 이전 pm 종료 → attach)와 예전 대화형 한 줄
   out = ps(['pm-cmd', `'${handoff}'`]);
-  assert.ok(out.includes(`start-pm '${hp}' -Force`) && /attach AB-pm/.test(out) && out.includes(`claude.cmd --name AB-pm "/ecc:resume-session ${hp}"`), `pm-cmd 안내\n${out}`);
+  assert.ok(out.includes(`start-pm '${hp}' -Force`) && /attach AB-pm/.test(out) && out.includes(`claude.cmd --name AB-pm "/wy-resume-session ${hp}"`), `pm-cmd 안내\n${out}`);
 } finally {
   rmTree(tmp);
 }

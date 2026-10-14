@@ -4,7 +4,7 @@
 #   session.ps1 start <역할> [지시]     멈춘 세션이 있으면 대화를 이어서, 없으면 역할 파일로 새로 시작한다
 #                                       멈춘 세션의 컨텍스트가 세션 교체 기준(토큰) 이상이면 재시작하지 않고 rotate를 권한다(-Force로 강행)
 #   session.ps1 stop <역할>             멈춘다. 대화는 남아 start로 이어진다. pm 역할도 된다(다시 띄우기는 start-pm)
-#   session.ps1 prep <역할>             세션 교체 준비: 진행 중인 것만 save-session으로 저장하라고 지시한다
+#   session.ps1 prep <역할>             세션 교체 준비: 진행 중인 것만 wy-save-session으로 저장하라고 지시한다
 #   session.ps1 rotate <역할> [경로]    세션 교체: 이전 세션을 멈추고 역할 파일(+인수인계 경로)로 새 세션을 시작한다
 #   session.ps1 adopt <역할> <세션ID>   닫은 VS Code 세션의 대화를 백그라운드로 옮긴다
 #   session.ps1 pm-cmd [경로]           pm 세션 교체용: 사용자가 새 터미널에 붙여 넣을 명령을 출력한다
@@ -150,7 +150,7 @@ function Start-Bg([string[]]$argv) {
 }
 # 새 세션: 역할 파일(.claude/agents/<역할>.md)을 --agent로 싣는다. 인수인계 경로가 있으면 그것부터 불러온다
 function Start-New($name, $handoff) {
-  $first = if ($handoff) { "/ecc:resume-session $($handoff -replace '\\','/')" }
+  $first = if ($handoff) { "/wy-resume-session $($handoff -replace '\\','/')" }
            else { "[$PmRole] 새 세션입니다. 역할 파일 지시대로 CLAUDE.md와 $($ProgressDoc)(역할별 다음 할 일의 내 줄)를 읽고, $($PmRole)에 SendMessage로 '$name 시작, 다음 할 일: …' 한 줄을 보낸 뒤 지시를 기다리세요." }
   Start-Bg @('--bg', '--agent', $name, '--name', $name, $first)
 }
@@ -216,7 +216,7 @@ switch ($Cmd) {
     claude stop $s.id
   }
   'prep' {
-    $msg = "[$PmRole 세션 교체 준비] 컨텍스트가 길어져 새 세션으로 교체합니다. 지금 하던 일을 멈출 수 있는 지점까지만 마무리하고, 진행 중인 것(미커밋 파일, 반쯤 한 작업, 막힌 이유)만 /ecc:save-session 으로 저장하세요. short-id는 $Role (같은 날 두 번째면 $Role-2). 역할 설명과 끝난 일은 적지 마세요. 진행 중인 것이 하나도 없으면 저장하지 말고 '진행 중 없음'이라고만 알리세요. 끝나면 $($PmRole)에 SendMessage로 저장 경로 또는 '진행 중 없음' 한 줄."
+    $msg = "[$PmRole 세션 교체 준비] 컨텍스트가 길어져 새 세션으로 교체합니다. 지금 하던 일을 멈출 수 있는 지점까지만 마무리하고, 진행 중인 것(미커밋 파일, 반쯤 한 작업, 막힌 이유)만 /wy-save-session 으로 저장하세요. short-id는 $Role (같은 날 두 번째면 $Role-2). 역할 설명과 끝난 일은 적지 마세요. 진행 중인 것이 하나도 없으면 저장하지 말고 '진행 중 없음'이라고만 알리세요. 끝나면 $($PmRole)에 SendMessage로 저장 경로 또는 '진행 중 없음' 한 줄."
     $s = Get-Bg $Role
     if ($s -and (Test-Running $s)) { "실행 중인 세션입니다. 이 문구를 SendMessage로 보내세요:"; $msg; break }
     if (-not $s) { "$Role 세션이 없습니다. 세션 교체 없이 start 하세요."; break }
@@ -245,7 +245,7 @@ switch ($Cmd) {
     # 경로는 두 번째 자리($Role)로 들어온다(pm-cmd는 역할을 받지 않음)
     $h = @($Prompt, $Role) | Where-Object { $_ } | Select-Object -First 1
     if (-not $h) { $h = (Get-Handoff $PmRole).FullName }
-    if (-not $h) { throw "$PmRole 인수인계 파일이 없습니다. 먼저 /ecc:save-session (short-id $PmRole)을 실행하세요." }
+    if (-not $h) { throw "$PmRole 인수인계 파일이 없습니다. 먼저 /wy-save-session (short-id $PmRole)을 실행하세요." }
     $hp = $h -replace '\\','/'
     "pm 세션 교체(원격 운용: pm은 호스트의 백그라운드 세션, 노트북을 닫아도 계속 돎):"
     "  1. 인수인계 저장(끝남): $hp"
@@ -254,7 +254,7 @@ switch ($Cmd) {
     "  4. 붙기: & '$PSCommandPath' attach $PmRole"
     "호스트 앞에서 대화형으로 이어 갈 때(예전 방식): 새 터미널에서 아래 한 줄, 이전 pm 창은 닫기"
     # 기본 실행 정책에서는 npm의 claude.ps1이 막히므로 claude.cmd로 부른다
-    "  cd $Repo; claude.cmd --name $PmRole `"/ecc:resume-session $hp`""
+    "  cd $Repo; claude.cmd --name $PmRole `"/wy-resume-session $hp`""
   }
   'start-pm' {
     # 경로는 두 번째 자리($Role)로 들어온다. 'none'이나 빈 값이면 인수인계 없이 시작
@@ -265,8 +265,10 @@ switch ($Cmd) {
     $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
     $bg = @($live | Where-Object { $_.kind -eq 'background' })
     if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force"; break }
-    $load = if ($h) { "먼저 /ecc:resume-session $($h -replace '\\','/') 로 인수인계를 불러오고, " } else { "먼저 CLAUDE.md와 $($ProgressDoc)를 읽고, " }
-    $first = "[$PmRole 시작] 이 세션은 호스트에서 백그라운드로 도는 $PmRole(개발 총괄)입니다. 사용자는 session.ps1 attach $PmRole 로 붙어 대화합니다. pm-ops 스킬을 따르세요. " +
+    $load = if ($h) { "다음으로 /wy-resume-session $($h -replace '\\','/') 로 인수인계를 불러오고, " } else { "다음으로 CLAUDE.md와 $($ProgressDoc)를 읽고, " }
+    # pm은 역할 파일이 없어 이 문장이 지침의 전부다. '따르세요'만으로는 스킬을 부르지 않으므로(KI-05) 호출을 첫 동작으로 못 박는다
+    $first = "[$PmRole 시작] 이 세션은 호스트에서 백그라운드로 도는 $PmRole(개발 총괄)입니다. 사용자는 session.ps1 attach $PmRole 로 붙어 대화합니다. " +
+             "가장 먼저 Skill 도구로 pm-ops 스킬을 불러오세요(스킬 본문을 읽기 전에는 다른 일을 하지 않습니다). 이후 pm-ops 스킬을 따릅니다. " +
              $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요. " +
              "ListAgents에 자기 말고 같은 $PmRole 이름이 보이면 교체 직후 남은 항목입니다. 중복 $PmRole 여부는 session.ps1 list의 실행 중(pid 있음) 항목으로만 판단하고, 실행 중 $PmRole 이 하나면 경고하지 않습니다. $PmRole 이름으로 SendMessage를 보내지 마세요."
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다

@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { rmTree } = require('../lib/fsx');
-const { load, plan, check, install } = require('../lib/extras');
+const { load, plan, check, install, projectPluginsOff } = require('../lib/extras');
 
 const roles = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'roles.json'), 'utf8'));
 const GROUPS = new Set(['rotation', ...roles.groups.map((g) => g.id)]);
@@ -32,7 +32,8 @@ assert.throws(() => plan({ items: [{ id: 'a', needs: ['zz'], requiredFor: [], ch
 const opsOf = (...gs) => ({ roles: gs.map((g) => ({ name: `AB-${g}`, group: g })) });
 const by = (p) => Object.fromEntries(p.map((e) => [e.id, e]));
 let p = by(plan({ ops: opsOf('pm', 'commit', 'backend') }));
-assert.ok(p.ecc.required && p.ecc.on, 'ecc는 늘 필수(rotation)');
+assert.ok(!p.ecc.required && !p.ecc.on, 'ecc는 선택·기본 꺼짐(SKL D-22)');
+assert.ok(!p['claude-mem'].on && !p['prompts.chat'].on, 'claude-mem·prompts.chat 기본 꺼짐');
 assert.ok(!p['agent-browser'].required && p['agent-browser'].on, 'qa·design·browser 없으면 선택이지만 기본 켜짐');
 p = by(plan({ ops: { ...opsOf('qa'), extras: { off: ['agent-browser', 'claude-mem'] } } }));
 assert.ok(p['agent-browser'].required && p['agent-browser'].on, 'qa가 있으면 agent-browser는 끌 수 없음');
@@ -57,7 +58,8 @@ try {
   const run = (cmd, args) => {
     const line = [cmd, ...args].join(' ');
     calls.push(line);
-    if (line === 'claude plugin list --json') return { status: 0, stdout: JSON.stringify([{ id: 'ecc@ecc', enabled: true }, { id: 'impeccable@impeccable', enabled: false }]) };
+    // projectEnabled는 '프로젝트 settings가 켜는가'라 설정에 언급이 없어도 false다 — 끔(표준) 판정에 쓰면 안 됨
+    if (line === 'claude plugin list --json') return { status: 0, stdout: JSON.stringify([{ id: 'ecc@ecc', enabled: true, projectEnabled: false }, { id: 'impeccable@impeccable', enabled: false, projectEnabled: false }]) };
     if (failing.has(cmd)) return { status: 1, stderr: 'boom\nlast line' };
     if (/--version$/.test(line)) return { status: have.has(line) ? 0 : 1 };
     return { status: 0 };
@@ -66,14 +68,31 @@ try {
   assert.strictEqual(st.python.state, 'ok');
   assert.strictEqual(st['find-skills'].state, 'ok', 'path 점검');
   assert.strictEqual(st.headroom.state, 'ok', 'mcp 점검');
-  assert.strictEqual(st.ecc.state, 'ok', 'plugin 점검');
-  assert.strictEqual(st.impeccable.state, 'missing');
+  assert.strictEqual(st.ecc.state, 'off', 'ecc는 기본 꺼짐');
+  assert.strictEqual(st.impeccable.state, 'missing', 'projectEnabled false·설정에 없음 → 끔(표준)이 아님');
   assert.match(st.impeccable.detail, /꺼져 있음/);
   assert.strictEqual(st['agent-browser'].state, 'missing');
   assert.strictEqual(st.graphify.state, 'missing');
   assert.strictEqual(st['agent-browser-mcp'].state, 'missing', '프로젝트 범위 등록은 사용자 범위로 치지 않음');
   assert.strictEqual(st['claude-mem'].state, 'off');
   assert.strictEqual(calls.filter((c) => c === 'claude plugin list --json').length, 1, 'plugin 목록은 한 번만 읽음');
+  const eccOn = Object.fromEntries(check({ run, home }).map((r) => [r.id, r])).ecc;
+  assert.strictEqual(eccOn.state, 'ok', 'plugin 점검');
+  assert.ok(!/프로젝트에서 끔/.test(eccOn.detail || ''), 'projectEnabled false만으로는 끔(표준)이 아님');
+
+  // 프로젝트에서 끈 플러그인(enabledPlugins false)은 설치돼 있으면 ok(표준). local이 shared를 덮는다
+  const proj = path.join(home, 'proj');
+  fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(proj, '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: { 'impeccable@impeccable': false, 'ecc@ecc': false } }));
+  fs.writeFileSync(path.join(proj, '.claude', 'settings.local.json'), JSON.stringify({ enabledPlugins: { 'ecc@ecc': true } }));
+  assert.deepStrictEqual([...projectPluginsOff(proj)], ['impeccable@impeccable']);
+  assert.deepStrictEqual([...projectPluginsOff(null)], []);
+  const sp = Object.fromEntries(check({ run, home, project: proj }).map((r) => [r.id, r]));
+  assert.strictEqual(sp.impeccable.state, 'ok');
+  assert.match(sp.impeccable.detail, /프로젝트에서 끔/);
+  calls.length = 0;
+  assert.strictEqual(install(['impeccable'], { run, home, project: proj })[0].state, 'ok', '프로젝트에서 끈 것은 다시 깔지 않음');
+  assert.ok(!calls.some((c) => /plugin install/.test(c)));
 
   calls.length = 0;
   let res = Object.fromEntries(install(['python', 'graphify', 'agent-browser', 'claude-mem', 'ecc'], { run, home }).map((r) => [r.id, r]));

@@ -50,7 +50,7 @@ function makePc(name, { home: homeName = 'home' } = {}) {
   json(settingsFile, { permissions: { deny: template.deny, allow: ['WebSearch'] }, hooks });
   // 플러그인 밖의 함께 까는 도구는 기본 시험에서 꺼 둔다(따로 시험)
   json(path.join(repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'X-pm', commitRole: 'X-commit', roles: [{ name: 'X-pm' }, { name: 'X-commit', agent: true }], approvals: { namespace: 'p' }, extras: { off: NON_PLUGIN } });
-  json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000 });
+  json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false } });
   write(path.join(repo, '.claude', 'agents', 'X-commit.md'), '# X-commit\n경로는 ~/.claude/wy-approvals\n');
   write(path.join(repo, '.gitignore'), ['node_modules', '.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*'].join('\n') + '\n');
   const approvalsRoot = path.join(home, '.claude', 'wy-approvals', 'p');
@@ -101,13 +101,18 @@ function extrasCases() {
   // 역할 필수가 아니면(선택) 없을 때 주의
   json(cfg, { ...ops0, extras: { off: NON_PLUGIN.filter((id) => !/^agent-browser/.test(id)) } });
   assert.strictEqual(byId(doctor.checkAll(pc.opts)).extras.level, 'warn', '선택 항목 없음은 주의');
-  // 끈 선택 플러그인은 '꺼짐'(실패 아님)
+  // 끈 선택 플러그인은 '꺼짐'(실패 아님). 프로젝트 settings에서 끈 것(표준)은 그보다 먼저 '프로젝트에서 끔'
+  json(path.join(pc.repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000 });
   json(cfg, { ...ops0, extras: { off: [...NON_PLUGIN, 'claude-mem'] } });
   pc.state.plugins = pc.state.plugins.filter((p) => p.id !== 'claude-mem@thedotmack');
   r = byId(doctor.checkAll(pc.opts)).plugins;
   assert.ok(r.level === 'ok' && r.detail.includes('claude-mem@thedotmack 꺼짐(설정)'), JSON.stringify(r));
-  // 켜 둔(기본) 플러그인이 없으면 실패
+  // 기본 꺼짐(extras default false)도 '꺼짐'
   json(cfg, ops0);
+  r = byId(doctor.checkAll(pc.opts)).plugins;
+  assert.ok(r.level === 'ok' && r.detail.includes('claude-mem@thedotmack 꺼짐(설정)'), JSON.stringify(r));
+  // 켜 둔(기본) 플러그인이 없으면 실패
+  pc.state.plugins = pc.state.plugins.filter((p) => p.id !== 'impeccable@impeccable');
   assert.strictEqual(byId(doctor.checkAll(pc.opts)).plugins.level, 'fail', '켜진 플러그인 없음은 실패');
 }
 
@@ -252,16 +257,39 @@ try {
     const pops = JSON.parse(fs.readFileSync(pcfg, 'utf8'));
     json(pcfg, { ...pops, extras: { off: [...pops.extras.off, 'prompts.chat'] } });
     assert.strictEqual(byId(doctor.checkAll(pc.opts)).plugins.level, 'ok', '끈 선택 플러그인은 없어도 통과');
-    const ecc = pc.state.plugins.find((p) => p.id === 'ecc@ecc');
-    for (const newer of ['9.9.9', '2.2.10', '2.3.0']) {
-      ecc.version = newer;
+    const imp = pc.state.plugins.find((p) => p.id === 'impeccable@impeccable');
+    for (const newer of ['9.9.9', '4.4.10', '4.5.0']) {
+      imp.version = newer;
       assert.strictEqual(byId(doctor.checkAll(pc.opts)).plugins.level, 'ok', `최소보다 새 버전 ${newer}은 통과`);
     }
-    ecc.version = '2.1.9';
+    imp.version = '4.3.9';
     let r = byId(doctor.checkAll(pc.opts)).plugins;
-    assert.ok(r.level === 'warn' && r.detail.includes('ecc@ecc 2.1.9(최소 2.2.2)'), '최소보다 낮으면 주의');
-    ecc.version = 'unknown';
+    assert.ok(r.level === 'warn' && r.detail.includes('impeccable@impeccable 4.3.9(최소 4.4.0)'), '최소보다 낮으면 주의');
+    imp.version = 'unknown';
     assert.strictEqual(byId(doctor.checkAll(pc.opts)).plugins.level, 'ok', '읽을 수 없는 버전은 낮다고 보지 않음');
+    // 프로젝트에서 끈 플러그인(표준)은 버전이 낮아도·꺼져 있어도 실패·주의가 아님
+    const ecc = pc.state.plugins.find((p) => p.id === 'ecc@ecc');
+    ecc.version = '0.0.1';
+    ecc.enabled = false;
+    r = byId(doctor.checkAll(pc.opts)).plugins;
+    assert.ok(r.level === 'ok' && r.detail.includes('ecc@ecc 프로젝트에서 끔(표준)'), `프로젝트에서 끔은 통과\n${r.detail}`);
+    // CLI projectEnabled('프로젝트 settings가 켜는가')는 판정에 쓰지 않는다: 설정에 없으면 끔(표준)이 아님
+    imp.version = '4.5.0';
+    imp.projectEnabled = false;
+    r = byId(doctor.checkAll(pc.opts)).plugins;
+    assert.ok(r.level === 'ok' && r.detail.includes('impeccable@impeccable 4.5.0') && !r.detail.includes('impeccable@impeccable 프로젝트에서 끔'), `projectEnabled false·설정에 없음은 끔(표준) 아님\n${r.detail}`);
+    imp.enabled = false;
+    r = byId(doctor.checkAll(pc.opts)).plugins;
+    assert.ok(r.level === 'fail' && r.detail.includes('impeccable@impeccable 꺼져 있음'), `impeccable 꺼짐은 끔(표준)이 아니라 실패\n${r.detail}`);
+    imp.enabled = true;
+    delete imp.projectEnabled;
+    // plugins-standard: 표준 값이 없으면 주의, 깨진 파일도 주의
+    const sfile = path.join(pc.repo, '.claude', 'settings.json');
+    json(sfile, { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': true } });
+    r = byId(doctor.checkAll(pc.opts))['plugins-standard'];
+    assert.ok(r.level === 'warn' && r.detail.includes('claude-mem@thedotmack') && !r.detail.includes('ecc@ecc,') && / init /.test(r.fix), `표준 값 없음은 주의\n${JSON.stringify(r)}`);
+    write(sfile, '{ broken');
+    assert.strictEqual(byId(doctor.checkAll(pc.opts))['plugins-standard'].level, 'warn', '깨진 settings.json은 주의');
     pc.state.plugins = pc.state.plugins.filter((p) => p.id !== 'impeccable@impeccable');
     r = byId(doctor.checkAll(pc.opts)).plugins;
     assert.ok(r.level === 'fail' && r.fix.includes('claude plugin install impeccable@impeccable'), '필수 없음은 실패');

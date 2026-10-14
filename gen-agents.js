@@ -68,6 +68,17 @@ function quoteFrontmatter(text) {
     '---\n' + head.replace(/^(name|description): (.*)$/gm, (l, k, v) => `${k}: ${yamlScalar(v)}`) + '---\n');
 }
 
+// '## 스킬 쓰는 때' 절(templates/skills.json, SKL D-23): 역할의 template → group → 이름에서 접두사·끝 숫자를 뗀 것 순으로 키를 찾는다.
+// 템플릿의 {{skillNotes}}는 다음 절 제목 바로 앞에 붙어 있으므로, 절이 있으면 끝에 빈 줄까지 넣고 없으면 빈 문자열
+const SKILLS = path.join(__dirname, 'templates', 'skills.json');
+function skillNotes(role) {
+  const notes = fs.existsSync(SKILLS) ? JSON.parse(read(SKILLS)).notes || {} : {};
+  const short = String(role.name || '').replace(/^[A-Za-z0-9]+-/, '').replace(/\d+$/, '');
+  const key = [role.template, role.group, short].find((k) => k && Object.prototype.hasOwnProperty.call(notes, k));
+  const lines = key ? notes[key] : [];
+  return lines.length ? `## 스킬 쓰는 때\n${lines.map((l) => `- ${l}`).join('\n')}\n\n` : '';
+}
+
 const size = (mb) => (Number(mb) % 1024 === 0 ? `${Number(mb) / 1024}GB` : `${Number(mb)}MB`);
 
 function fill(template, values, where) {
@@ -92,7 +103,7 @@ function generate(root) {
     const roleFile = path.join(root, '.claude', 'ops', 'roles', `${r.name}.md`);
     if (!fs.existsSync(roleFile)) throw new Error(`역할 원본이 없습니다: ${roleFile}`);
     const role = readRole(roleFile);
-    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), ...role, name: r.name }, templateFile)) };
+    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), ...role, name: r.name }, templateFile)) };
   });
 }
 
@@ -147,4 +158,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { generate, readRole, fill, size, verifyList, yamlScalar, quoteFrontmatter, VERIFY_KEYS };
+module.exports = { generate, readRole, fill, size, verifyList, skillNotes, yamlScalar, quoteFrontmatter, VERIFY_KEYS };

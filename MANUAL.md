@@ -87,13 +87,13 @@ PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. pm은 
 
 역할 세션(pm이 함):
 1. `session.ps1 health` — 역할별 컨텍스트 크기. '세션 교체'가 뜨면 교체합니다(기준 `rotation.contextTokens`, 기본 10만 토큰). 작업이 끝난 지점에서 합니다.
-2. `session.ps1 prep AB-backend1` — 세션이 진행 중인 것만 `/ecc:save-session`으로 저장하고, 경로나 '진행 중 없음'을 알립니다.
+2. `session.ps1 prep AB-backend1` — 세션이 진행 중인 것만 `/wy-save-session`으로 저장하고, 경로나 '진행 중 없음'을 알립니다.
 3. `session.ps1 rotate AB-backend1 <경로|none>` — 옛 세션을 멈추고 새 세션을 띄웁니다. 새 세션이 시작을 알리면 pm이 '멈춰 있는 동안 끝난 일'을 보냅니다.
 
 pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
-- 세션 현황 pm 줄에 '교체 권장'(컨텍스트가 `rotation.contextTokens` 이상, 기본 10만 토큰)이 뜨면 일이 끊기는 때에 [pm 교체]를 누릅니다. pm에 붙은 터미널('AB-pm 붙기')에 교체 문구가 들어가고, pm이 하던 턴을 마친 뒤 스스로 ① 진행 중인 것 저장(`/ecc:save-session`) ② `start-pm latest -Force`로 새 pm ③ 이전 자신 멈춤을 합니다. pm 줄은 이 네 단계(마지막 ④ 새 터미널로 붙기)를 보여 주고, 끝나면 새 pm에 붙은 터미널을 엽니다. 창을 닫아도 교체는 계속되고, 다시 열면 이어서 보여 줍니다.
+- 세션 현황 pm 줄에 '교체 권장'(컨텍스트가 `rotation.contextTokens` 이상, 기본 10만 토큰)이 뜨면 일이 끊기는 때에 [pm 교체]를 누릅니다. pm에 붙은 터미널('AB-pm 붙기')에 교체 문구가 들어가고, pm이 하던 턴을 마친 뒤 스스로 ① 진행 중인 것 저장(`/wy-save-session`) ② `start-pm latest -Force`로 새 pm ③ 이전 자신 멈춤을 합니다. pm 줄은 이 네 단계(마지막 ④ 새 터미널로 붙기)를 보여 주고, 끝나면 새 pm에 붙은 터미널을 엽니다. 창을 닫아도 교체는 계속되고, 다시 열면 이어서 보여 줍니다.
 - 한 단계가 늦으면(저장 10분, 그 뒤 단계 60초) 멈추고 무엇이 안 됐는지와 지금 상태(이전 pm이 살아 있는지)를 보여 줍니다. [다시 시도]는 실패한 단계부터, [기록 보기]는 교체 기록 파일을 엽니다. 여유 메모리가 `memory.blockFreeMB`(기본 500MB) 미만이면 교체를 시작하지 않습니다.
-- 터미널로 직접: pm에서 `/ecc:save-session`(short-id는 pm 역할 이름) → `session.ps1 start-pm latest -Force`(백그라운드 pm이 이미 돌면 -Force 없이는 거부) → `session.ps1 attach <pm 역할>`로 새 pm에 붙고 이전 pm은 `claude stop <이전 id>`. `session.ps1 pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력합니다.
+- 터미널로 직접: pm에서 `/wy-save-session`(short-id는 pm 역할 이름) → `session.ps1 start-pm latest -Force`(백그라운드 pm이 이미 돌면 -Force 없이는 거부) → `session.ps1 attach <pm 역할>`로 새 pm에 붙고 이전 pm은 `claude stop <이전 id>`. `session.ps1 pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력합니다.
 
 ### 2-5. 기억은 파일에
 
@@ -105,7 +105,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 | 공통 규칙 | 프로젝트 `CLAUDE.md` |
 | 진행 상황·역할별 다음 할 일 | 진행현황 문서(`wy-ops.json`의 `docs.progress`) |
 | 확정된 결정 | 결정기록 문서(`docs.decisions`) |
-| 하던 일의 중간 상태 | `/ecc:save-session` 인수인계 파일(이 PC에만 남음) |
+| 하던 일의 중간 상태 | `/wy-save-session` 인수인계 파일(이 PC에만 남음) |
 
 다른 PC로 이어 갈 내용은 문서와 커밋으로 넘깁니다.
 
@@ -246,7 +246,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 
 claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 claude daemon이 띄우고 daemon의 로그온을 그대로 물려받습니다. ssh 키 로그인은 네트워크 로그온(유형 3)이라 거기서 뜬 daemon 아래 세션은 Windows 자격 증명 관리자를 읽지 못해 `git push`·`gh`가 실패합니다. 그래서 호스트는 자동 로그인된 바탕화면 로그온(유형 2)에서 daemon을 띄워 둡니다. `host`가 등록한 로그온 작업이 로그온 때 띄우고, `session.ps1`은 세션을 띄우기 전에 daemon이 없으면 이 작업을 먼저 시작하며 daemon이 바탕화면 로그온이 아니면 경고합니다.
 이미 ssh 쪽 daemon으로 세션을 돌리던 호스트를 옮기는 순서:
-1. pm에서 진행 중인 것을 저장하고(`/ecc:save-session`, short-id는 pm 역할), 지금 돌고 있는 세션 ID를 적어 둡니다(`claude agents`).
+1. pm에서 진행 중인 것을 저장하고(`/wy-save-session`, short-id는 pm 역할), 지금 돌고 있는 세션 ID를 적어 둡니다(`claude agents`).
 2. 호스트에서 `Start-ScheduledTask wy-ops-claude-daemon`.
 3. daemon의 로그온 유형을 확인합니다(doctor '호스트' 줄의 'daemon 세션 N·로그온 유형 N' — 유형을 못 읽으면 '?'이고 세션 0이면 주의. daemon이 없으면 'daemon 꺼짐', 작업이 없거나 다르면 'daemon 로그온 작업 없음/설정 다름 — install.ps1 host'. 또는 `~\.claude\daemon.lock`의 pid 프로세스의 로그온 세션). 2(10·11도 됨)면 4로. 3이면 ssh 쪽 daemon이 아직 돌고 있어 작업이 새 daemon을 띄우지 못한 것입니다. `claude daemon stop --any`로 멈추고(**모든 백그라운드 세션이 꺼집니다**) 2를 다시 한 뒤 확인합니다.
 4. `session.ps1 start-pm <1의 인수인계 파일>` → `session.ps1 attach <pm 역할>`, 역할 세션은 `session.ps1 start <역할>`로 다시 띄웁니다.
@@ -524,6 +524,6 @@ VS Code 확장(`wy-ops.wy-ops`)은 `current`를 읽는 얇은 껍데기입니다
 
 ### 10-3. 공개 저장소에 올리기 전
 
-- 비밀값·개인 주소·내부 프로젝트 이름이 없는지 점검합니다. ecc 플러그인의 `opensource-sanitizer` 에이전트로 저장소 전체를 검사하고, FAIL·경고를 고친 뒤 올립니다.
+- 비밀값·개인 주소·내부 프로젝트 이름이 없는지 점검합니다. ecc 플러그인을 깔았다면 그 `opensource-sanitizer` 에이전트로 저장소 전체를 검사하고, FAIL·경고를 고친 뒤 올립니다.
 - 예시 이름은 `AB-`·`my-project`를 씁니다.
 - 함께 까는 도구의 출처는 버전이나 커밋을 고정합니다(`extras.json`·`plugins.json`). `main`처럼 움직이는 주소는 검사에서 경고가 납니다.

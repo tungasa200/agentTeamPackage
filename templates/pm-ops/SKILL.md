@@ -81,8 +81,8 @@ choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르�
 1. 모든 세션에(ListAgents 후) "지금 하던 작업까지만 마무리하고 중단, 새 작업 금지, 멈추면 한 줄 보고(끝낸 것 / 커밋 요청 상태 / 미커밋 파일 / 다음 할 일)".
 2. 이 사이에 온 새 제안은 시작시키지 말고 진행현황 "재개 때 사용자 결정"에 적는다.
 3. 다 모이면 사용자에게 표로 정리(원격 HEAD, 마지막 CI, 미커밋 목록, 재개 순서).
-4. 인수인계 지시: 각 세션에 `/ecc:save-session`, short-id는 역할 이름(같은 날 두 번째면 `-2`), 넣을 내용을 세션별로 구체적으로. pm도 자기 것을 저장한다.
-5. 재개 안내: `/ecc:resume-session ~/.claude/session-data/<날짜>-<역할>-session.tmp`처럼 **경로를 지정**해야 다른 역할 파일을 읽지 않는다.
+4. 인수인계 지시: 각 세션에 `/wy-save-session`, short-id는 역할 이름(같은 날 두 번째면 `-2`), 넣을 내용을 세션별로 구체적으로. pm도 자기 것을 저장한다.
+5. 재개 안내: `/wy-resume-session ~/.claude/session-data/<날짜>-<역할>-session.tmp`처럼 **경로를 지정**해야 다른 역할 파일을 읽지 않는다.
 
 ## 6-1. 세션 시작·멈추기·세션 교체 (백그라운드 세션)
 
@@ -97,7 +97,7 @@ choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르�
 - **멈춘 세션은 그동안 온 회신을 못 받는다.** 재시작할 때 지시에 "멈춰 있는 동안 끝난 일"(커밋 해시, 병합, 결정)을 넣는다. `{{docs.progress}}`의 "역할별 다음 할 일"을 지시·완료 때마다 갱신한다.
 - **메모리는 세션을 시작한 뒤 잰다.** 세션이 시작될 때 순간 수백 MB를 쓴다. 무거운 작업 지시는 시작한 상태에서 {{memory.blockFreeMB|size}} 이상이면 진행. 동시 세션 수는 고정하지 않고 메모리를 보며 늘린다.
 - 세션 교체: `health`의 권장이 '세션 교체'(컨텍스트가 교체 기준 이상, 기본 10만 토큰, 토큰을 못 읽으면 {{rotation.transcriptMB}}MB 이상)이거나 큰 작업·단계가 끝났으면 `prep` → 회신(경로 또는 진행 중 없음) → `rotate` → 새 세션 시작 회신 → 끝난 일 전달. 작업 경계에 맞추면 인수인계 없이(`none`) 세션을 교체한다.
-- {{pmRole}} 세션 교체(백그라운드 {{pmRole}}): 보통은 사용자가 세션 현황 pm 줄의 [pm 교체]를 누르면 붙기 터미널로 "pm 세션 교체 — 진행 중인 것을 저장하고 start-pm -Force로 새 pm을 띄운 뒤 이전 pm을 멈춰 줘"가 들어온다. 받으면 하던 턴을 마친 뒤: 자기 진행 중인 것만 `/ecc:save-session`(short-id {{pmRole}}) → `start-pm <경로> -Force`(새 {{pmRole}}을 띄우고 이전 세션 id를 알려 줌) → 사용자에게 "`session.ps1 attach {{pmRole}}`로 새 pm에 붙으세요" 한 줄(세션 현황이 지켜보다 새 터미널로 붙여 준다) → 마지막 동작으로 이전 자신을 `claude stop <이전 id>`(대화형 창이었으면 사용자가 창을 닫음). 그 사이 같은 이름이 둘이라 `ListAgents`의 ref로 구분한다. `pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력한다.
+- {{pmRole}} 세션 교체(백그라운드 {{pmRole}}): 보통은 사용자가 세션 현황 pm 줄의 [pm 교체]를 누르면 붙기 터미널로 "pm 세션 교체 — 진행 중인 것을 저장하고 start-pm -Force로 새 pm을 띄운 뒤 이전 pm을 멈춰 줘"가 들어온다. 받으면 하던 턴을 마친 뒤: 자기 진행 중인 것만 `/wy-save-session`(short-id {{pmRole}}) → `start-pm <경로> -Force`(새 {{pmRole}}을 띄우고 이전 세션 id를 알려 줌) → 사용자에게 "`session.ps1 attach {{pmRole}}`로 새 pm에 붙으세요" 한 줄(세션 현황이 지켜보다 새 터미널로 붙여 준다) → 마지막 동작으로 이전 자신을 `claude stop <이전 id>`(대화형 창이었으면 사용자가 창을 닫음). 그 사이 같은 이름이 둘이라 `ListAgents`의 ref로 구분한다. `pm-cmd`가 이 순서와 호스트 앞에서 대화형으로 잇는 예전 한 줄을 함께 출력한다.
 - **새 {{pmRole}}이 시작한 직후 `ListAgents`에 자기 말고 같은 {{pmRole}} 이름이 보이면 교체 직후 남은 항목이다.** 멈춘 이전 pm이 몇 분 동안 'busy'로 남는다(`claude agents --json --all`에서는 stopped, pid 없음). 중복 {{pmRole}} 여부는 `session.ps1 list`의 실행 중(pid 있음) 항목으로만 판단한다(실행 중인 같은 이름이 둘이면 list가 '중복 실행'을 출력). 실행 중 {{pmRole}}이 하나면 경고하지 않고, {{pmRole}} 이름으로 `SendMessage`를 보내지 않는다.
 - 백그라운드 세션의 권한 요청 창은 사용자가 승인할 수 없다. 지시에 "권한 요청이 필요한 동작은 하지 말고 [차단]"을 넣고(역할 파일에도 있음), 대시보드의 승인 대기(노랑 삼각형)는 진짜 승인 대기다. 입력 대기(초록 점)는 일을 마치고 쉬는 상태.
 - `claude attach`로 깨운 백그라운드 세션은 `--agent` 없이 재시작될 수 있다. 그러면 가드 훅이 그 세션을 {{commitRole}}로 보지 않아 커밋이 막힌다. 사용자가 권한 요청 때문에 attach했으면 그 뒤 {{commitRole}}은 `rotate {{commitRole}} none`으로 세션을 교체한다. attach는 `!`로는 안 되고 별도 터미널에서 해야 한다.
@@ -109,7 +109,7 @@ choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르�
 
 {{pmRole}}은 VS Code Claude 패널 대신 두 방식 중 하나로 실행한다. 기본은 (1) 백그라운드 세션(0.10.0): 사용자가 세션 현황 pm 줄 [pm 시작](또는 설치 마법사 마침, `session.ps1 start-pm latest`)으로 띄우고 [붙기](통합 터미널 '{{pmRole}} 붙기', `session.ps1 attach {{pmRole}}`)로 말을 건다. 붙기 터미널을 닫거나 접속 PC를 닫아도 {{pmRole}}은 계속 일한다. pm 줄은 상태·컨텍스트(토큰)·[pm 교체]·[멈춤]을 함께 보여 준다. (2) 터미널 대화형 `claude`(호스트 앞에서 직접 쓸 때): pm 줄은 상태만 보여 주고 버튼은 숨긴다(교체·멈춤은 그 창에서). 어느 쪽이든 패널은 쓰지 않는다. 패널은 웹뷰라 대화 전체를 화면 요소로 들고 있어서 대화가 길수록 메모리가 계속 는다. 긴 pm 대화가 열린 패널 하나가 VS Code 메모리 2GB를 더 쓴 적이 있다. 터미널은 출력을 한 번 그린 뒤 글자 버퍼만 남긴다.
 - 처음 한 번: claude 안에서 `/terminal-setup`(Shift+Enter 줄바꿈, 스크롤 감도), `/tui fullscreen`(보이는 메시지만 그려 대화 길이와 상관없이 화면 메모리가 일정). 여러 줄 입력은 어느 터미널에서나 Ctrl+J.
-- 백그라운드 {{pmRole}}(`start-pm`)에는 사용자가 터미널에서 `session.ps1 attach {{pmRole}}`로 붙고, 빠져나와도 세션은 계속 돈다(원격 접속 PC를 닫아도 됨). `pm-cmd`의 '예전 방식' 줄은 호스트 앞 터미널용이다. 패널에서 이어야 하면 새 대화에 `/ecc:resume-session <경로>`를 넣고 `/rename {{pmRole}}`.
+- 백그라운드 {{pmRole}}(`start-pm`)에는 사용자가 터미널에서 `session.ps1 attach {{pmRole}}`로 붙고, 빠져나와도 세션은 계속 돈다(원격 접속 PC를 닫아도 됨). `pm-cmd`의 '예전 방식' 줄은 호스트 앞 터미널용이다. 패널에서 이어야 하면 새 대화에 `/wy-resume-session <경로>`를 넣고 `/rename {{pmRole}}`.
 - `!`로 실행한 명령은 화면을 주고받지 못한다. `claude attach`처럼 대화형 화면이 필요한 명령은 사용자에게 별도 터미널에서 실행하게 한다.
 - VS Code Reload Window: 터미널 세션 유지(`terminal.integrated.enablePersistentSessions`, 기본 켜짐) 덕에 {{pmRole}} 대화는 이어진다. 프로세스가 다시 떠서 `ListAgents`의 ref가 바뀔 수 있다. 꺼졌으면 `claude --resume`으로 {{pmRole}}을 골라 잇는다. `claude --continue`는 같은 폴더의 백그라운드 세션이 더 최근이면 그쪽을 열므로 쓰지 않는다.
 - 리로드나 VS Code 재시작 뒤에는 {{pmRole}}이 걸어 둔 감시(Monitor: 권한 요청 대기)가 끊긴다. 다시 건다. 결정 수신은 훅이 하므로 다시 걸 것이 없고, 다른 세션 앞 결정까지 지켜봐야 할 때만 decisions.log Monitor를 건다.
