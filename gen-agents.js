@@ -87,12 +87,26 @@ function quoteFrontmatter(text) {
 // '## 스킬 쓰는 때' 절(templates/skills.json, SKL D-23): 역할의 template → group → 이름에서 접두사·끝 숫자를 뗀 것 순으로 키를 찾는다.
 // 템플릿의 {{skillNotes}}는 다음 절 제목 바로 앞에 붙어 있으므로, 절이 있으면 끝에 빈 줄까지 넣고 없으면 빈 문자열
 const SKILLS = path.join(__dirname, 'templates', 'skills.json');
-function skillNotes(role) {
-  const notes = fs.existsSync(SKILLS) ? JSON.parse(read(SKILLS)).notes || {} : {};
+function roleEntry(map, role) {
   const short = String(role.name || '').replace(/^[A-Za-z0-9]+-/, '').replace(/\d+$/, '');
-  const key = [role.template, role.group, short].find((k) => k && Object.prototype.hasOwnProperty.call(notes, k));
-  const lines = key ? notes[key] : [];
+  const key = [role.template, role.group, short].find((k) => k && Object.prototype.hasOwnProperty.call(map, k));
+  return key ? map[key] : [];
+}
+function skillNotes(role) {
+  const lines = roleEntry(fs.existsSync(SKILLS) ? JSON.parse(read(SKILLS)).notes || {} : {}, role);
   return lines.length ? `## 스킬 쓰는 때\n${lines.map((l) => `- ${l}`).join('\n')}\n\n` : '';
+}
+
+// 역할 세션에서 안 쓰는 내장 도구(templates/context.json, TOK-4 D-22) → frontmatter 'disallowedTools: A, B' 줄.
+// keepTools에 맞는 역할은 그 도구를 남긴다. 역할 원본에 disallowedTools 줄이 있으면 그것을 쓴다(빈 값이면 줄 없음)
+const CONTEXT = path.join(__dirname, 'templates', 'context.json');
+let context; // 역할마다 다시 읽지 않도록 한 번만 읽는다
+function toolsFrontmatter(role, frontmatter) {
+  if (/^disallowedTools:/m.test(frontmatter)) return frontmatter.replace(/^disallowedTools:[ \t]*(\[[ \t]*\]|""|'')?[ \t]*\r?\n/m, '');
+  const c = context || (context = fs.existsSync(CONTEXT) ? JSON.parse(read(CONTEXT)) : {});
+  const keep = roleEntry(c.keepTools || {}, role);
+  const list = (c.disallowedTools || []).filter((t) => !keep.includes(t));
+  return list.length ? `${frontmatter}disallowedTools: ${list.join(', ')}\n` : frontmatter;
 }
 
 const size = (mb) => (Number(mb) % 1024 === 0 ? `${Number(mb) / 1024}GB` : `${Number(mb)}MB`);
@@ -119,6 +133,7 @@ function generate(root) {
     const roleFile = path.join(root, '.claude', 'ops', 'roles', `${r.name}.md`);
     if (!fs.existsSync(roleFile)) throw new Error(`역할 원본이 없습니다: ${roleFile}`);
     const role = readRole(roleFile);
+    role.frontmatter = toolsFrontmatter(r, role.frontmatter);
     return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), ...role, name: r.name }, templateFile)) };
   });
 }
@@ -174,4 +189,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { generate, readRole, fill, size, verifyList, verifyValue, stackLabel, isMap, dirLabel, skillNotes, yamlScalar, quoteFrontmatter, VERIFY_KEYS };
+module.exports = { generate, readRole, fill, size, verifyList, verifyValue, stackLabel, isMap, dirLabel, skillNotes, toolsFrontmatter, yamlScalar, quoteFrontmatter, VERIFY_KEYS };

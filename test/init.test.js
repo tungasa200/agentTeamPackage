@@ -6,7 +6,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { rmTree } = require('../lib/fsx');
-const { init } = require('../lib/init');
+const { init, contextStandard } = require('../lib/init');
+// 시작 문맥 표준(TOK-4): 이 시험의 역할(commit·pm·qa)에는 화면 역할이 없어 impeccable·artifact-*도 끈다
+const STD = contextStandard({ roles: [{ group: 'qa' }] });
+const OFF = Object.fromEntries(STD.pluginsOff.map((id) => [id, false]));
+const CTX = { skillOverrides: Object.fromEntries(STD.skillsOff.map((id) => [id, 'off'])), disableClaudeAiConnectors: true };
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-init-'));
 const T = path.join(tmp, 'templates');
@@ -82,10 +86,12 @@ try {
   assert.strictEqual(r1.bgIsolation, 'created');
   assert.strictEqual(r1.autoCompact, 'created');
   assert.strictEqual(r1.plugins, 'created');
-  assert.deepStrictEqual(JSON.parse(R(P, '.claude/settings.json')), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false } });
+  assert.deepStrictEqual(JSON.parse(R(P, '.claude/settings.json')), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: OFF, ...CTX });
   assert.strictEqual(r2.bgIsolation, 'kept', '다시 하면 그대로');
   assert.strictEqual(r2.autoCompact, 'kept', '다시 하면 그대로');
   assert.strictEqual(r2.plugins, 'kept', '다시 하면 그대로');
+  assert.strictEqual(r1.context, 'created');
+  assert.strictEqual(r2.context, 'kept', '다시 하면 그대로');
   const before2 = R(P, '.claude/settings.json');
   init({ project: P, name: 'sandbox', prefix: 'SB-', templatesDir: T });
   assert.strictEqual(R(P, '.claude/settings.json'), before2, '세 번째도 바뀌는 것 없음');
@@ -95,8 +101,8 @@ try {
   const sOrig = JSON.stringify({ env: { A: '1' }, worktree: { other: true } });
   put(S, '.claude/settings.json', sOrig);
   const rs = init({ project: S, name: 's', prefix: 'S-', templatesDir: T });
-  assert.deepStrictEqual([rs.bgIsolation, rs.autoCompact, rs.plugins], ['added', 'added', 'added']);
-  assert.deepStrictEqual(JSON.parse(R(S, '.claude/settings.json')), { env: { A: '1' }, worktree: { other: true, bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false } });
+  assert.deepStrictEqual([rs.bgIsolation, rs.autoCompact, rs.plugins, rs.context], ['added', 'added', 'added', 'added']);
+  assert.deepStrictEqual(JSON.parse(R(S, '.claude/settings.json')), { env: { A: '1' }, worktree: { other: true, bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: OFF, ...CTX });
   const baks = fs.readdirSync(path.join(S, '.claude')).filter((f) => f.startsWith('settings.json.bak-'));
   assert.strictEqual(baks.length, 1);
   assert.strictEqual(R(S, `.claude/${baks[0]}`), sOrig, '백업은 원래 내용');
@@ -105,18 +111,18 @@ try {
   put(W, '.claude/settings.json', JSON.stringify({ worktree: { bgIsolation: 'worktree' } }));
   const rw = init({ project: W, name: 'w', prefix: 'W-', templatesDir: T });
   assert.deepStrictEqual([rw.bgIsolation, rw.autoCompact], ['kept', 'added']);
-  assert.deepStrictEqual(JSON.parse(R(W, '.claude/settings.json')), { worktree: { bgIsolation: 'worktree' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false } });
+  assert.deepStrictEqual(JSON.parse(R(W, '.claude/settings.json')), { worktree: { bgIsolation: 'worktree' }, autoCompactWindow: 200000, enabledPlugins: OFF, ...CTX });
   const A = path.join(tmp, 'a');
   put(A, '.claude/settings.json', JSON.stringify({ autoCompactWindow: 500000, worktree: { bgIsolation: 'none' }, enabledPlugins: { 'ecc@ecc': true, 'x@y': true } }));
   const ra = init({ project: A, name: 'a', prefix: 'A-', templatesDir: T });
   assert.deepStrictEqual([ra.bgIsolation, ra.autoCompact, ra.plugins], ['kept', 'kept', 'added']);
   assert.strictEqual(JSON.parse(R(A, '.claude/settings.json')).autoCompactWindow, 500000, '있는 값은 덮지 않음');
   // 플러그인 표준(SKL, D-22): 사용자가 켠 값·다른 키는 그대로, 빠진 키만 false
-  assert.deepStrictEqual(JSON.parse(R(A, '.claude/settings.json')).enabledPlugins, { 'ecc@ecc': true, 'x@y': true, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false });
+  assert.deepStrictEqual(JSON.parse(R(A, '.claude/settings.json')).enabledPlugins, { ...OFF, 'ecc@ecc': true, 'x@y': true });
   const B = path.join(tmp, 'b');
   put(B, '.claude/settings.json', '{ 깨진');
   const rb = init({ project: B, name: 'b', prefix: 'B-', templatesDir: T });
-  assert.deepStrictEqual([rb.bgIsolation, rb.autoCompact, rb.plugins], ['broken', 'broken', 'broken']);
+  assert.deepStrictEqual([rb.bgIsolation, rb.autoCompact, rb.plugins, rb.context], ['broken', 'broken', 'broken', 'broken']);
   assert.strictEqual(R(B, '.claude/settings.json'), '{ 깨진');
 
   // 4c. 템플릿 없는 역할(프로젝트가 직접 만든 역할, template·group 없음)이 섞여도: 그 역할만 건너뛰고 기존 원본·역할 파일은 그대로, settings는 끝까지
@@ -131,8 +137,8 @@ try {
   assert.strictEqual(R(E, '.claude/ops/roles/E-search.md'), searchSrc, '건너뛴 역할 원본은 그대로');
   assert.ok(R(E, '.claude/agents/E-search.md').includes('우리가 만든 검색 역할'), '역할 파일은 기존 원본으로 생성');
   assert.ok(R(E, '.claude/ops/roles/E-commit.md').includes('커밋 전담(e)'), '템플릿 있는 역할은 그대로 만듦');
-  assert.deepStrictEqual([re.bgIsolation, re.autoCompact, re.plugins], ['created', 'created', 'created']);
-  assert.deepStrictEqual(JSON.parse(R(E, '.claude/settings.json')).enabledPlugins, { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false }, 'enabledPlugins까지 들어감');
+  assert.deepStrictEqual([re.bgIsolation, re.autoCompact, re.plugins, re.context], ['created', 'created', 'created', 'created']);
+  assert.deepStrictEqual(JSON.parse(R(E, '.claude/settings.json')).enabledPlugins, OFF, 'enabledPlugins까지 들어감');
 
   // 4c. 패키지 기본 설정의 세션 교체 기준(TOK-1, D-20): 10만 교체 권장, 13만 훅 알림
   const pkgOps = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'templates', 'wy-ops.json'), 'utf8'));

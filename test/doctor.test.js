@@ -49,8 +49,11 @@ function makePc(name, { home: homeName = 'home' } = {}) {
   }
   json(settingsFile, { permissions: { deny: template.deny, allow: ['WebSearch'] }, hooks });
   // 플러그인 밖의 함께 까는 도구는 기본 시험에서 꺼 둔다(따로 시험)
-  json(path.join(repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'X-pm', commitRole: 'X-commit', roles: [{ name: 'X-pm' }, { name: 'X-commit', agent: true }], approvals: { namespace: 'p' }, extras: { off: NON_PLUGIN }, verify: { test: 'npm test' } });
-  json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false } });
+  // 화면 역할(frontend)이 있어 impeccable은 표준으로 끄지 않는다(TOK-4)
+  const roles = [{ name: 'X-pm' }, { name: 'X-commit', agent: true }, { name: 'X-frontend', group: 'frontend', agent: false }];
+  json(path.join(repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'X-pm', commitRole: 'X-commit', roles, approvals: { namespace: 'p' }, extras: { off: NON_PLUGIN }, verify: { test: 'npm test' } });
+  const skillOverrides = Object.fromEntries(require('../lib/init').contextStandard({ roles }).skillsOff.map((id) => [id, 'off']));
+  json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false }, skillOverrides, disableClaudeAiConnectors: true });
   write(path.join(repo, '.claude', 'agents', 'X-commit.md'), '# X-commit\n경로는 ~/.claude/wy-approvals\n');
   write(path.join(repo, '.gitignore'), ['node_modules', '.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*'].join('\n') + '\n');
   const approvalsRoot = path.join(home, '.claude', 'wy-approvals', 'p');
@@ -268,11 +271,11 @@ try {
     imp.version = 'unknown';
     assert.strictEqual(byId(doctor.checkAll(pc.opts)).plugins.level, 'ok', '읽을 수 없는 버전은 낮다고 보지 않음');
     // 프로젝트에서 끈 플러그인(표준)은 버전이 낮아도·꺼져 있어도 실패·주의가 아님
-    const ecc = pc.state.plugins.find((p) => p.id === 'ecc@ecc');
-    ecc.version = '0.0.1';
-    ecc.enabled = false;
+    const mem = pc.state.plugins.find((p) => p.id === 'claude-mem@thedotmack');
+    mem.version = '0.0.1';
+    mem.enabled = false;
     r = byId(doctor.checkAll(pc.opts)).plugins;
-    assert.ok(r.level === 'ok' && r.detail.includes('ecc@ecc 프로젝트에서 끔(표준)'), `프로젝트에서 끔은 통과\n${r.detail}`);
+    assert.ok(r.level === 'ok' && r.detail.includes('claude-mem@thedotmack 프로젝트에서 끔(표준)'), `프로젝트에서 끔은 통과\n${r.detail}`);
     // CLI projectEnabled('프로젝트 settings가 켜는가')는 판정에 쓰지 않는다: 설정에 없으면 끔(표준)이 아님
     imp.version = '4.5.0';
     imp.projectEnabled = false;
@@ -290,6 +293,22 @@ try {
     assert.ok(r.level === 'warn' && r.detail.includes('claude-mem@thedotmack') && !r.detail.includes('ecc@ecc,') && / init /.test(r.fix), `표준 값 없음은 주의\n${JSON.stringify(r)}`);
     write(sfile, '{ broken');
     assert.strictEqual(byId(doctor.checkAll(pc.opts))['plugins-standard'].level, 'warn', '깨진 settings.json은 주의');
+    assert.strictEqual(byId(doctor.checkAll(pc.opts))['context-standard'].level, 'warn', '깨진 settings.json은 주의(시작 문맥)');
+    // context-standard(TOK-4): 빠진 skillOverrides 키·disableClaudeAiConnectors는 주의, 사용자가 바꾼 값('on')은 있음으로 침
+    json(sfile, { skillOverrides: { dataviz: 'on' } });
+    r = byId(doctor.checkAll(pc.opts))['context-standard'];
+    assert.ok(r.level === 'warn' && r.detail.includes('claude-api') && !r.detail.includes('dataviz') && r.detail.includes('disableClaudeAiConnectors') && !r.detail.includes('artifact-design') && / init /.test(r.fix), `시작 문맥 표준 없음은 주의\n${JSON.stringify(r)}`);
+    // 화면 역할이 있는데 화면용 스킬·플러그인이 꺼져 있으면 주의(역할을 나중에 더한 경우)
+    json(sfile, { skillOverrides: { 'artifact-design': 'off' }, enabledPlugins: { 'impeccable@impeccable': false } });
+    r = byId(doctor.checkAll(pc.opts))['context-standard'];
+    assert.ok(r.level === 'warn' && r.detail.includes('artifact-design') && r.detail.includes('impeccable@impeccable'), `화면용이 꺼져 있음\n${JSON.stringify(r)}`);
+    json(sfile, { skillOverrides: { dataviz: 'on' } });
+    // 화면 역할이 없으면 impeccable·artifact-*도 표준으로 끔
+    const withOff = JSON.parse(fs.readFileSync(pcfg, 'utf8'));
+    json(pcfg, { ...withOff, roles: pops.roles.filter((x) => x.group !== 'frontend') });
+    const noScreen = byId(doctor.checkAll(pc.opts));
+    assert.ok(noScreen['plugins-standard'].detail.includes('impeccable@impeccable') && noScreen['context-standard'].detail.includes('artifact-design'), `화면 역할 없음\n${JSON.stringify(noScreen['plugins-standard'])}`);
+    json(pcfg, withOff);
     pc.state.plugins = pc.state.plugins.filter((p) => p.id !== 'impeccable@impeccable');
     r = byId(doctor.checkAll(pc.opts)).plugins;
     assert.ok(r.level === 'fail' && r.fix.includes('claude plugin install impeccable@impeccable'), '필수 없음은 실패');

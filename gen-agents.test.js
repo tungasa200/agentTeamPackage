@@ -72,6 +72,21 @@ try {
   console.log('gen-agents 스킬 절 검사 통과');
 }
 
+// disallowedTools(templates/context.json, TOK-4): 표준 줄을 넣고, design·frontend는 Artifact를 남기며, 원본 줄이 있으면 그것을 쓴다(빈 값이면 줄 없음)
+{
+  const { toolsFrontmatter } = require('./gen-agents');
+  const fm = 'name: AB-x\n';
+  const line = (role) => (toolsFrontmatter(role, fm).match(/^disallowedTools: (.*)$/m) || [])[1] || '';
+  assert.ok(/^name: AB-x\ndisallowedTools: .*Workflow/.test(toolsFrontmatter({ name: 'AB-backend' }, fm)));
+  assert.ok(line({ name: 'AB-backend' }).includes('Artifact'));
+  assert.ok(!line({ name: 'AB-design' }).includes('Artifact') && line({ name: 'AB-design' }).includes('Workflow'));
+  assert.ok(!line({ name: 'AB-x', group: 'frontend' }).includes('Artifact'));
+  assert.strictEqual(toolsFrontmatter({ name: 'AB-x' }, 'name: AB-x\ndisallowedTools: Bash\n'), 'name: AB-x\ndisallowedTools: Bash\n', '원본 줄 그대로');
+  for (const v of ['', ' []', ' ""']) assert.strictEqual(toolsFrontmatter({ name: 'AB-x' }, `name: AB-x\ndisallowedTools:${v}\n`), 'name: AB-x\n', `빈 값이면 줄 없음: ${v}`);
+  assert.ok(!line({ name: 'AB-pm' }).includes('AskUserQuestion') && line({ name: 'AB-pm' }).includes('Artifact'), 'pm은 AskUserQuestion을 남김');
+  console.log('gen-agents disallowedTools 검사 통과');
+}
+
 // 머리글 따옴표: description에 ': '가 들어가면 YAML이 깨져 claude --agent가 역할을 못 찾던 결함(2026-10-09).
 // 위험한 값만 큰따옴표로 감싸고, 안전한 값과 본문의 {{description}}은 그대로 둔다.
 {
@@ -99,7 +114,8 @@ try {
     w2('.claude/ops/agent.md', '---\nname: {{name}}\ndescription: {{description}}\n{{frontmatter}}---\n\n{{description}}\n');
     w2('.claude/ops/roles/XX-a.md', '---\ndescription: 도구(`tools/`: 대시보드)\n---\n본문\n');
     const [{ text }] = generate(r2);
-    assert.strictEqual(text, '---\nname: XX-a\ndescription: "도구(`tools/`: 대시보드)"\n---\n\n도구(`tools/`: 대시보드)\n');
+    const tools = require('./templates/context.json').disallowedTools.join(', ');
+    assert.strictEqual(text, `---\nname: XX-a\ndescription: "도구(\`tools/\`: 대시보드)"\ndisallowedTools: ${tools}\n---\n\n도구(\`tools/\`: 대시보드)\n`);
   } finally {
     fs.rmSync(r2, { recursive: true, force: true });
   }

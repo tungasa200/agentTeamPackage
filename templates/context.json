@@ -1,0 +1,9 @@
+{
+  "_comment": "시작 문맥 줄이기 표준(TOK-4, D-22). disallowedTools: gen-agents.js가 역할 파일 frontmatter에 'disallowedTools:' 줄로 넣는다(역할 세션에서 안 쓰는 내장 도구). keepTools의 키(역할의 template → group → 이름에서 접두사·끝 숫자를 뗀 것 순)에 맞는 역할은 그 도구를 남긴다. 역할 원본 frontmatter에 disallowedTools 줄이 있으면 그것을 그대로 쓴다(빈 값이면 줄을 넣지 않음). skillsOff: init이 .claude/settings.json skillOverrides에 'off'로 넣는다(값이 없는 키만). screenSkillsOff·screenPluginsOff: screenGroups 역할(화면 작업)이 없는 프로젝트에서만 끈다. init은 disableClaudeAiConnectors=true도 넣는다(claude.ai 커넥터를 이 프로젝트에서 붙이지 않음). code-review·security-review·simplify·app-docs·docx·xlsx는 역할 지시문에서 쓰므로 끄지 않는다(D-23).",
+  "disallowedTools": ["Artifact", "Workflow", "AskUserQuestion", "ReportFindings", "EnterWorktree", "ScheduleWakeup", "NotebookEdit"],
+  "keepTools": { "design": ["Artifact"], "frontend": ["Artifact"], "pm": ["AskUserQuestion"] },
+  "skillsOff": ["dataviz", "claude-api", "update-config", "schedule", "run", "loop", "plugin-authoring", "workflow-authoring", "keybindings-help", "fewer-permission-prompts", "graphify", "agent-reach", "find-skills"],
+  "screenGroups": ["frontend", "design"],
+  "screenSkillsOff": ["artifact-capabilities", "artifact-design", "artifact-diagramming"],
+  "screenPluginsOff": ["impeccable@impeccable"]
+}

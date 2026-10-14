@@ -25,14 +25,14 @@ for (const it of items) {
   for (const g of it.requiredFor) assert.ok(GROUPS.has(g), `${it.id}: 모르는 그룹 ${g}`);
   for (const n of it.needs || []) assert.ok(ids.indexOf(n) >= 0 && ids.indexOf(n) < ids.indexOf(it.id), `${it.id}: needs ${n}은 앞에 있어야 함`);
 }
-for (const id of ['agent-browser', 'agent-browser-mcp', 'agent-reach', 'find-skills', 'graphify', 'headroom', 'ecc', 'claude-mem', 'prompts.chat']) assert.ok(ids.includes(id), `항목 ${id}`);
+for (const id of ['agent-browser', 'agent-browser-mcp', 'agent-reach', 'find-skills', 'graphify', 'headroom', 'claude-mem', 'prompts.chat']) assert.ok(ids.includes(id), `항목 ${id}`);
 assert.throws(() => plan({ items: [{ id: 'a', needs: ['zz'], requiredFor: [], check: [], install: [] }] }), /needs zz/);
 
 // 2. plan
 const opsOf = (...gs) => ({ roles: gs.map((g) => ({ name: `AB-${g}`, group: g })) });
 const by = (p) => Object.fromEntries(p.map((e) => [e.id, e]));
 let p = by(plan({ ops: opsOf('pm', 'commit', 'backend') }));
-assert.ok(!p.ecc.required && !p.ecc.on, 'ecc는 선택·기본 꺼짐(SKL D-22)');
+assert.ok(!ids.includes('ecc'), 'ecc는 뺌(TOK-4, D-25 뒤 전역 삭제)');
 assert.ok(!p['claude-mem'].on && !p['prompts.chat'].on, 'claude-mem·prompts.chat 기본 꺼짐');
 assert.ok(!p['agent-browser'].required && p['agent-browser'].on, 'qa·design·browser 없으면 선택이지만 기본 켜짐');
 p = by(plan({ ops: { ...opsOf('qa'), extras: { off: ['agent-browser', 'claude-mem'] } } }));
@@ -59,7 +59,7 @@ try {
     const line = [cmd, ...args].join(' ');
     calls.push(line);
     // projectEnabled는 '프로젝트 settings가 켜는가'라 설정에 언급이 없어도 false다 — 끔(표준) 판정에 쓰면 안 됨
-    if (line === 'claude plugin list --json') return { status: 0, stdout: JSON.stringify([{ id: 'ecc@ecc', enabled: true, projectEnabled: false }, { id: 'impeccable@impeccable', enabled: false, projectEnabled: false }]) };
+    if (line === 'claude plugin list --json') return { status: 0, stdout: JSON.stringify([{ id: 'prompts.chat@prompts.chat', enabled: true, projectEnabled: false }, { id: 'impeccable@impeccable', enabled: false, projectEnabled: false }]) };
     if (failing.has(cmd)) return { status: 1, stderr: 'boom\nlast line' };
     if (/--version$/.test(line)) return { status: have.has(line) ? 0 : 1 };
     return { status: 0 };
@@ -68,7 +68,7 @@ try {
   assert.strictEqual(st.python.state, 'ok');
   assert.strictEqual(st['find-skills'].state, 'ok', 'path 점검');
   assert.strictEqual(st.headroom.state, 'ok', 'mcp 점검');
-  assert.strictEqual(st.ecc.state, 'off', 'ecc는 기본 꺼짐');
+  assert.strictEqual(st['prompts.chat'].state, 'off', 'prompts.chat은 기본 꺼짐');
   assert.strictEqual(st.impeccable.state, 'missing', 'projectEnabled false·설정에 없음 → 끔(표준)이 아님');
   assert.match(st.impeccable.detail, /꺼져 있음/);
   assert.strictEqual(st['agent-browser'].state, 'missing');
@@ -76,9 +76,9 @@ try {
   assert.strictEqual(st['agent-browser-mcp'].state, 'missing', '프로젝트 범위 등록은 사용자 범위로 치지 않음');
   assert.strictEqual(st['claude-mem'].state, 'off');
   assert.strictEqual(calls.filter((c) => c === 'claude plugin list --json').length, 1, 'plugin 목록은 한 번만 읽음');
-  const eccOn = Object.fromEntries(check({ run, home }).map((r) => [r.id, r])).ecc;
-  assert.strictEqual(eccOn.state, 'ok', 'plugin 점검');
-  assert.ok(!/프로젝트에서 끔/.test(eccOn.detail || ''), 'projectEnabled false만으로는 끔(표준)이 아님');
+  const pcOn = Object.fromEntries(check({ run, home }).map((r) => [r.id, r]))['prompts.chat'];
+  assert.strictEqual(pcOn.state, 'ok', 'plugin 점검');
+  assert.ok(!/프로젝트에서 끔/.test(pcOn.detail || ''), 'projectEnabled false만으로는 끔(표준)이 아님');
 
   // 프로젝트에서 끈 플러그인(enabledPlugins false)은 설치돼 있으면 ok(표준). local이 shared를 덮는다
   const proj = path.join(home, 'proj');
@@ -95,9 +95,9 @@ try {
   assert.ok(!calls.some((c) => /plugin install/.test(c)));
 
   calls.length = 0;
-  let res = Object.fromEntries(install(['python', 'graphify', 'agent-browser', 'claude-mem', 'ecc'], { run, home }).map((r) => [r.id, r]));
+  let res = Object.fromEntries(install(['python', 'graphify', 'agent-browser', 'claude-mem', 'prompts.chat'], { run, home }).map((r) => [r.id, r]));
   assert.strictEqual(res.python.state, 'ok', '이미 있으면 설치 안 함');
-  assert.strictEqual(res.ecc.state, 'ok');
+  assert.strictEqual(res['prompts.chat'].state, 'ok');
   assert.strictEqual(res.graphify.state, 'installed');
   assert.ok(calls.includes('py -3 -m pipx install graphifyy'));
   assert.ok(calls.includes(`${path.join(home, '.local/bin/graphify.exe')} install --platform windows`), '~는 홈으로');

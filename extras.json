@@ -62,7 +62,6 @@
       "install": [["py", "-3", "-m", "pipx", "install", "headroom-ai"], ["~/.local/bin/headroom.exe", "mcp", "install", "--agent", "claude"]],
       "requiredFor": [], "default": true
     },
-    { "id": "ecc", "kind": "plugin", "label": "플러그인 ecc (선택 스킬 모음, 표준은 프로젝트에서 끔)", "plugin": "ecc@ecc", "requiredFor": [], "default": false },
     { "id": "impeccable", "kind": "plugin", "label": "플러그인 impeccable (화면 점검)", "plugin": "impeccable@impeccable", "requiredFor": ["frontend", "design"], "default": true },
     { "id": "claude-mem", "kind": "plugin", "label": "플러그인 claude-mem (대화 기억 검색)", "plugin": "claude-mem@thedotmack", "requiredFor": [], "default": false },
     { "id": "prompts.chat", "kind": "plugin", "label": "플러그인 prompts.chat (프롬프트 모음)", "plugin": "prompts.chat@prompts.chat", "requiredFor": [], "default": false }
