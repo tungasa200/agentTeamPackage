@@ -18,6 +18,11 @@ fs.writeFileSync(path.join(proj, 'src', 'a.log'), '');
 const ev = (cmd) => evaluate({ tool_name: 'Bash', tool_input: { command: cmd }, agent_type: 'WY-backend2', cwd: proj, session_id: 's' });
 const W = String.raw;
 const NL = '\n';
+// 임시 폴더 안의 링크(junction): 저장소(임시 폴더 밖)와 작업 폴더(proj)로 간다. 임시 사본 예외가 실제 경로를 보는지 시험
+const tmpLink = path.join(os.tmpdir(), `wy-guard-link-${process.pid}`);
+const tmpLinkCwd = path.join(os.tmpdir(), `wy-guard-linkcwd-${process.pid}`);
+fs.symlinkSync(path.resolve(__dirname, '..', '..'), tmpLink, 'junction');
+fs.symlinkSync(proj, tmpLinkCwd, 'junction');
 
 const deny = [
   // 보호 경로에 직접 쓰기
@@ -166,6 +171,52 @@ const deny = [
   'Set-Content -Value "{}" -LiteralPath .claude/settings.local.json',
   'Out-File -InputObject x -FilePath:.claude/wy-ops.json',
   'Add-Content $p "- .claude/wy-ops.json 정리"',
+  // KI-02 수정의 경계: 임시 사본 예외·복사 대상·변수 풀이·doctor --project·데이터 본문 실행
+  W`S="$env:TEMP\..\x\.claude"; Copy-Item a "$S\wy-ops.json"`,
+  `$env:TEMP = 'C:/Users/k/.claude'; Set-Location $env:TEMP; Set-Content wy-ops.json 1`,
+  W`[Environment]::SetEnvironmentVariable('TEMP', 'C:\Users\k\.claude'); Set-Location $env:TEMP; Set-Content wy-ops.json 1`,
+  'TMP=~/.claude; cd $TMP && echo {} > wy-ops.json',
+  `S="$(pwd)/.claude"; cp a "$S/wy-ops.json"`,
+  'cp a.json /tmp/x/.claude/wy-approvals/my-project/decisions/a.json',
+  'cp a.json /tmp/x/../../.claude/wy-ops.json',
+  `cp a.json ${proj.replace(/\\/g, '/')}/.claude/wy-ops.json`,
+  'Copy-Item -Destination .claude/wy-ops.json a.json',
+  'Copy-Item a.json -Destination:.claude/settings.local.json',
+  'cp -t .claude wy-ops.json',
+  'cp .claude/wy-ops.json /tmp/c1/x.json; rm .claude/wy-ops.json',
+  'node ~/.wy-tools/wy-ops/current/lib/install.js doctor --project',
+  'node ~/.wy-tools/wy-ops/current/lib/install.js doctor --project . --yes',
+  `cat > /tmp/w.sh <<'EOF'${NL}echo {} > ~/.claude/wy-approvals/my-project/decisions/a.json${NL}EOF${NL}bash /tmp/w.sh`,
+  `cat <<'EOF' | bash${NL}echo {} > ~/.claude/wy-approvals/my-project/decisions/a.json${NL}EOF`,
+  `cat <<'EOF' > /tmp/w.sh${NL}echo {} > ~/.claude/wy-approvals/my-project/decisions/a.json${NL}EOF${NL}. /tmp/w.sh`,
+  'New-Item -ItemType Junction -Path $env:TEMP/j -Target ~/.claude/wy-approvals',
+  'ln -s ~/.claude/wy-approvals /tmp/j',
+  'cmd /c mklink /J C:\\tmp\\j C:\\Users\\k\\.claude\\wy-approvals',
+  'cp wy-ops.json .claude/',
+  'cp /tmp/c1/.claude/wy-ops.json .claude/',
+  'copy /Y /tmp/c1/.claude/wy-ops.json .claude',
+  'Copy-Item /tmp/c1/.claude/wy-ops.json -Destination .claude',
+  'Copy-Item a.json -Destination /tmp/c1/x.json, .claude/wy-ops.json',
+  'Set-Content /tmp/c1/x,.claude/wy-ops.json 1',
+  'TMP+=/../../../../../projects/x; cp a $TMP/.claude/wy-ops.json',
+  'printf -v TMP %s /c/projects/x; cp a $TMP/.claude/wy-ops.json',
+  `$env:TEMP += '/../..'; Copy-Item a $env:TEMP/.claude/wy-ops.json`,
+  `$e='env:TEMP'; Set-Item $e C:/projects/x; Copy-Item a $env:TEMP/.claude/wy-ops.json`,
+  'node ~/.wy-tools/wy-ops/current/lib/install.js doctor --project --yes',
+  'node ~/.wy-tools/wy-ops/current/lib/install.js help --project deploy',
+  `cat > /tmp/w.js <<'EOF'${NL}require('fs').writeFileSync('.claude/wy-ops.json','1')${NL}EOF${NL}chmod +x /tmp/w.js; /tmp/w.js`,
+  `cat > /tmp/w.js <<'EOF'${NL}require('fs').writeFileSync(require('path').join(require('os').homedir(),'.claude','wy-approvals','my-project','decisions','a.json'),'{}')${NL}EOF${NL}node /tmp/w.js`,
+  'Copy-Item settings.local.json .claude/',
+  'Copy-Item a.json,wy-ops.json -Destination .claude',
+  `cat > /tmp/w.js <<'EOF'${NL}require('fs').writeFileSync(require('os').homedir()+'/.claude/wy-approvals/my-project/decisions/a.json','{}')${NL}EOF${NL}node /tmp/w.js`,
+  // KI-02 보안 점검: 명령 부분의 보호 경로 언급, 같은 명령의 링크, 앞서 만든 링크(임시 폴더 → 프로젝트)
+  'ln -s ~/proj /tmp/h && cp e.json /tmp/h/.claude/wy-ops.json',
+  'cp -rs ~/proj /tmp/h && cp e.json /tmp/h/.claude/wy-ops.json',
+  `ln -s ~/.cl''aude /tmp/h`,
+  'ln -s ~/.cla?de /tmp/h',
+  `node -e "require('fs').symlinkSync('C:/proj','/tmp/h')" && cp e.json /tmp/h/.claude/wy-ops.json`,
+  `cp e.json ${tmpLink.replace(/\\/g, '/')}/.claude/wy-ops.json`,
+  `cp e.json ${tmpLinkCwd.replace(/\\/g, '/')}/.claude/wy-ops.json`,
 ];
 const allow = [
   // 읽기
@@ -267,6 +318,19 @@ const allow = [
   // 따옴표 문자열 내용도 데이터(대상만 본다)
   'Add-Content docs/진행현황.md "- .claude/wy-ops.json·settings.local.json 정리"',
   'Add-Content -Path docs/진행현황.md -Value "- ~/.claude/wy-approvals/my-project/decisions 확인"',
+  // KI-02(2026-10-14): 설치본 doctor로 다른 프로젝트 점검, 임시 사본 폴더로 이동·설정 복사, 시험 스크립트를 cat으로 쓰고 실행
+  'node ~/.wy-tools/wy-ops/current/lib/install.js doctor --project C:/projects/other',
+  W`powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" doctor --project C:\projects\other`,
+  W`& "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" doctor --project=.`,
+  W`$S="$env:TEMP\c1"; Set-Location $S; Get-ChildItem test,vscode/test -Filter *.test.js | ForEach-Object { node $_.FullName; if ($LASTEXITCODE) { throw $_.Name } }`,
+  'cd $TMP/c1 && node test/a.test.js',
+  'S=/tmp/c1; cp .claude/wy-ops.json $S/.claude/wy-ops.json',
+  W`Copy-Item .claude/wy-ops.json $env:TEMP\c1\.claude\wy-ops.json`,
+  W`$S="$env:TEMP\c1"; Copy-Item -Path .claude/wy-ops.json -Destination "$S\.claude\wy-ops.json" -Force`,
+  'S=/tmp/c1; rm -rf $S; mkdir -p $S && git archive HEAD | tar -x -C $S && ls ~/.claude/wy-approvals/my-project/decisions && cat ~/.claude/wy-approvals/my-project/decisions/a.json',
+  `mkdir -p /tmp/k && cat > /tmp/k/try.js <<'EOF'${NL}const c = ['cp .claude/wy-ops.json $S/x', 'rm ~/.claude/wy-approvals/a/decisions/x'];${NL}console.log(c.length);${NL}EOF${NL}node /tmp/k/try.js`,
+  `node -e "const fs=require('fs');const d=require('os').homedir()+'/.claude/wy-approvals/my-project/requests/';fs.renameSync(d+'20261013-guard-rename.json.part',d+'20261013-guard-rename.json')"`,
+  'Remove-Item ~/.claude/wy-approvals/my-project/requests/20261014-a.json',
 ];
 for (const c of deny) { const e = ev(c); ok(e && e.decision === 'deny', 'should deny: ' + c); }
 // 설정에 commitRole이 없으면 기본 이름 없이 잠금 대상은 모두 거부(커밋 역할 이름으로 띄운 세션도)
@@ -314,6 +378,7 @@ ok(writesApprovalFiles('ls') === false, 'unrelated passes');
   ok(noteAgentType({ session_id: '../x' }, root) === null, '이상한 id는 쓰지 않음');
   fs.rmSync(root, { recursive: true, force: true });
 }
+for (const l of [tmpLink, tmpLinkCwd]) fs.unlinkSync(l);
 fs.rmSync(proj, { recursive: true, force: true });
 fs.rmSync(process.env.WY_APPROVALS_DIR, { recursive: true, force: true });
 console.log(fail ? `${fail} FAILED` : `guard 검사 통과 (거부 ${deny.length}, 통과 ${allow.length})`);

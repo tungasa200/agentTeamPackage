@@ -183,7 +183,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
    ```
    - 스택은 고르지 않습니다. `quickstart`처럼 폴더의 표지 파일로 알아내 결과를 보여 줍니다(3-0b 3/6). 틀리면 설치 뒤 `.claude/wy-ops.json`의 `verify`를 고치고 `<설치> gen`. 하나도 못 알아내면 검증 명령을 묻습니다(`--verify-<키> "<명령>"`으로 미리 줄 수 있음).
    - `--stack node|python|java-gradle|java-maven|csharp|cpp|custom`은 덮어쓰기용입니다. 주면 알아내지 않고 그 템플릿을 루트에 그대로 씁니다.
-   - 이미 `wy-ops.json`이 있으면 `verify` 키가 아예 없을 때만 `detected`·`verify`·`tools`·`stackNotes`를 채웁니다(`wy-ops.json.bak-<시각>`을 남김). `verify`가 있으면 손대지 않습니다. 이때 `--verify-*` 값이나 입력값도 쓰지 않고 "기존 verify를 유지해 --verify-* 값은 쓰지 않았습니다(.claude/wy-ops.json에서 고치세요)"를 한 줄 알립니다.
+   - 이미 `wy-ops.json`이 있으면 `verify` 키가 아예 없을 때만 `detected`·`verify`·`tools`·`stackNotes`를 채웁니다(`wy-ops.json.bak-<시각>`을 남김). `verify`가 있으면 손대지 않습니다. 이때 `--verify-*` 값이나 입력값도 쓰지 않고 "기존 verify를 유지해 --verify-* 값은 쓰지 않았습니다(.claude/wy-ops.json에서 고치세요)"를 한 줄 알립니다. 코드가 생긴 뒤 다시 알아내려면 `<설치> detect --apply`를 씁니다.
    - 역할별 수, 여러 개로 나눈 역할의 담당 영역을 묻습니다. 묻지 않고 정하려면 `--roles`, `--count backend=2,frontend=1`, `--area "AB-backend1=server/;AB-backend2=tools/"`를 씁니다.
    - 끌 수 있는 함께 까는 도구를 고릅니다(고른 역할에 필수인 것은 못 끔).
    - 만드는 것: `.claude/wy-ops.json`, 역할 원본(`.claude/ops/`)·역할 파일(`.claude/agents/`), pm-ops 스킬, `.gitignore` 줄, `settings.local.json`, `.claude/settings.json`의 `worktree.bgIsolation: "none"`(값이 없을 때만, 백그라운드 역할 세션이 공용 워킹트리를 고치려면 필요).
@@ -371,6 +371,7 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | `trust` | 폴더 사용 허락을 `~/.claude.json`에 기록(설치 마법사 6단계, 3-0) | `<설치> trust --project <폴더>` (`--check`는 확인만) |
 | `update` | 운영 도구를 새 버전으로. 패키지 저장소를 pull(확인)하고 설치본을 갱신한 뒤 생성 파일을 다시 만듦. 사람이 고친 생성 파일은 덮지 않고 차이만 보여 줌 | `<설치> update` (미리 보기 `--dry-run`, pull 생략 `--no-pull`) → Reload |
 | `detect` | 폴더를 보고 알아낸 스택·검증 명령 미리 보기. 읽기만 함. 설정에 `verify`가 있으면 그 값을 보여 줌 | `<설치> detect` (`--project <폴더>`, `--json`) |
+| `detect --apply` | 있는 `verify`를 무시하고 폴더를 다시 보고 `wy-ops.json`의 `verify`·`detected`·`tools`·`stackNotes`를 바꿈(옛 `stack` 키는 지움, 다른 키 그대로, `.bak-<시각>`을 남김). 바꾸기 전·뒤 검증 명령과 CLAUDE.md에 직접 넣을 목록을 보여 줌. 알아낸 것이 없거나 이미 같으면 바꾸지 않음. 빈 폴더에 설치한 뒤 코드가 생겼을 때 씀. `verify`를 통째로 바꾸므로 손으로 적은 명령(lint 등)도 사라짐: 바꾸기 전 목록이나 `.bak`에서 되살림 | `<설치> detect --apply` (`--project <폴더>`) → `<설치> gen` |
 | `gen` | `.claude/ops`의 역할 원본·pm-ops 부록을 고친 뒤 역할 파일·스킬 다시 만들기 | `<설치> gen` |
 | `deploy` | 설치본만 패키지 저장소의 HEAD로 갱신. `--dev`는 작업 사본을 바로 연결(개발용) | `<설치> deploy` |
 | `rollback` | 새 버전에 문제가 있을 때 이전 버전으로. `rollback --list`로 설치본 목록(*가 지금 쓰는 것), `rollback <버전 폴더>`로 특정 버전 | `<설치> rollback` → Reload |
@@ -415,7 +416,7 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | WY Ops 아이콘·승인 센터가 안 뜸 | 확장이 설치본을 못 찾음 | `doctor` → '설치본'이 FAIL이면 `<설치> setup` → Reload. 그래도 안 되면 `<설치> rollback` → Reload |
 | doctor '개발 연결 중' | `deploy --dev`로 작업 사본을 연결해 둠 | 개발 중이면 정상. 풀려면 `<설치> deploy` |
 | doctor '공용 워킹트리' 주의 | `.claude/settings.json`에 `worktree.bgIsolation`이 없음(0.13.0 전에 `init`한 프로젝트). 백그라운드 역할 세션이 공용 워킹트리 파일을 고치지 못함 | doctor 안내대로 `init`을 다시 실행하거나, 사용자가 `.claude/settings.json`에 `"worktree": { "bgIsolation": "none" }`을 넣음 → 역할 세션을 다시 띄움 |
-| doctor '검증 명령' 주의 | `wy-ops.json`의 `verify`가 비었거나, `{ 폴더: 명령 }`의 폴더가 없음 | `<설치> detect`로 제안을 보고 `.claude/wy-ops.json`의 `verify`를 고침 → `<설치> gen` |
+| doctor '검증 명령' 주의 | `wy-ops.json`의 `verify`가 비었거나, `{ 폴더: 명령 }`의 폴더가 없음 | `<설치> detect --apply`로 다시 알아내 채움(`.claude/wy-ops.json`의 `verify`를 직접 고쳐도 됨) → `<설치> gen` |
 | doctor '버전 고정' 주의 | 설치본 버전이 `wy-ops.json`의 `wyOpsVersion`과 다름 | 프로젝트가 정한 버전으로 맞추거나(`update`·`rollback`), 사용자가 `wyOpsVersion`을 고침 |
 | 공백·한글 경로 경고 | 홈·저장소 경로에 공백·한글 | 동작은 하지만 문제가 생기면 `doctor` 결과를 pm에 전달 |
 | 붙여 넣은 명령이 'unexpected token' | Bash 명령을 PowerShell에 붙여 넣음 | 4-4 참고. Git Bash에서 실행하거나 PowerShell 형태를 씀 |
