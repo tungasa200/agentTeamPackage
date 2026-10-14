@@ -49,7 +49,7 @@ function makePc(name, { home: homeName = 'home' } = {}) {
   }
   json(settingsFile, { permissions: { deny: template.deny, allow: ['WebSearch'] }, hooks });
   // 플러그인 밖의 함께 까는 도구는 기본 시험에서 꺼 둔다(따로 시험)
-  json(path.join(repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'X-pm', commitRole: 'X-commit', roles: [{ name: 'X-pm' }, { name: 'X-commit', agent: true }], approvals: { namespace: 'p' }, extras: { off: NON_PLUGIN } });
+  json(path.join(repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'X-pm', commitRole: 'X-commit', roles: [{ name: 'X-pm' }, { name: 'X-commit', agent: true }], approvals: { namespace: 'p' }, extras: { off: NON_PLUGIN }, verify: { test: 'npm test' } });
   json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false } });
   write(path.join(repo, '.claude', 'agents', 'X-commit.md'), '# X-commit\n경로는 ~/.claude/wy-approvals\n');
   write(path.join(repo, '.gitignore'), ['node_modules', '.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*'].join('\n') + '\n');
@@ -433,7 +433,30 @@ try {
     assert.strictEqual(byId(doctor.checkAll({ ...pc.opts, run: only('g++') }))['stack-tools'].level, 'ok', 'g++만 있어도 통과');
     const none = byId(doctor.checkAll({ ...pc.opts, run: only(null) }))['stack-tools'];
     assert.ok(none.level === 'warn' && none.detail.includes('C++ 컴파일러') && none.fix.includes('LLVM 설치'), JSON.stringify(none));
+    // 알아낸 폴더(detected)가 있으면 그것으로 이름 붙임
+    json(cfg, { ...ops, detected: [{ dir: 'server', stack: 'java-gradle' }, { dir: 'web', stack: 'node' }], tools: [{ cmd: 'java', label: 'JDK', install: 'winget install JDK' }] });
+    assert.ok(byId(doctor.checkAll({ ...pc.opts, run }))['stack-tools'].detail.startsWith('java-gradle(server/), node(web/): 없음'), '라벨은 detected');
     json(cfg, ops);
+  }
+
+  // 검증 명령(STK): 하나도 없으면 주의(install.ps1 detect 제안), { 폴더: 명령 }의 폴더가 없으면 주의
+  {
+    const pc = makePc('verify');
+    const cfg = path.join(pc.repo, '.claude', 'wy-ops.json');
+    const ops = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    const v = () => byId(doctor.checkAll(pc.opts)).verify;
+    assert.ok(v().level === 'ok' && v().detail === '테스트', JSON.stringify(v()));
+    for (const verify of [undefined, {}, { build: null, test: '  ' }, { test: { web: '' } }]) {
+      json(cfg, { ...ops, verify });
+      assert.ok(v().level === 'warn' && v().detail.includes('검증 명령이 없습니다') && v().fix.includes('install.ps1" detect'), JSON.stringify(verify));
+    }
+    json(cfg, { ...ops, verify: { build: { '.': 'npm run build', web: 'npm run build' }, test: { server: './gradlew test' } } });
+    let r = v();
+    assert.ok(r.level === 'warn' && r.detail.includes('web, server') && !r.detail.includes('.,'), JSON.stringify(r));
+    write(path.join(pc.repo, 'web', 'package.json'), '{}');
+    write(path.join(pc.repo, 'server', 'build.gradle'), '');
+    r = v();
+    assert.ok(r.level === 'ok' && r.detail === '빌드, 테스트', JSON.stringify(r));
   }
 
   // 고치기 안내의 install.ps1 경로는 실제 설치본 위치를 따른다(WY_TOOLS_DIR 등)
@@ -499,7 +522,7 @@ try {
     const cfg = path.join(pc.repo, '.claude', 'wy-ops.json');
     json(cfg, { ...JSON.parse(fs.readFileSync(cfg, 'utf8')), rolePrefix: 'X-', stack: 'node' });
     r = byId(doctor.checkAll(pc.opts))['bg-isolation'];
-    assert.ok(r.level === 'warn' && r.fix.includes('init --name p --prefix X- --stack node --yes'), r.fix);
+    assert.ok(r.level === 'warn' && r.fix.includes('init --name p --prefix X- --yes'), r.fix);
     write(shared, '{ 깨진');
     assert.strictEqual(byId(doctor.checkAll(pc.opts))['bg-isolation'].level, 'warn', '깨진 settings.json은 주의');
   }

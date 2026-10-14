@@ -130,6 +130,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 - 기록은 `%TEMP%\wy-ops-setup-<시각>.log`에 남고 [로그 저장…]으로 바탕화면에 복사합니다.
 - 설치 중 [취소]는 지금 설치하던 프로그램이 끝난 뒤 닫습니다. 다시 실행하면 빠진 것만 채웁니다.
 - 화면 배율(125·150%)을 따라 커집니다. 화면 확인용: `powershell -STA -File scripts\setup-wizard.ps1 -Shots <폴더> [-Scale 1.5]`(가짜 출력으로 화면 상태를 PNG로 저장), `-Demo`(가짜 출력으로 창을 띄움, 아무것도 설치·기록하지 않음).
+- 스택은 고르지 않습니다(폴더를 보고 알아냄, 3-0b 3/6). 고급 설정의 '검증 명령 [알아보기]'로 미리 봅니다. 틀리면 설치 뒤 `.claude/wy-ops.json`의 `verify`를 고치고 `install.ps1 gen`.
 - 마법사가 쓰는 명령: `install.js trust --project <폴더> [--check]`(허락 기록·확인, JSON 한 줄), `doctor --json --todos`, `quickstart --progress --no-finish`.
 
 ### 3-0b. 한 줄 설치(터미널)
@@ -151,14 +152,14 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 | 시작 | 프로젝트 폴더와 이름을 묻습니다. 경로는 따옴표째 붙여도 되고 `~`도 됩니다. git 저장소 안의 하위 폴더를 주면 저장소 맨 위에 붙입니다 | 폴더·이름 입력(Enter = 기본값) |
 | 1/6 | 설치본·VS Code 확장(`global`과 같음) | — |
 | 2/6 | 없는 폴더는 만들고, git 저장소가 아니면 `git init` | — |
-| 3/6 | 운영 도구 파일(`init`과 같은 결과, 묻지 않고 기본값). 스택은 폴더의 파일로 추정(`package.json` → node, `pyproject.toml`·`requirements.txt` → python, `build.gradle` → java-gradle, `*.sln`·`*.csproj` → csharp, `CMakeLists.txt` → cpp, 모르면 custom). 역할은 2-1 기본 구성, 접두사는 이름 앞 두 글자(`my-app` → `MY-`). 새 `settings.local.json`은 묻지 않고 만들고, 있는 파일을 바꿀 때는 묻습니다 | 스택 개발 도구가 없으면 설치 여부 `y` |
+| 3/6 | 운영 도구 파일(`init`과 같은 결과, 묻지 않고 기본값). 스택은 루트와 바로 아래 폴더의 표지 파일로 폴더마다 알아냅니다(`package.json` → node, `build.gradle(.kts)`·`settings.gradle(.kts)`·`gradlew` → java-gradle, `pom.xml` → java-maven, `pyproject.toml`·`requirements.txt`·`setup.py`·`Pipfile` → python, `*.sln`·`*.csproj` → csharp, `CMakeLists.txt` → cpp). 루트가 Gradle·Maven·.NET 솔루션·CMake처럼 하위 모듈을 함께 빌드하는 스택이면 루트와 같은 스택인 하위 폴더는 루트 빌드의 모듈로 보고 뺍니다. Node·Python 하위 폴더는 남겨 폴더별 명령을 잡습니다. node 실행기는 잠금 파일로 고릅니다(`pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `bun.lockb`·`bun.lock` → bun, 그 밖에는 npm. Yarn Berry(`.yarnrc.yml`)는 `yarn install --immutable`). `gradlew`·`mvnw`가 없으면 `gradle`·`mvn`을 씁니다. 결과는 `wy-ops.json`의 `detected`(`[{dir, stack}]`)와 `verify`에 적습니다. `verify`는 폴더가 루트 하나면 키마다 명령 문자열, 여럿이면 키마다 `{ 폴더: 명령 }`입니다. node는 `package.json` scripts에 있는 것만 씁니다. 미리 보려면 `detect`(5장). 역할은 2-1 기본 구성, 접두사는 이름 앞 두 글자(`my-app` → `MY-`). 새 `settings.local.json`은 묻지 않고 만들고, 있는 파일을 바꿀 때는 묻습니다 | 스택 개발 도구가 없으면 설치 여부 `y` |
 | 4/6 | `CLAUDE.md`가 없으면 운영 도구 절을 넣어 만듭니다. 있으면 고치지 않고 붙일 내용을 보여 줍니다 | 있던 경우만 붙여 넣기 |
 | 5/6 | Claude Code 로그인, GitHub 로그인, 폴더 신뢰. 이미 된 것은 건너뜁니다. 안 된 것은 할 일을 한 줄로 알리고 Enter를 누르면 같은 창에서 엽니다(`s` = 나중에) | 브라우저 로그인, 신뢰 Yes → `/exit` |
 | 6/6 | 점검(doctor)을 "됐음 / 이것만 남음"으로 요약하고 VS Code로 프로젝트를 엽니다. 남은 손일은 승인 센터 할 일 카드로도 올라옵니다 | 남은 것만 처리 |
 
 설정이 이미 있는 프로젝트에서 다시 돌려도 됩니다. 있는 설정·`CLAUDE.md`·사람이 고친 파일은 그대로 두고 빠진 것만 채웁니다. 묻지 않고 돌리려면 `--yes --project <폴더> [--name <이름>]`(이때 로그인·신뢰는 건너뛰고 나중에 할 명령만 알립니다).
 
-스택·역할 수·담당 영역을 직접 고르고 싶을 때는 아래 3-1·3-2처럼 `global` → `init`을 씁니다.
+역할 수·담당 영역을 직접 고르거나 스택을 덮어쓰고 싶을 때는 아래 3-1·3-2처럼 `global` → `init`을 씁니다.
 
 ### 3-1. 이 PC에 처음 설치(직접 고르고 싶을 때)
 
@@ -180,11 +181,14 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
    ```powershell
    powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" init --name <프로젝트 이름> --prefix AB-
    ```
-   - 스택(`--stack node|python|java-gradle|csharp|cpp|custom`), 역할별 수, 여러 개로 나눈 역할의 담당 영역을 묻습니다. 묻지 않고 정하려면 `--roles`, `--count backend=2,frontend=1`, `--area "AB-backend1=server/;AB-backend2=tools/"`를 씁니다.
+   - 스택은 고르지 않습니다. `quickstart`처럼 폴더의 표지 파일로 알아내 결과를 보여 줍니다(3-0b 3/6). 틀리면 설치 뒤 `.claude/wy-ops.json`의 `verify`를 고치고 `<설치> gen`. 하나도 못 알아내면 검증 명령을 묻습니다(`--verify-<키> "<명령>"`으로 미리 줄 수 있음).
+   - `--stack node|python|java-gradle|java-maven|csharp|cpp|custom`은 덮어쓰기용입니다. 주면 알아내지 않고 그 템플릿을 루트에 그대로 씁니다.
+   - 이미 `wy-ops.json`이 있으면 `verify` 키가 아예 없을 때만 `detected`·`verify`·`tools`·`stackNotes`를 채웁니다(`wy-ops.json.bak-<시각>`을 남김). `verify`가 있으면 손대지 않습니다. 이때 `--verify-*` 값이나 입력값도 쓰지 않고 "기존 verify를 유지해 --verify-* 값은 쓰지 않았습니다(.claude/wy-ops.json에서 고치세요)"를 한 줄 알립니다.
+   - 역할별 수, 여러 개로 나눈 역할의 담당 영역을 묻습니다. 묻지 않고 정하려면 `--roles`, `--count backend=2,frontend=1`, `--area "AB-backend1=server/;AB-backend2=tools/"`를 씁니다.
    - 끌 수 있는 함께 까는 도구를 고릅니다(고른 역할에 필수인 것은 못 끔).
    - 만드는 것: `.claude/wy-ops.json`, 역할 원본(`.claude/ops/`)·역할 파일(`.claude/agents/`), pm-ops 스킬, `.gitignore` 줄, `settings.local.json`, `.claude/settings.json`의 `worktree.bgIsolation: "none"`(값이 없을 때만, 백그라운드 역할 세션이 공용 워킹트리를 고치려면 필요).
-   - doctor '공용 워킹트리' 줄이 이 값을 봅니다. 없으면 주의로 알리고, `init`을 다시 실행하거나(있는 파일·값은 덮지 않고 이 값만 더함) `.claude/settings.json`에 `"worktree": { "bgIsolation": "none" }`을 손으로 넣으라고 안내합니다. `update`는 이 파일을 고치지 않습니다.
-   - 이미 있는 파일은 덮지 않습니다.
+   - doctor '공용 워킹트리' 줄이 이 값을 봅니다. 없으면 주의로 알리고, `init`을 다시 실행하거나(있는 파일·값은 덮지 않고 이 값만 더함. 검증 명령(verify)이 없는 설정이면 그것도 더함) `.claude/settings.json`에 `"worktree": { "bgIsolation": "none" }`을 손으로 넣으라고 안내합니다. `update`는 이 파일을 고치지 않습니다.
+   - 이미 있는 파일은 덮지 않습니다. 예외: `verify`가 없는 `wy-ops.json`에는 검증 부분만 더하고 `.bak-<시각>`을 남깁니다.
 2. 출력 끝의 **CLAUDE.md에 넣을 절**을 복사해 그 프로젝트 `CLAUDE.md`에 붙입니다(자동으로 고치지 않습니다). '작업 원칙' 절을 빼려면 `init`에 `--no-principles`.
 3. 신뢰 안내가 나오면 그 폴더 터미널에서 `claude` → Yes → `/exit`.
 4. 그 폴더를 VS Code로 열고 `Developer: Reload Window`.
@@ -366,6 +370,7 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | `doctor` | 뭔가 이상할 때 먼저. 읽기만 함 | `<설치> doctor` (`--json`, `--todos`는 남은 손일을 할 일 카드로) |
 | `trust` | 폴더 사용 허락을 `~/.claude.json`에 기록(설치 마법사 6단계, 3-0) | `<설치> trust --project <폴더>` (`--check`는 확인만) |
 | `update` | 운영 도구를 새 버전으로. 패키지 저장소를 pull(확인)하고 설치본을 갱신한 뒤 생성 파일을 다시 만듦. 사람이 고친 생성 파일은 덮지 않고 차이만 보여 줌 | `<설치> update` (미리 보기 `--dry-run`, pull 생략 `--no-pull`) → Reload |
+| `detect` | 폴더를 보고 알아낸 스택·검증 명령 미리 보기. 읽기만 함. 설정에 `verify`가 있으면 그 값을 보여 줌 | `<설치> detect` (`--project <폴더>`, `--json`) |
 | `gen` | `.claude/ops`의 역할 원본·pm-ops 부록을 고친 뒤 역할 파일·스킬 다시 만들기 | `<설치> gen` |
 | `deploy` | 설치본만 패키지 저장소의 HEAD로 갱신. `--dev`는 작업 사본을 바로 연결(개발용) | `<설치> deploy` |
 | `rollback` | 새 버전에 문제가 있을 때 이전 버전으로. `rollback --list`로 설치본 목록(*가 지금 쓰는 것), `rollback <버전 폴더>`로 특정 버전 | `<설치> rollback` → Reload |
@@ -410,6 +415,7 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | WY Ops 아이콘·승인 센터가 안 뜸 | 확장이 설치본을 못 찾음 | `doctor` → '설치본'이 FAIL이면 `<설치> setup` → Reload. 그래도 안 되면 `<설치> rollback` → Reload |
 | doctor '개발 연결 중' | `deploy --dev`로 작업 사본을 연결해 둠 | 개발 중이면 정상. 풀려면 `<설치> deploy` |
 | doctor '공용 워킹트리' 주의 | `.claude/settings.json`에 `worktree.bgIsolation`이 없음(0.13.0 전에 `init`한 프로젝트). 백그라운드 역할 세션이 공용 워킹트리 파일을 고치지 못함 | doctor 안내대로 `init`을 다시 실행하거나, 사용자가 `.claude/settings.json`에 `"worktree": { "bgIsolation": "none" }`을 넣음 → 역할 세션을 다시 띄움 |
+| doctor '검증 명령' 주의 | `wy-ops.json`의 `verify`가 비었거나, `{ 폴더: 명령 }`의 폴더가 없음 | `<설치> detect`로 제안을 보고 `.claude/wy-ops.json`의 `verify`를 고침 → `<설치> gen` |
 | doctor '버전 고정' 주의 | 설치본 버전이 `wy-ops.json`의 `wyOpsVersion`과 다름 | 프로젝트가 정한 버전으로 맞추거나(`update`·`rollback`), 사용자가 `wyOpsVersion`을 고침 |
 | 공백·한글 경로 경고 | 홈·저장소 경로에 공백·한글 | 동작은 하지만 문제가 생기면 `doctor` 결과를 pm에 전달 |
 | 붙여 넣은 명령이 'unexpected token' | Bash 명령을 PowerShell에 붙여 넣음 | 4-4 참고. Git Bash에서 실행하거나 PowerShell 형태를 씀 |

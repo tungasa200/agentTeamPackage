@@ -9,6 +9,8 @@ const { spawnSync } = require('child_process');
 const { rmTree } = require('../lib/fsx');
 const qs = require('../lib/quickstart');
 
+const VERIFY_NULL = ['build', 'test', 'typecheck', 'lint', 'format'];
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-qs-'));
 const put = (f, text) => {
   fs.mkdirSync(path.dirname(f), { recursive: true });
@@ -32,18 +34,6 @@ try {
   assert.strictEqual(qs.defaultName('C:\\x\\한글'), null, '영문이 없으면 null');
   assert.strictEqual(qs.prefixFor('my-app'), 'MY-');
   assert.strictEqual(qs.prefixFor('x'), 'X-');
-  const sd = (files) => {
-    const d = fs.mkdtempSync(path.join(tmp, 'st-'));
-    for (const f of files) put(path.join(d, f), '');
-    return qs.detectStack(d);
-  };
-  assert.strictEqual(sd(['package.json']), 'node');
-  assert.strictEqual(sd(['pyproject.toml']), 'python');
-  assert.strictEqual(sd(['package.json', 'build.gradle.kts']), 'java-gradle', '빌드 도구가 먼저');
-  assert.strictEqual(sd(['App.sln']), 'csharp');
-  assert.strictEqual(sd(['CMakeLists.txt']), 'cpp');
-  assert.strictEqual(sd(['README.md']), 'custom');
-  assert.strictEqual(qs.detectStack(path.join(tmp, 'none')), 'custom', '없는 폴더');
   const s = qs.summarize([{ level: 'ok', title: 'a' }, { level: 'warn', title: 'w', fix: 'gh auth login' }, { level: 'fail', title: 'f', detail: 'd' }]);
   assert.ok(s.startsWith('됐음: 점검 3개 중 1개') && s.indexOf('- f: d') < s.indexOf('- w') && s.includes('할 일: gh auth login'), s);
   assert.ok(qs.summarize([{ level: 'ok', title: 'a' }]).includes('남은 것 없음'));
@@ -76,7 +66,9 @@ try {
   for (const step of ['[1/6]', '[2/6]', '[3/6]', '[4/6]', '[5/6]', '[6/6]']) assert.ok(r1.out.includes(step), `${step}\n${r1.out}`);
   assert.ok(fs.existsSync(path.join(P, '.git')), 'git init');
   const ops = JSON.parse(fs.readFileSync(path.join(P, '.claude', 'wy-ops.json'), 'utf8'));
-  assert.deepStrictEqual([ops.project, ops.rolePrefix, ops.stack], ['my-app', 'MY-', 'node'], r1.out);
+  assert.deepStrictEqual([ops.project, ops.rolePrefix, ops.stack, ops.detected], ['my-app', 'MY-', undefined, [{ dir: '.', stack: 'node' }]], r1.out);
+  assert.strictEqual(ops.verify.setup, 'npm install', 'scripts가 없으면 설치 명령만');
+  assert.ok(VERIFY_NULL.every((k) => ops.verify[k] === null), JSON.stringify(ops.verify));
   const cmd = fs.readFileSync(path.join(P, 'CLAUDE.md'), 'utf8');
   assert.ok(cmd.startsWith('# my-app\n') && cmd.includes(qs.SECTION_MARK) && cmd.includes('맨 위 `MY-pm` 줄(백그라운드 `MY-pm`'), cmd.slice(0, 400));
   assert.ok(fs.existsSync(path.join(P, '.claude', 'settings.local.json')), '새 settings는 묻지 않고 만듦');

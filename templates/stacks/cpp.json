@@ -1,6 +1,9 @@
 {
   "id": "cpp",
   "label": "C++ (CMake)",
+  "markers": ["CMakeLists.txt"],
+  "order": 30,
+  "aggregate": true,
   "tools": [
     { "cmd": "cmake", "label": "CMake(ctest 포함)", "install": "winget install Kitware.CMake (또는 https://cmake.org/download)" },
     { "anyOf": ["cl", "clang", "g++"], "label": "C++ 컴파일러(cl·clang·g++ 중 하나)", "install": "Visual Studio Build Tools(C++ 데스크톱 개발): winget install -e --id Microsoft.VisualStudio.2022.BuildTools --override \"--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive\" 또는 LLVM: winget install -e --id LLVM.LLVM. cl은 'Developer PowerShell for VS'에서만 PATH에 잡힌다" }

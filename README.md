@@ -40,12 +40,12 @@
    ```
    - 묻는 것은 **프로젝트 폴더**와 **이름** 둘뿐입니다(Enter = 보이는 기본값). 경로는 따옴표째 붙여 넣어도 되고 `~`도 됩니다. 없는 폴더는 만들고, git 저장소가 아니면 `git init`을 합니다.
    - 필요한 프로그램(Node.js·Git·GitHub CLI·VS Code·Claude Code)이 없으면 설치를 한 번 묻습니다.
-   - 나머지는 기본값입니다: 스택은 폴더의 파일로 추정(모르면 `custom`), 역할은 아래 기본 구성, 역할 접두사는 이름 앞 두 글자(`my-app` → `MY-`).
+   - 나머지는 기본값입니다: 스택은 루트와 바로 아래 폴더의 파일로 폴더마다 알아냄(미리 보기 `install.ps1 detect`), 역할은 아래 기본 구성, 역할 접두사는 이름 앞 두 글자(`my-app` → `MY-`).
    - `CLAUDE.md`가 없으면 운영 도구 절을 넣어 만들고, 있으면 고치지 않고 붙일 내용을 보여 줍니다.
    - 로그인(Claude Code·GitHub)과 폴더 신뢰는 대신할 수 없어서, 그 자리에서 할 일을 한 줄로 알리고 Enter를 누르면 같은 창에서 엽니다. 이미 된 것은 건너뜁니다.
    - 끝에 점검(doctor) 결과를 "됐음 / 이것만 남음"으로 요약하고 VS Code로 프로젝트를 엽니다. 왼쪽 활동 막대에 **WY Ops** 아이콘이 보이면 됩니다.
 
-스택·역할 수·담당 영역을 직접 고르고 싶으면 `quickstart` 대신 `global` → `init`을 씁니다([MANUAL.md](MANUAL.md) 3장 '직접 고르고 싶을 때').
+역할 수·담당 영역을 직접 고르거나 스택을 덮어쓰고 싶으면 `quickstart` 대신 `global` → `init`을 씁니다([MANUAL.md](MANUAL.md) 3장 '직접 고르고 싶을 때').
 
 같은 프로젝트를 다른 PC에서 이어 갈 때는 프로젝트를 clone한 뒤 그 폴더에서 `install.ps1 setup`을 실행합니다. 원래 PC의 개인 상태(메모리·승인 이력·전역 설정)까지 옮기려면 `export` → 새 PC에서 `restore <zip>`을 씁니다([NEW-PC.md](NEW-PC.md)).
 
@@ -64,7 +64,7 @@
 | design | 화면 설계·목업, 구현 화면 점검 | 1 |
 | browser | 외부 서비스 콘솔 작업(코드는 수정하지 않음) | 1 |
 
-스택: `node`, `python`, `java-gradle`, `csharp`, `cpp`, `custom`. 스택마다 빌드·테스트 명령과 개발 도구 확인 목록이 정해져 있습니다. 개발 도구가 없으면 winget 설치를 제안합니다.
+스택: `node`, `python`, `java-gradle`, `java-maven`, `csharp`, `cpp`, `custom`. 고르지 않고 루트와 바로 아래 폴더의 표지 파일(`package.json`, `build.gradle`·`gradlew`, `pom.xml`, `pyproject.toml`·`requirements.txt`, `*.sln`·`*.csproj`, `CMakeLists.txt` 등)로 폴더마다 알아내, 검증 명령(`wy-ops.json`의 `verify`)과 개발 도구 확인 목록을 정합니다. 루트가 Gradle·Maven·.NET 솔루션·CMake면 루트와 같은 스택인 하위 폴더는 모듈로 보고 빼고, Node·Python 하위 폴더는 폴더별 명령을 잡습니다. node 실행기는 잠금 파일로 고릅니다(npm·pnpm·yarn·bun). 틀리면 `.claude/wy-ops.json`의 `verify`를 고치고 `install.ps1 gen`. `init --stack <id>`는 덮어쓰기용(그 템플릿을 루트에 그대로 씀)입니다. 개발 도구가 없으면 winget 설치를 제안합니다.
 
 `init`이 만드는 CLAUDE.md 절에는 '작업 원칙'(가정 명시, 단순함 우선, 정밀한 수정, 완료 전 검증, 하나 가르치기)이 들어갑니다. 빼려면 `--no-principles`.
 

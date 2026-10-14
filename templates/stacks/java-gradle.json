@@ -1,9 +1,11 @@
 {
   "id": "java-gradle",
   "label": "Java·Gradle(Spring)",
+  "markers": ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "gradlew"],
+  "order": 10,
+  "aggregate": true,
   "tools": [
-    {"cmd": "java", "label": "JDK", "install": "winget install EclipseAdoptium.Temurin.21.JDK (프로젝트의 Java 버전에 맞춘다)"},
-    {"cmd": "node", "label": "Node.js(프론트엔드)", "install": "winget install OpenJS.NodeJS.LTS (프론트엔드가 없으면 tools에서 지운다)"}
+    {"cmd": "java", "label": "JDK", "install": "winget install EclipseAdoptium.Temurin.21.JDK (프로젝트의 Java 버전에 맞춘다)"}
   ],
   "verify": {
     "setup": null,

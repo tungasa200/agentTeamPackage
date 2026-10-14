@@ -1,6 +1,6 @@
 ﻿# WY Ops 설치 마법사(0.9.0, D-170·D-171). setup.cmd가 창 없이 띄운다. Windows PowerShell 5.1 + WinForms, 추가 설치 없음.
 # 화면·문구 원본: design/install-wizard/mockup.html(7단계). 설치 로직은 install.ps1·lib/install.js에 있고 여기는 명령 인자로 부르는 앞단이다:
-#   3 설치      install.ps1 quickstart --project <폴더> --name <이름> --yes --progress --no-finish [--prefix] [--stack] [--count]
+#   3 설치      install.ps1 quickstart --project <폴더> --name <이름> --yes --progress --no-finish [--prefix] [--count]
 #               (진행 줄 '@@tool …'·'@@step …'·'@@claudemd …'을 읽어 줄 상태를 바꾼다)
 #   4 Claude    claude auth login(창 없이, 브라우저가 열림) + 2초마다 claude auth status --json
 #   5 GitHub    gh auth login --web(창 없이, 출력의 확인 코드를 보여 주고 브라우저는 마법사가 연다) + 2초마다 gh auth status, 끝나면 gh auth setup-git
@@ -93,7 +93,7 @@ function Get-DemoCmd([string[]]$lines, [double]$sec = 0.4, [int]$exit = 0) {
 # ── 상태 ──
 $St = @{
   Step = 1; Done = @{}; Project = 'C:\projects\my-app'; Name = 'my-app'; NameTouched = $false; Existing = $null
-  Prefix = 'MY-'; PrefixTouched = $false; Stack = ''; Counts = [ordered]@{ planner = 1; backend = 2; frontend = 2; qa = 1; design = 1 }
+  Prefix = 'MY-'; PrefixTouched = $false; Counts = [ordered]@{ planner = 1; backend = 2; frontend = 2; qa = 1; design = 1 }
   AdvOpen = $false; Installed = $false; Rows = $null; Run = $null; FailMsg = $null; CancelPending = $false
   ClaudeOk = $false; ClaudeWasOk = $false; ClaudeUrl = $null; PasteOpen = $false; PasteText = ''; PasteBusy = $false; PasteBad = $false; GhOk = $false; GhWasOk = $false; GhSkipped = $false; GhCode = $null
   TrustOk = $false; TrustWasOk = $false; TrustFail = $false; TrustWindow = $false; ClaudeMd = $null
@@ -285,13 +285,24 @@ function Set-ProjectFolder([string]$dir) {
   if ($St.Existing) {
     if ($St.Existing.project) { $St.Name = [string]$St.Existing.project; $St.NameTouched = $true }
     if ($St.Existing.rolePrefix) { $St.Prefix = [string]$St.Existing.rolePrefix; $St.PrefixTouched = $true }
-    if ($St.Existing.stack) { $St.Stack = [string]$St.Existing.stack }
   } elseif (-not $St.NameTouched) { $St.Name = Get-DefaultName $dir }
   if (-not $St.PrefixTouched) { $St.Prefix = Get-PrefixFor $St.Name }
 }
 
 # ── 단계 화면 ──
-$Stacks = @(@('', '자동으로 알아내기'), @('node', 'Node.js'), @('python', 'Python'), @('java-gradle', 'Java(Gradle)'), @('csharp', 'C#'), @('cpp', 'C++'), @('custom', '기타'))
+# 검증 명령 미리 보기(install.js detect, 읽기만). 2단계에서는 Node.js가 아직 없을 수 있다 → 못 하면 설치할 때 알아낸다고만 안내
+function Get-DetectLines([string]$dir) {
+  if ($Demo) { return @('폴더의 파일로 알아낸 검증 명령입니다.', '알아낸 폴더: java-gradle(backend/), node(frontend/)', '빌드: ./gradlew build (backend/) · npm run build (frontend/)', '테스트: ./gradlew test (backend/) · npm test (frontend/)') }
+  if (-not (Test-Path -LiteralPath $dir)) { return @('아직 없는 폴더입니다. 검증 명령은 비워 두고, 설치 뒤 .claude/wy-ops.json의 verify에 적습니다.') }
+  try {
+    $psi = New-Object Diagnostics.ProcessStartInfo 'node'
+    $psi.Arguments = (Q (Join-Path $Pkg 'lib\install.js')) + ' detect --project ' + (Q (Join-Path $dir '.'))  # 끝 '\'가 닫는 따옴표를 먹지 않게(C:\는 C:로 자르면 드라이브의 현재 폴더가 됨)
+    $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.CreateNoWindow = $true; $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
+    if ($p.ExitCode -eq 0 -and $out.Trim()) { return @($out.Trim() -split "`r?`n") }
+  } catch { Write-Log "검증 명령 알아보기 실패: $($_.Exception.Message)" }
+  return @('지금은 알아볼 수 없습니다(Node.js 설치 전). 설치할 때 폴더를 보고 알아냅니다.')
+}
 $CountLabels = [ordered]@{ planner = @('기획', 1); backend = @('서버', 4); frontend = @('화면', 4); qa = @('테스트', 4); design = @('디자인', 1) }  # 최대값: 나눌 수 없는 역할은 1(templates/roles.json multi)
 
 function Show-Step1 {
@@ -334,7 +345,7 @@ function Show-Step2 {
   $line = New-Object Windows.Forms.Panel; $line.Height = 1; $line.Width = $ContentW; $line.BackColor = $C.Line; [void](Add-Ctl $line 16)
   $ar = New-Row 8
   $adv = New-Object Windows.Forms.LinkLabel; $adv.AutoSize = $true; $adv.LinkColor = $C.Accent
-  $changed = ($St.Stack -or $St.PrefixTouched -or @($St.Counts.Keys | Where-Object { $St.Counts[$_] -ne $DefaultCounts[$_] }).Count)
+  $changed = ($St.PrefixTouched -or @($St.Counts.Keys | Where-Object { $St.Counts[$_] -ne $DefaultCounts[$_] }).Count)
   $adv.Text = if ($St.AdvOpen) { "고급 설정 $([char]0x25BE)" } else { "고급 설정 $([char]0x25B8)" }
   $ar.Controls.Add($adv); $ar.Controls.Add((New-Label $(if ($changed -and -not $St.AdvOpen) { '(바꿈)' } else { '(바꾸지 않아도 됩니다)' }) $F.Small $C.Muted))
   $flow.Controls.Add($ar)
@@ -348,14 +359,13 @@ function Show-Step2 {
     $pr.Controls.AddRange(@($pl, $pq, $pb)); $flow.Controls.Add($pr); $flow.Controls.Add($hp1)
     $pb.Add_TextChanged({ param($s) $St.Prefix = $s.Text; $St.PrefixTouched = $true })
     $sr = New-Row 6
-    $sl = New-Label '프로젝트 종류' $F.Body $C.Text (Px 140); $sl.MinimumSize = New-Object Drawing.Size((Px 120), 0); $sl.Margin = New-Object Windows.Forms.Padding(0, (Px 3), 0, 0)
-    $hp2 = New-HelpPanel '만들려는 프로그램의 언어입니다. 폴더 안의 파일을 보고 알아서 고릅니다. 새 폴더면 ‘‘기타’’로 두어도 됩니다.'
-    $sq = New-HelpButton '프로젝트 종류' $hp2
-    $cb = New-Object Windows.Forms.ComboBox; $cb.DropDownStyle = 'DropDownList'; $cb.Width = Px 200; $cb.AccessibleName = '프로젝트 종류'; $cb.Margin = New-Object Windows.Forms.Padding((Px 10), 0, 0, 0)
-    foreach ($s in $Stacks) { [void]$cb.Items.Add($s[1]) }
-    $cb.SelectedIndex = [Math]::Max(0, [array]::IndexOf(@($Stacks | ForEach-Object { $_[0] }), $St.Stack))
-    $cb.Add_SelectedIndexChanged({ param($s) $St.Stack = $Stacks[$s.SelectedIndex][0] })
-    $sr.Controls.AddRange(@($sl, $sq, $cb)); $flow.Controls.Add($sr); $flow.Controls.Add($hp2)
+    $sl = New-Label '검증 명령' $F.Body $C.Text (Px 140); $sl.MinimumSize = New-Object Drawing.Size((Px 120), 0); $sl.Margin = New-Object Windows.Forms.Padding(0, (Px 3), 0, 0)
+    $hp2 = New-HelpPanel 'AI 도우미가 일을 마치고 돌리는 빌드·테스트 명령입니다. 설치할 때 폴더 안의 파일을 보고 알아냅니다. 틀리면 설치 뒤 .claude/wy-ops.json의 verify를 고치세요(역할 파일은 install.ps1 gen으로 다시 만듦).'
+    $sq = New-HelpButton '검증 명령' $hp2
+    $sb = New-Btn '알아보기'; $sb.Margin = New-Object Windows.Forms.Padding((Px 10), 0, 0, 0)
+    $sr.Controls.AddRange(@($sl, $sq, $sb)); $flow.Controls.Add($sr); $flow.Controls.Add($hp2)
+    $script:ui.Verify = Add-Ctl (New-Label '' $F.Small $C.Muted) 4
+    $sb.Add_Click({ $script:ui.Verify.Text = (Get-DetectLines $St.Project) -join "`n" })
     $cr = New-Object Windows.Forms.FlowLayoutPanel; $cr.AutoSize = $true; $cr.WrapContents = $true; $cr.MaximumSize = New-Object Drawing.Size($ContentW, 0); $cr.Margin = New-Object Windows.Forms.Padding(0, (Px 8), 0, (Px 14))  # 바닥에 붙지 않게
     $cl = New-Label '역할 수' $F.Body $C.Text (Px 140); $cl.MinimumSize = New-Object Drawing.Size((Px 150), 0); $cl.Margin = New-Object Windows.Forms.Padding(0, (Px 3), 0, 0); $cr.Controls.Add($cl)
     foreach ($k in $CountLabels.Keys) {
@@ -457,7 +467,6 @@ function Get-FailMsg($row, [string]$code, [string]$text) {
 function Get-InstallCmd {
   $a = @('quickstart', '--project', (Q $St.Project), '--name', $St.Name, '--yes', '--progress', '--no-finish')
   if ($St.PrefixTouched -and $St.Prefix) { $a += @('--prefix', $St.Prefix) }
-  if ($St.Stack) { $a += @('--stack', $St.Stack) }
   $diff = @($St.Counts.Keys | Where-Object { $St.Counts[$_] -ne $DefaultCounts[$_] } | ForEach-Object { "$_=$($St.Counts[$_])" })
   if ($diff.Count) { $a += @('--count', ($diff -join ',')) }
   return 'powershell -NoProfile -ExecutionPolicy Bypass -File ' + (Q (Join-Path $Pkg 'install.ps1')) + ' ' + ($a -join ' ')
@@ -904,7 +913,7 @@ $btnNext.Add_Click({
       2 {
         $St.Done[2] = $true
         # 설치한 뒤 폴더·이름을 바꿨으면 설치 단계를 다시(있는 것은 건너뛰므로 금방 끝난다)
-        $key = "$($St.Project)|$($St.Name)|$($St.Prefix)|$($St.Stack)|$(($St.Counts.Values) -join ',')"
+        $key = "$($St.Project)|$($St.Name)|$($St.Prefix)|$(($St.Counts.Values) -join ',')"
         if ($St.Installed -and $St.InstalledFor -ne $key) { $St.Installed = $false; $St.Rows = $null; $St.Done[3] = $false }
         $St.InstalledFor = $key
         if ($St.Installed) { Go-Step 4 } else { Go-Step 3 }

@@ -1,6 +1,8 @@
 {
   "id": "python",
   "label": "Python",
+  "markers": ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
+  "order": 50,
   "tools": [
     { "cmd": "python", "label": "Python", "install": "winget install Python.Python.3.12 (또는 https://www.python.org, pytest·mypy·ruff는 가상환경에 pip로 설치)" }
   ],

@@ -1,6 +1,9 @@
 {
   "id": "csharp",
   "label": "C# (.NET)",
+  "markers": ["*.sln", "*.csproj"],
+  "order": 40,
+  "aggregate": true,
   "tools": [
     { "cmd": "dotnet", "label": ".NET SDK", "install": "winget install Microsoft.DotNet.SDK.8 (또는 https://dot.net, 프로젝트의 대상 버전에 맞춘다)" }
   ],

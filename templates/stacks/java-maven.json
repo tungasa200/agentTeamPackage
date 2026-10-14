@@ -1,0 +1,22 @@
+{
+  "id": "java-maven",
+  "label": "Java·Maven",
+  "markers": ["pom.xml"],
+  "order": 20,
+  "aggregate": true,
+  "tools": [
+    {"cmd": "java", "label": "JDK", "install": "winget install EclipseAdoptium.Temurin.21.JDK (프로젝트의 Java 버전에 맞춘다)"}
+  ],
+  "verify": {
+    "setup": null,
+    "build": "./mvnw compile test-compile -q",
+    "test": "./mvnw test -q",
+    "typecheck": null,
+    "lint": null,
+    "format": null
+  },
+  "notes": [
+    "바뀐 모듈만 돌린다(예: ./mvnw -pl <모듈> test -q). 메모리가 작으면 MAVEN_OPTS=-Xmx512m를 둔다",
+    "Maven 래퍼(mvnw)가 없으면 mvn을 설치해 쓴다(winget install Apache.Maven)"
+  ]
+}

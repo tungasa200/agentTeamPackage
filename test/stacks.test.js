@@ -25,7 +25,10 @@ for (const { id } of stacks) {
   assert.ok(s.label, `${id}: label`);
   assert.deepStrictEqual(Object.keys(s.verify).sort(), [...KEYS].sort(), `${id}: verify 키`);
   for (const k of KEYS) assert.ok(s.verify[k] === null || (typeof s.verify[k] === 'string' && s.verify[k].trim()), `${id}.verify.${k}`);
-  assert.deepStrictEqual(Object.keys(s).filter((k) => !['id', 'label', 'tools', 'verify', 'notes'].includes(k)), [], `${id}: 모르는 키(역할은 roles.json)`);
+  assert.deepStrictEqual(Object.keys(s).filter((k) => !['id', 'label', 'markers', 'order', 'aggregate', 'tools', 'verify', 'notes'].includes(k)), [], `${id}: 모르는 키(역할은 roles.json)`);
+  assert.strictEqual(s.aggregate === true, ['java-gradle', 'java-maven', 'csharp', 'cpp'].includes(id), `${id}: aggregate(루트 빌드가 하위 모듈을 묶는 스택만 true)`);
+  assert.ok(Array.isArray(s.markers) && s.markers.every((m) => typeof m === 'string' && m && !/[\\/]/.test(m)), `${id}: markers [파일 이름]`);
+  assert.ok(Number.isInteger(s.order), `${id}: order`);
   assert.ok(Array.isArray(s.tools) && s.tools.every((t) => toolCmds(t) && t.label && t.install), `${id}: tools [{cmd|anyOf,label,install}]`);
   assert.ok(!s.notes || (Array.isArray(s.notes) && s.notes.length <= 3), `${id}: notes 3줄 이하`);
 }

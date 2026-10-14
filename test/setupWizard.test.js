@@ -56,4 +56,8 @@ assert.ok(!/\$detail\[\$gname\] \+= \(?"\$\(\$r\.title\)/.test(wiz) && /Get-Frie
 assert.ok(/를 확인하지 못했습니다\.'?"?; Do = 'setup을 다시 실행해 주세요\.'/.test(wiz), '바꿀 말이 없는 항목 문구(목업 W7-d)');
 assert.ok(/progress\(`tool stack-\$\{t\.cmd\} installing \$\{t\.label \|\| t\.cmd\}`\)/.test(js), 'install.js 스택 도구 진행 줄 형식(바뀌면 마법사 이름 처리도 확인)');
 assert.ok(/"\$base 개발 도구"/.test(wiz) && /Get-StackToolName/.test(wiz) &&/if \(\$state -ne 'failed'\) \{ \$label = "\$code \$label"\.Trim\(\)/.test(wiz), '스택 도구 이름: 여러 낱말 이름 유지, 없으면 일반 이름');
+// STK: 스택은 고르지 않고 보여 주기만(install.js detect)
+assert.ok(!/--stack/.test(wiz), '마법사는 --stack을 넘기지 않는다');
+assert.ok(/' detect --project '/.test(wiz), '마법사는 install.js detect로 검증 명령을 보여 준다');
+assert.ok(/cmd === 'detect'/.test(js), 'install.js에 detect 명령');
 console.log('설치 마법사 검사 통과');

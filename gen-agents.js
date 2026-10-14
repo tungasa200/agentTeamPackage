@@ -43,10 +43,26 @@ function readRole(file) {
 }
 
 // 검증 명령(wy-ops.json verify: setup·build·test·typecheck·lint·format, 해당 없으면 null)과 스택 메모(stackNotes) → 목록 줄
+//   값은 명령 문자열, 또는 폴더마다 다르면 { 폴더: 명령 }('.'은 루트, lib/detect.js)
 const VERIFY_KEYS = [['setup', '준비(처음 한 번·의존성 바뀔 때)'], ['build', '빌드'], ['test', '테스트'], ['typecheck', '타입 검사'], ['lint', '린트'], ['format', '형식 검사']];
+const dirLabel = (d) => (d === '.' ? '루트' : `${String(d).replace(/[\\/]+$/, '')}/`);
+const isMap = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+function verifyValue(v, code = (s) => `\`${s}\``) {
+  if (typeof v === 'string') return v.trim() ? code(v.trim()) : null;
+  if (!isMap(v)) return null;
+  const parts = Object.entries(v).filter(([, c]) => typeof c === 'string' && c.trim()).map(([d, c]) => `${code(c.trim())} (${dirLabel(d)})`);
+  return parts.length ? parts.join(' · ') : null;
+}
+// 스택 이름(doctor·install 출력): 알아낸 폴더가 있으면 'java-gradle(backend/), node(frontend/)', 없으면 stack 문자열
+function stackLabel(ops) {
+  const d = Array.isArray(ops && ops.detected) ? ops.detected : [];
+  if (d.length) return d.map((x) => (x.dir === '.' ? x.stack : `${x.stack}(${dirLabel(x.dir)})`)).join(', ');
+  return (ops && ops.stack) || '';
+}
 function verifyList(ops) {
   const v = (ops && ops.verify) || {};
-  const lines = VERIFY_KEYS.filter(([k]) => typeof v[k] === 'string' && v[k].trim()).map(([k, label]) => `- ${label}: \`${v[k].trim()}\``);
+  const lines = VERIFY_KEYS.map(([k, label]) => [label, verifyValue(v[k])]).filter(([, s]) => s).map(([label, s]) => `- ${label}: ${s}`);
+  if (lines.length && VERIFY_KEYS.some(([k]) => isMap(v[k]))) lines.unshift('- 폴더가 붙은 명령은 그 폴더에서 돌리고, 바뀐 폴더의 것만 돌린다.');
   if (!lines.length) lines.push('- (아직 정하지 않았다. `.claude/wy-ops.json`의 `verify`에 setup·build·test·typecheck·lint·format 명령을 적는다)');
   for (const n of Array.isArray(ops && ops.stackNotes) ? ops.stackNotes : []) if (typeof n === 'string' && n.trim()) lines.push(`- ${n.trim()}`);
   return lines.join('\n');
@@ -158,4 +174,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { generate, readRole, fill, size, verifyList, skillNotes, yamlScalar, quoteFrontmatter, VERIFY_KEYS };
+module.exports = { generate, readRole, fill, size, verifyList, verifyValue, stackLabel, isMap, dirLabel, skillNotes, yamlScalar, quoteFrontmatter, VERIFY_KEYS };

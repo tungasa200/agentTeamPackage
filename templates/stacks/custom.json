@@ -1,6 +1,8 @@
 {
   "id": "custom",
   "label": "직접 입력",
+  "markers": [],
+  "order": 99,
   "tools": [],
   "verify": {
     "setup": null,
