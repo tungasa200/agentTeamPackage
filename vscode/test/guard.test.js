@@ -18,7 +18,7 @@ fs.writeFileSync(path.join(proj, 'src', 'a.log'), '');
 const ev = (cmd) => evaluate({ tool_name: 'Bash', tool_input: { command: cmd }, agent_type: 'WY-backend2', cwd: proj, session_id: 's' });
 const W = String.raw;
 const NL = '\n';
-// 임시 폴더 안의 링크(junction): 저장소(임시 폴더 밖)와 작업 폴더(proj)로 간다. 임시 사본 예외가 실제 경로를 보는지 시험
+// 임시 폴더 안의 링크(junction): 저장소와 작업 폴더(proj)로 간다. 임시 사본 예외가 실제 경로를 보는지 시험
 const tmpLink = path.join(os.tmpdir(), `wy-guard-link-${process.pid}`);
 const tmpLinkCwd = path.join(os.tmpdir(), `wy-guard-linkcwd-${process.pid}`);
 fs.symlinkSync(path.resolve(__dirname, '..', '..'), tmpLink, 'junction');
@@ -225,7 +225,6 @@ const deny = [
   `ln -s ~/.cl''aude /tmp/h`,
   'ln -s ~/.cla?de /tmp/h',
   `node -e "require('fs').symlinkSync('C:/proj','/tmp/h')" && cp e.json /tmp/h/.claude/wy-ops.json`,
-  `cp e.json ${fwd(tmpLink)}/.claude/wy-ops.json`,
   `cp e.json ${fwd(tmpLinkCwd)}/.claude/wy-ops.json`,
   // KI-02 2차: 이미 있는 하드링크·깨진 링크·링크를 지나 보호 폴더로 가는 쓰기, Join-Path가 보호 경로를 만드는 경우, PowerShell 식 인자
   'cat .claude/wy-ops.json > h2.txt',
@@ -360,6 +359,10 @@ const allow = [
   'cat .claude/wy-ops.json > h3.txt',
   '$S = (Join-Path $env:TEMP c1); Copy-Item .claude/wy-ops.json $S/.claude/wy-ops.json',
 ];
+// 저장소 링크 쓰기: 저장소가 임시 폴더 밖이면 거부, 저장소 자체가 임시 사본(git archive 등)이면 임시 사본 예외로 통과
+const repoRel = path.relative(fs.realpathSync.native(os.tmpdir()), fs.realpathSync.native(path.resolve(__dirname, '..', '..')));
+const repoInTemp = !(repoRel.startsWith('..') || path.isAbsolute(repoRel));
+(repoInTemp ? allow : deny).push(`cp e.json ${fwd(tmpLink)}/.claude/wy-ops.json`);
 for (const c of deny) { const e = ev(c); ok(e && e.decision === 'deny', 'should deny: ' + c); }
 // 설정에 commitRole이 없으면 기본 이름 없이 잠금 대상은 모두 거부(커밋 역할 이름으로 띄운 세션도)
 {
