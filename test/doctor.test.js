@@ -55,7 +55,7 @@ function makePc(name, { home: homeName = 'home' } = {}) {
   const skillOverrides = Object.fromEntries(require('../lib/init').contextStandard({ roles }).skillsOff.map((id) => [id, 'off']));
   json(path.join(repo, '.claude', 'settings.json'), { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': false, 'claude-mem@thedotmack': false, 'prompts.chat@prompts.chat': false }, skillOverrides, disableClaudeAiConnectors: true });
   write(path.join(repo, '.claude', 'agents', 'X-commit.md'), '# X-commit\n경로는 ~/.claude/wy-approvals\n');
-  write(path.join(repo, '.gitignore'), ['node_modules', '.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*'].join('\n') + '\n');
+  write(path.join(repo, '.gitignore'), ['node_modules', '.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*', '.claude/worktrees/'].join('\n') + '\n');
   const approvalsRoot = path.join(home, '.claude', 'wy-approvals', 'p');
   fs.mkdirSync(approvalsRoot, { recursive: true });
   const stubDir = path.join(home, '.vscode', 'extensions', 'wy-ops.wy-ops-0.1.0');
@@ -341,6 +341,11 @@ try {
     write(path.join(pc.repo, '.gitignore'), 'node_modules\n/.claude/settings.local.json\n');
     const g = byId(doctor.checkAll(pc.opts)).gitignore;
     assert.ok(g.level === 'fail' && g.detail.includes('.claude/wy-ops.local.json') && !g.detail.includes('settings.local.json,'), '.gitignore 빠진 줄(앞 / 허용)');
+    write(path.join(pc.repo, '.gitignore'), ['.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*'].join('\n') + '\n');
+    const gw = byId(doctor.checkAll(pc.opts)).gitignore;
+    assert.ok(gw.level === 'warn' && gw.detail.includes('.claude/worktrees/') && gw.fix.includes('.claude/worktrees/'), '.claude/worktrees/만 빠지면 warn(update는 .gitignore를 안 고침)');
+    write(path.join(pc.repo, '.gitignore'), ['.claude/settings.local.json', '.claude/wy-ops.local.json', '.claude/*.bak-*', '/.claude/worktrees'].join('\n') + '\n');
+    assert.strictEqual(byId(doctor.checkAll(pc.opts)).gitignore.level, 'ok', '앞 /·끝 / 없는 줄도 같은 줄로 봄');
     json(path.join(pc.repo, '.claude', 'wy-ops.json'), { project: 'p', pmRole: 'nobody', roles: [{ name: 'X-pm' }], approvals: { namespace: '../x' } });
     const c = byId(doctor.checkAll(pc.opts)).config;
     assert.ok(c.level === 'fail' && c.detail.includes('pmRole') && c.detail.includes('namespace'), 'wy-ops.json 형식');

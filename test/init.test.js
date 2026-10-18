@@ -46,7 +46,7 @@ try {
   put(T, 'roles/qa.md', '---\ndescription: 테스트.\n---\n- 코드를 고치지 않는다.\n');
   put(T, 'pm-ops.project.md', '## 프로젝트 부록 — {{project}}\n- 여기에 이 프로젝트 규칙\n');
   put(T, 'claude-md.md', '## 세션 역할\n\n{{rolesTable}}\n');
-  put(T, 'gitignore.txt', '# WY Ops\n.claude/settings.local.json\n.claude/wy-ops.local.json\n.claude/*.bak-*\n');
+  put(T, 'gitignore.txt', '# WY Ops\n.claude/settings.local.json\n.claude/wy-ops.local.json\n.claude/*.bak-*\n.claude/worktrees/\n');
 
   // 1. 빈 프로젝트(기존 CLAUDE.md·.gitignore 한 줄)
   const P = path.join(tmp, 'proj');
@@ -62,7 +62,7 @@ try {
   assert.ok(fs.existsSync(path.join(P, '.claude/skills/pm-ops/scripts/session.ps1')), 'session.ps1 생성');
   assert.strictEqual(R(P, 'CLAUDE.md'), '# 내 프로젝트\n', 'CLAUDE.md는 고치지 않음');
   assert.ok(r1.claudeMd.includes('| `SB-commit` | 커밋 전담 |'), 'CLAUDE.md에 넣을 역할 표');
-  assert.deepStrictEqual(r1.gitignoreAdded, ['.claude/settings.local.json', '.claude/*.bak-*'], '빠진 줄만');
+  assert.deepStrictEqual(r1.gitignoreAdded, ['.claude/settings.local.json', '.claude/*.bak-*', '.claude/worktrees/'], '빠진 줄만(worktree 폴더 포함: claude -w가 gitlink로 커밋되지 않게)');
   assert.strictEqual(R(P, '.gitignore').split('.claude/wy-ops.local.json').length, 2, '있는 줄은 다시 넣지 않음');
   const lock = JSON.parse(R(P, '.claude/wy-ops.lock.json'));
   assert.ok(lock.files['.claude/agents/SB-commit.md'] && lock.files['.claude/ops/roles/SB-qa.md'] && lock.version === '0.6.0', 'lock에 생성 파일');
