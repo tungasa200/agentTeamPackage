@@ -6,7 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const { rmTree, copyTree } = require('../lib/fsx');
 const path = require('path');
-const { update, format } = require('../lib/update');
+const { update, format, updateSettings, formatSettings } = require('../lib/update');
 const lock = require('../lib/lock');
 const { GITIGNORE_LINES } = require('../lib/doctor');
 
@@ -100,6 +100,31 @@ try {
 
   // 6. 설정이 없으면 알기 쉬운 오류
   assert.throws(() => update({ project: path.join(base, 'empty') }), /init을 먼저/);
+
+  // 7. settings.json 표준 병합(init ensureSharedSettings 그대로): 빈 키만 채우고, 사용자가 적은 값(on/off 포함)은 그대로, 다르면 '다름'.
+  //    채울 것이 없거나 dryRun이면 쓰지 않는다. 화면 역할(design 등)이 있으면 화면용(impeccable·artifact-*)은 끄지 않는다
+  const sfile = path.join(project, '.claude', 'settings.json');
+  const baks = () => fs.readdirSync(path.join(project, '.claude')).filter((f) => f.startsWith('settings.json.bak-')).length;
+  const userText = JSON.stringify({ enabledPlugins: { 'claude-mem@thedotmack': true }, autoCompactWindow: 150000, mine: 1 }, null, 2);
+  write(sfile, userText);
+  const s0 = updateSettings({ project, dryRun: true });
+  assert.ok(s0.added.length && fs.readFileSync(sfile, 'utf8') === userText && !baks(), 'dryRun은 쓰지 않음');
+  assert.ok(formatSettings(s0, true).includes('더할 것'), formatSettings(s0, true));
+  const s1 = updateSettings({ project });
+  const cur = JSON.parse(fs.readFileSync(sfile, 'utf8'));
+  assert.ok(cur.enabledPlugins['claude-mem@thedotmack'] === true && cur.autoCompactWindow === 150000 && cur.mine === 1, `있는 값 그대로\n${JSON.stringify(cur)}`);
+  assert.ok(cur.enabledPlugins['ecc@ecc'] === false && cur.worktree.bgIsolation === 'none' && cur.disableClaudeAiConnectors === true && Object.keys(cur.skillOverrides).length, `빈 키 채움\n${JSON.stringify(cur)}`);
+  assert.ok(!('impeccable@impeccable' in cur.enabledPlugins) && !Object.keys(cur.skillOverrides).some((k) => k.startsWith('artifact')), '화면 역할이 있으면 화면용은 끄지 않음');
+  assert.deepStrictEqual(s1.diffs.map((d) => d.key), ['enabledPlugins.claude-mem@thedotmack', 'autoCompactWindow']);
+  assert.ok(s1.bak && baks() === 1, '.bak');
+  const shown = formatSettings(s1);
+  assert.ok(shown.includes('다름: enabledPlugins.claude-mem@thedotmack · 기존 true · 표준 false') && shown.includes('다름: autoCompactWindow · 기존 150000 · 표준 200000') && shown.includes('원래 파일:'), shown);
+  const merged = fs.readFileSync(sfile, 'utf8');
+  const s2 = updateSettings({ project });
+  assert.ok(!s2.added.length && s2.diffs.length === 2 && fs.readFileSync(sfile, 'utf8') === merged && baks() === 1, '채울 것이 없으면 파일 그대로');
+  assert.ok(formatSettings(s2).includes('채울 빈 값 없음'), formatSettings(s2));
+  write(sfile, '{ broken');
+  assert.ok(updateSettings({ project }).broken && fs.readFileSync(sfile, 'utf8') === '{ broken', '깨진 JSON은 건드리지 않음');
 
   console.log('update 검사 통과');
 } finally {

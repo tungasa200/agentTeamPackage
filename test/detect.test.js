@@ -135,7 +135,17 @@ try {
   const P3 = proj({ 'package.json': pkg({ test: 't' }) });
   init({ project: P3, name: 'demo', prefix: 'AB-', stack: 'node', verify: { lint: 'eslint' }, templatesDir: T });
   ops = read(P3);
-  assert.ok(ops.stack === 'node' && !ops.detected && ops.verify.typecheck === 'npx tsc --noEmit' && ops.verify.lint === 'eslint', '--stack은 템플릿 값 그대로 + 덮어쓰기');
+  // --stack도 폴더 파일로 다듬는다(표지 판정만 건너뜀): scripts에 없는 typecheck·build는 템플릿 기본값을 넣지 않음, --verify-*는 그대로 덮어씀
+  assert.ok(ops.stack === 'node' && !ops.detected && ops.verify.test === 'npm test' && ops.verify.typecheck === null && ops.verify.build === null && ops.verify.lint === 'eslint', `--stack 다듬기 + 덮어쓰기\n${JSON.stringify(ops.verify)}`);
+  const P3b = proj({ 'build.gradle': '' });
+  init({ project: P3b, name: 'demo', prefix: 'AB-', stack: 'java-gradle', templatesDir: T });
+  ops = read(P3b);
+  assert.ok(ops.stack === 'java-gradle' && /^gradle /.test(ops.verify.test) && !JSON.stringify(ops).includes('./gradlew'), `--stack도 래퍼 없으면 설치한 명령\n${JSON.stringify(ops.verify)}`);
+  // 루트에 표지 파일이 없으면(빈 폴더·하위 폴더에만 코드) 템플릿 값 그대로 — 고른 스택을 비우지 않음
+  const P3c = proj({});
+  init({ project: P3c, name: 'demo', prefix: 'AB-', stack: 'node', templatesDir: T });
+  ops = read(P3c);
+  assert.ok(ops.verify.test === 'npm test' && ops.verify.typecheck === 'npx tsc --noEmit', `표지 없으면 템플릿 그대로\n${JSON.stringify(ops.verify)}`);
 
   // 부른 쪽이 넘긴 판정 결과(detection)를 그대로 쓴다(폴더를 다시 훑지 않음)
   const P6 = proj({ 'package.json': pkg({ test: 't' }) });
