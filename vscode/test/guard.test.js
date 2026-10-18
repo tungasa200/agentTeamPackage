@@ -285,6 +285,33 @@ const deny = [
   'source ./r.sh; cd "$(mktemp -d)" && echo {} > wy-ops.json',
   'cat ~/.claude/wy-ops.json; for f in a.json; do source ./r.sh; cp x $f; done',
   "foreach ($f in 'a.json') { . ./r.ps1; Copy-Item x .claude/$f }",
+  // KI-08 A1: 블록·하위 셸·명령 치환 안의 쓰기와 잠금 명령
+  "foreach ($f in 'wy-ops.json') { Copy-Item x .claude/$f }",
+  'if (1) { Remove-Item ~/.claude/wy-ops.json }',
+  'ls | ForEach-Object { Remove-Item ~/.claude/wy-ops.json }',
+  '(rm ~/.claude/wy-ops.json)',
+  'f() { rm ~/.claude/wy-ops.json; }; f',
+  'try { Set-Content ~/.claude/wy-ops.json 1 } catch {}',
+  '$(rm ~/.claude/wy-ops.json)',
+  'echo `rm ~/.claude/wy-ops.json`',
+  'x=$(rm ~/.claude/wy-ops.json)',
+  'echo "$(rm ~/.claude/wy-ops.json)"',
+  '(cd ~/.claude && rm wy-ops.json)',
+  '(git push)',
+  '{ git commit -m x; }',
+  // 읽기 전용 CLI로 바꾸는 자리는 조각 경계에서만(같은 글자로 시작하는 다른 조각)
+  '& ~/.wy-tools/wy-ops/current/install.ps1 doctor --yes; & ~/.wy-tools/wy-ops/current/install.ps1 doctor',
+  // KI-08 A3: PowerShell 식 인자(글자 이어 붙이기는 접고, 접을 수 없는 식은 이름 조각이 있으면 막는다)
+  "Set-Content (('~/.claude/wy-' + 'ops') + '.json') 1",
+  "Set-Content (\"{0}{1}\" -f '~/.cl', 'aude/wy-ops.js' + 'on') 1",
+  "Remove-Item ('~/.cl' + \"aude/wy-\" + 'approvals/x/deci' + 'sions') -Recurse",
+  "New-Item -ItemType File (('~/.cl' + 'aude/settings.lo') + 'cal.json')",
+  "if ($true) { Remove-Item ('~/.cl' + 'aude/wy-ops.json') }",
+  // security-review: 조각 맨 앞의 ( )(bash 하위 셸)는 접지 않는다, 두 따옴표가 다 든 값은 접지 않는다
+  "( 'rm' + '.claude/wy-ops.json' )",
+  "x=1 && ( 'mv' + '.claude/wy-ops.json' )",
+  "Write-Output ('a\"' + \"'b\"); Remove-Item .claude/wy-ops.json",
+  "echo ('a\"' + \"'b\") ; rm .claude/wy-ops.json",
 ];
 const allow = [
   // 읽기
@@ -412,6 +439,12 @@ const allow = [
   'node a.js && cat ~/.wy-tools/wy-ops/current/package.json',
   'node a.js; cat ~/.wy-tools/wy-ops/current/package.json | jq .version',
   `echo {} > ${fwd(tmpLinkCwd)}/src/b.log`,
+  // KI-08 A1·A3: 블록 안 설치본 doctor, 블록 안 다른 파일 쓰기, 보호 경로가 아닌 식 인자
+  'if (Test-Path ~/.wy-tools/wy-ops/current) { & ~/.wy-tools/wy-ops/current/install.ps1 doctor }',
+  'Get-ChildItem src | ForEach-Object { Copy-Item $_.FullName /tmp/c1/ }',
+  "Set-Content ('docs/' + 'a.md') 1",
+  "Copy-Item x (Join-Path $dir 'out.txt')",
+  "Get-Content ('~/.cl' + 'aude/wy-ops.json')",
 ];
 // 저장소 링크 쓰기: 저장소가 임시 폴더 밖이면 거부, 저장소 자체가 임시 사본(git archive 등)이면 임시 사본 예외로 통과
 const repoRel = path.relative(fs.realpathSync.native(os.tmpdir()), fs.realpathSync.native(path.resolve(__dirname, '..', '..')));
@@ -429,6 +462,12 @@ for (const c of deny) { const e = ev(c); ok(e && e.decision === 'deny', 'should 
   ok(e2 && e2.decision === 'deny' && e2.reason.includes('AB-commit'), '다른 역할 → 설정의 커밋 역할 안내');
 }
 for (const c of allow) { const e = ev(c); ok(e === null || (c.startsWith('git commit') && e.reason.includes('AB-commit')), 'should allow: ' + c + ' → ' + JSON.stringify(e)); }
+// KI-08 A1: 너무 깊게 묶인 명령은 오류(훅은 종료 코드 2로 막음), 커밋 메시지 here-doc 본문 줄은 잠금 대상이 아니다
+let deep = false;
+try { ev('('.repeat(12) + 'git push' + ')'.repeat(12)); } catch { deep = true; }
+ok(deep, 'should throw on deep nesting');
+const msg = ev(`echo "$(cat <<'EOF'${NL}fix: 안내${NL}git push 전에 확인${NL}EOF${NL})"`);
+ok(msg === null, 'heredoc message line guarded: ' + JSON.stringify(msg));
 
 // cwd가 .claude 안일 때: 상대 경로·cd ..로 보호 파일에 닿으면 막고, 그 폴더 안 다른 파일은 통과
 const jobs = path.join(proj, '.claude', 'jobs');
