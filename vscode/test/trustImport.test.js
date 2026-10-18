@@ -128,6 +128,22 @@ function device(ns, key, memento = {}, { remote = false } = {}) {
   assert.ok(!fs.existsSync(GLOBAL), '못 정하면 가져오지 않음');
   assert.strictEqual(s.devices.root, null, '명부 없을 때와 같은 화면(호스트 로컬 창을 먼저 여세요)');
   assert.strictEqual(s.devices.remote, true);
+  assert.deepStrictEqual(s.devices.legacyAmbiguous.map((c) => c.folder).sort(), ['ns1', 'ns2', 'ns3'], '원격 창도 후보 명부를 보여 줌');
+  // 못 정함 + 로컬 창(KI-04): 새 뿌리를 만들지 않고 후보를 보여 줌. 초기화 명령도 뿌리를 만들지 않음
+  const l1 = device('ns1', trust.newKey());
+  s = l1.state();
+  assert.ok(!fs.existsSync(GLOBAL), '로컬 창도 못 정하면 새 뿌리를 만들지 않음');
+  assert.strictEqual(s.devices.root, null);
+  assert.strictEqual(s.devices.remote, false);
+  assert.deepStrictEqual(
+    s.devices.legacyAmbiguous.map((c) => `${c.folder} ${c.name} ${c.short}`).sort(),
+    [`ns1 이 PC ${trust.shortFp(fpOf(H))}`, `ns2 이 PC ${trust.shortFp(fpOf(H))}`, `ns3 다른 PC ${trust.shortFp(fpOf(X))}`],
+    '후보 명부(폴더·뿌리 이름·지문)',
+  );
+  assert.strictEqual(l1.fake.globalState.get('wyApprovals.anchors'), undefined, '고정도 쓰지 않음');
+  l1.fake.nextChoice = '초기화';
+  await l1.fake.commands['wyApprovals.resetTrustAnchors']();
+  assert.ok(!fs.existsSync(GLOBAL), '초기화 뒤에도 새 뿌리를 만들지 않음');
   // ② 이 기기가 고정한 뿌리(옛 키 어느 것이든)
   const r2 = device('ns1', M, { [oldKey('ns2')]: pin(X) }, { remote: true });
   assert.strictEqual(trust.rosterRoot(trust.readRoster()).fp, fpOf(X), '고정했던 뿌리의 명부를 가져옴');

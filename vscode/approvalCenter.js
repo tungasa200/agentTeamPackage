@@ -133,8 +133,10 @@ class ApprovalCenter {
     this.key = key;
     const anchors = state && state.get(ANCHORS_STATE);
     this.anchors = Array.isArray(anchors) ? anchors : null; // null: 새 키가 아직 없음 → 옛 고정에서 이어받는다(currentAnchors)
+    this.legacyAmbiguous = null;
     try {
-      trust.importLegacy(this.key, this.legacyAnchors().map((a) => a.fp));
+      const r = trust.importLegacy(this.key, this.legacyAnchors().map((a) => a.fp));
+      if (r.reason === 'ambiguous') this.legacyAmbiguous = r.candidates; // D-13: 자동으로 고르지 않고 새 뿌리도 만들지 않는다
     } catch {
       // 가져오지 못하면 전역 명부가 없을 때와 같다
     }
@@ -167,8 +169,9 @@ class ApprovalCenter {
 
   // 명부가 없으면 이 기기가 뿌리가 된다. 원격 창(Remote-SSH)은 뿌리를 만들지 않는다: 원격 창 키는 호스트의
   // ~/.vscode-server에 있고 접속하는 노트북 모두가 함께 써서, 뿌리는 호스트 로컬 창이 맡는다
+  // 옛 명부를 하나로 정하지 못했으면(legacyAmbiguous) 로컬 창도 뿌리를 만들지 않는다: 새 뿌리는 옛 기기 신뢰를 끊는다(KI-04)
   ensureRoot() {
-    if (vscode.env && vscode.env.remoteName) return;
+    if ((vscode.env && vscode.env.remoteName) || this.legacyAmbiguous) return;
     if (trust.ensureRoot(this.key, deviceName())) {
       this.anchors = [{ fp: trust.fingerprint(this.key.pub), pub: this.key.pub }];
       this.saveAnchors();
@@ -221,6 +224,8 @@ class ApprovalCenter {
       selfStatus: ev.selfStatus,
       remote: !!(vscode.env && vscode.env.remoteName),
       root: root && { fp: root.fp, short: trust.shortFp(root.fp), name: root.name },
+      // 옛 명부 후보(명부가 아직 없을 때만. 다른 창이 가져오면 사라진다)
+      legacyAmbiguous: !root && this.legacyAmbiguous ? this.legacyAmbiguous.map((c) => ({ folder: path.basename(c.root), short: trust.shortFp(c.fp), name: c.name })) : null,
       list: ev.devices.map((d) => ({ ...d, lastSig: last.get(d.fp) || null })),
       // 등록 요청은 신뢰된 기기에서만 승인할 수 있다
       joins: ev.selfStatus === 'member' ? trust.readJoins().filter((j) => !ev.trusted.has(j.fp) && !ev.revoked.has(j.fp)).map((j) => ({ ...j, short: trust.shortFp(j.fp) })) : [],

@@ -237,6 +237,9 @@
     if (dv) {
       if (dv.selfStatus === 'revoked') {
         add('err', '이 기기는 신뢰 해제됨', `다른 기기에서 이 기기(지문 ${dv.selfShort})의 신뢰를 해제했습니다. 이 창에서 내린 결정은 다른 기기에서 출처 불명으로 보입니다. 다시 쓰려면 pm에 알려 기기 등록을 새로 하세요.`);
+      } else if (dv.selfStatus === 'unpaired' && !dv.root && dv.legacyAmbiguous) {
+        const list = dv.legacyAmbiguous.map((c) => `${c.folder}(뿌리 ${c.name || '이름 없음'} · 지문 ${c.short})`).join(', ');
+        add('err', '옛 기기 명부를 하나로 정하지 못했습니다', `승인 폴더별 옛 명부가 서로 다른 뿌리를 가리켜 자동으로 고르지 않았고, 새 뿌리도 만들지 않았습니다. 후보: ${list}. 이어 쓸 뿌리 기기의 호스트 로컬 창에서 승인 센터를 먼저 여세요(그 창이 자기 명부를 가져옵니다). 모르겠으면 pm에 알리세요.`);
       } else if (dv.selfStatus === 'unpaired' && !dv.root && dv.remote) {
         add('err', '기기 명부가 아직 없습니다', '원격 창은 뿌리 기기가 되지 않습니다. 호스트 PC의 로컬 VS Code 창에서 승인 센터를 먼저 여세요(그 창이 뿌리가 됩니다). 그 뒤 이 창에 뿌리 지문과 등록 요청 안내가 뜹니다. 이미 열었는데도 이 문구가 보이면 pm에 알리세요.');
       } else if (dv.selfStatus === 'unpaired' && !dv.root) {

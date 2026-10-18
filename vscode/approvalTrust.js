@@ -255,14 +255,14 @@ function rosterRoot(entries) {
 // 옛 구조에서 한 번 가져오기: 전역 명부가 없을 때 승인 폴더마다 있던 명부(자기 서명 뿌리가 있는 것) 중 하나의 뿌리를 고른다.
 //   ① 이 기기 키가 뿌리 ② 이 기기가 고정했던 뿌리(pinnedFps, 옛 고정 키 모두) ③ 후보 뿌리가 모두 같음. 각 단계에서 뿌리가 하나로 정해질 때만.
 //   같은 뿌리 명부가 여럿이면 진술을 합친다(sig로 중복 제거, 순서 유지). 기다리는 등록 요청(join/)도 복사. 옛 파일은 그대로 둔다.
-// 돌려줌: { imported: true, root, from: [승인 폴더] } / { imported: false, reason: 'exists'|'none'|'ambiguous' }
+// 돌려줌: { imported: true, root, from: [승인 폴더] } / { imported: false, reason: 'exists'|'none' } / { imported: false, reason: 'ambiguous', candidates: [{ root, fp, name }] }
 function importLegacy(key, pinnedFps = []) {
   if (readRoster().length) return { imported: false, reason: 'exists' };
   const cands = [];
   for (const root of approvalRoots()) {
     const entries = readEntries(path.join(legacyDir(root), 'devices.json'));
     const r = rosterRoot(entries);
-    if (r) cands.push({ root, entries, fp: r.fp });
+    if (r) cands.push({ root, entries, fp: r.fp, name: r.name });
   }
   if (!cands.length) return { imported: false, reason: 'none' };
   const roots = [...new Set(cands.map((c) => c.fp))];
@@ -270,7 +270,7 @@ function importLegacy(key, pinnedFps = []) {
   const selfFp = key ? fingerprint(key.pub) : null;
   const pinned = roots.filter((fp) => pinnedFps.includes(fp));
   const pick = roots.includes(selfFp) ? selfFp : pinned.length ? one(pinned) : one(roots);
-  if (!pick) return { imported: false, reason: 'ambiguous' };
+  if (!pick) return { imported: false, reason: 'ambiguous', candidates: cands.map((c) => ({ root: c.root, fp: c.fp, name: c.name })) };
   const from = cands.filter((c) => c.fp === pick);
   const seen = new Set();
   const merged = [];

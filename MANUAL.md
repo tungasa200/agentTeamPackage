@@ -371,7 +371,7 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | `trust` | 폴더 사용 허락을 `~/.claude.json`에 기록(설치 마법사 6단계, 3-0) | `<설치> trust --project <폴더>` (`--check`는 확인만) |
 | `update` | 운영 도구를 새 버전으로. 패키지 저장소를 pull(확인)하고 설치본을 갱신한 뒤 생성 파일을 다시 만듦. 사람이 고친 생성 파일은 덮지 않고 차이만 보여 줌 | `<설치> update` (미리 보기 `--dry-run`, pull 생략 `--no-pull`) → Reload |
 | `detect` | 폴더를 보고 알아낸 스택·검증 명령 미리 보기. 읽기만 함. 설정에 `verify`가 있으면 그 값을 보여 줌 | `<설치> detect` (`--project <폴더>`, `--json`) |
-| `detect --apply` | 있는 `verify`를 무시하고 폴더를 다시 보고 `wy-ops.json`의 `verify`·`detected`·`tools`·`stackNotes`를 바꿈(옛 `stack` 키는 지움, 다른 키 그대로, `.bak-<시각>`을 남김). 바꾸기 전·뒤 검증 명령과 CLAUDE.md에 직접 넣을 목록을 보여 줌. 알아낸 것이 없거나 이미 같으면 바꾸지 않음. 빈 폴더에 설치한 뒤 코드가 생겼을 때 씀. `verify`를 통째로 바꾸므로 손으로 적은 명령(lint 등)도 사라짐: 바꾸기 전 목록이나 `.bak`에서 되살림 | `<설치> detect --apply` (`--project <폴더>`) → `<설치> gen` |
+| `detect --apply` | 폴더를 다시 보고 `wy-ops.json`의 비어 있는 `verify` 키를 채우고 `detected`·`tools`·`stackNotes`를 바꿈(옛 `stack` 키는 지움, 다른 키 그대로, 바꿀 때 `.bak-<시각>`을 남김). 이미 적힌 검증 명령은 그대로 두고, 판정과 다르면 '다름: 키 · 기존 · 판정'으로 알림(바꾸려면 `verify`를 직접 고침). 바꾸기 전·뒤 검증 명령과 CLAUDE.md에 넣을 목록을 보여 줌. 알아낸 것이 없거나 채울 것이 없으면 바꾸지 않음. 빈 폴더에 설치한 뒤 코드가 생겼을 때 씀 | `<설치> detect --apply` (`--project <폴더>`) → `<설치> gen` |
 | `gen` | `.claude/ops`의 역할 원본·pm-ops 부록을 고친 뒤 역할 파일·스킬 다시 만들기 | `<설치> gen` |
 | `deploy` | 설치본만 패키지 저장소의 HEAD로 갱신. `--dev`는 작업 사본을 바로 연결(개발용) | `<설치> deploy` |
 | `rollback` | 새 버전에 문제가 있을 때 이전 버전으로. `rollback --list`로 설치본 목록(*가 지금 쓰는 것), `rollback <버전 폴더>`로 특정 버전 | `<설치> rollback` → Reload |

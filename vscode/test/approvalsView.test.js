@@ -244,7 +244,15 @@ function screenBehavior(jsdom) {
   s6.id('join-request').click();
   assert.deepStrictEqual(s6.posted.pop(), { type: 'pinRoot', fp: fp('a'), name: '노트북' }, '신뢰하고 등록 요청');
 
-  assert.deepStrictEqual([...s.errors, ...s2.errors, ...s3.errors, ...s4.errors, ...s5.errors, ...s6.errors], [], '화면 오류 없음');
+  // 옛 명부를 하나로 못 정함(KI-04): 후보 명부와 안내, 등록 요청 단추 없음
+  const s7 = screen(jsdom, 400);
+  const amb = [{ folder: 'ns1', short: 'aaaa aaaa', name: '이 PC' }, { folder: 'ns3', short: 'xxxx xxxx', name: '다른 PC' }];
+  s7.send({ type: 'state', state: { ...STATE, roleWarnings: [], untrusted: [], devices: { ...DEV, root: null, selfStatus: 'unpaired', remote: false, joins: [], legacyAmbiguous: amb } } });
+  const at = s7.txt('.alert .tx')[0];
+  assert.ok(at.includes('하나로 정하지 못했습니다') && at.includes('ns1(뿌리 이 PC · 지문 aaaa aaaa)') && at.includes('ns3(뿌리 다른 PC · 지문 xxxx xxxx)') && at.includes('호스트 로컬 창'), '후보와 안내');
+  assert.ok(!s7.id('join-request'), '등록 요청 단추 없음');
+
+  assert.deepStrictEqual([...s.errors, ...s2.errors, ...s3.errors, ...s4.errors, ...s5.errors, ...s6.errors, ...s7.errors], [], '화면 오류 없음');
 }
 
 // 선택지 input은 .sr-only(position:absolute)라 기준 상자가 없으면 .wy에 붙어 .dt와 함께 스크롤되지 않는다.
