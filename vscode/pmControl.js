@@ -334,7 +334,6 @@ class PmControl {
       doneAt: this.doneAt && now - this.doneAt < 3000 ? this.doneAt : 0,
     };
     if (live.length > 1) return { ...info, mode: 'two', count: live.length };
-    if (live[0].kind !== 'background') return { ...info, mode: 'interactive' };
     return { ...info, mode: 'running' };
   }
 }

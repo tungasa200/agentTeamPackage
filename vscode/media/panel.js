@@ -353,7 +353,7 @@
       acts.append(pmBtn('pmAttach', 'pri', '붙기', 'i-term', { disabled: true }), pmBtn('pmRotate', 'sec', rotateLabel(), 'i-swap', { disabled: true }), stopBtn(true));
       say = 'pm 시작하는 중';
     } else {
-      // running · interactive(직접 띄운 pm) · two(pm이 둘)
+      // running · two(pm이 둘)
       const view = STATES[d.view] ? d.view : 'input';
       if (view === 'permission') box.classList.add('is-perm');
       let small = whoSmall(d);
@@ -382,9 +382,7 @@
       }
       if (d.tokens) box.append(ctxBlock(d));
       say = done ? '교체했습니다' : PM_SAY[view];
-      if (d.mode === 'interactive') {
-        box.append(el('p', 'pm-note', '직접 띄운 pm입니다. 붙기·교체·멈춤은 그 창에서 하세요.'));
-      } else if (d.mode === 'two') {
+      if (d.mode === 'two') {
         box.classList.add('is-error');
         box.append(errBox(`pm이 ${d.count}개 떠 있습니다. 교체가 끝나지 않았을 수 있습니다. 새 pm만 남기려면 [이전 pm 멈춤]을 누르세요.`));
         acts.append(pmBtn('pmStopOld', 'pri', '이전 pm 멈춤', 'i-stop'), pmBtn('pmAttach', 'sec', '붙기', 'i-term'));

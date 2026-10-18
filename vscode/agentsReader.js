@@ -202,13 +202,14 @@ function pendingBySession(requests, now) {
   return out;
 }
 
-// 역할 누락: --agent로 띄워야 하는 역할(wy-ops.json roles의 agent:true)인데 실제 agent_type이 다르다.
+// 역할 누락: --agent로 띄워야 하는 역할(wy-ops.json roles의 agent:true, pm은 agent 값과 무관)인데 실제 agent_type이 다르다.
+//   pm은 기존 설치에 agent:false가 남아도 --agent로 뜨고, attach 뒤 --agent를 잃는 경우도 여기서 잡는다
 //   근거 1(우선): 가드 훅이 도구 사용 때 받은 값(agentTypeSeen, seenAt이 있을 때). 값이 없으면(null) --agent 없이 뜬 것이다
 //   근거 2: SessionStart 기록(agentType). fork로 이어 띄우면 훅 입력에 agent_type이 없어 null이 남으므로 null은 '알 수 없음'
 // 기록이 없으면(훅 설치 전에 뜬 세션) 판단하지 않는다
 function roleMissingOf(s, ops, registry) {
   const role = ops && Array.isArray(ops.roles) && ops.roles.find((r) => r && r.name === s.name);
-  if (!role || !role.agent) return false;
+  if (!role || (!role.agent && role.name !== ops.pmRole)) return false;
   const rec = s.sessionId && registry && registry.get(s.sessionId);
   if (!rec) return false;
   if (rec.seenAt) return (rec.agentTypeSeen || null) !== s.name;

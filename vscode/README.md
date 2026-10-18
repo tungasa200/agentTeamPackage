@@ -42,7 +42,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 | [이전 pm 멈춤] | pm이 둘 살아 있을 때 오래된 쪽을 `claude stop <id>` |
 
 - 컨텍스트 막대는 세션 표·`session.ps1 health`와 같은 토큰(`contextSize.js`). 기준 선은 `rotation.contextTokens`(기본 10만), 막대 끝은 기준의 1.5배. 기준 이상이면 '교체 권장'.
-- 직접 띄운(대화형) pm은 상태만 보이고 버튼은 숨긴다. 원격 창이면 이름 옆에 '호스트 <PC 이름>'.
+- pm은 백그라운드로만 띄운다(대화형 pm은 지원하지 않음, D-36). 원격 창이면 이름 옆에 '호스트 <PC 이름>'.
 - 멈춘 시각은 마지막 pm 대화 기록 파일의 수정 시각. 기록(start-pm 출력·교체 단계·붙기)은 확장 로그 폴더의 `pm-control.log`([기록 보기]).
 - session.ps1 출력은 UTF-8로 받으려고 `powershell -Command "[Console]::OutputEncoding=…; & '<session.ps1>' …"`로 부른다.
 

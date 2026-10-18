@@ -172,10 +172,8 @@ const row = (extra = {}) => ({ name: 'AB-pm', alive: true, view: 'input', contex
     v = t.pm.view();
     assert.ok(v.mode === 'memory' && /여유 0\.4GB/.test(v.error) && t.terminals.length === 0, JSON.stringify(v));
 
-    // 직접 띄운 pm / pm 둘
+    // pm 둘
     t = setup();
-    t.pm.observe([{ id: 'dddd', name: 'AB-pm', kind: 'interactive', sessionId: 's4', startedAt: 3 }], row());
-    assert.strictEqual(t.pm.view().mode, 'interactive');
     t.pm.observe([bg('bbbb2222', 's2', 10), bg('cccc3333', 's3', 20)], row());
     assert.deepStrictEqual([t.pm.view().mode, t.pm.view().count], ['two', 2]);
     await t.pm.stopOld();

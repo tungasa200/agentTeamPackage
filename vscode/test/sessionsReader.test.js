@@ -68,7 +68,7 @@ assert.strictEqual(reason(live('a', { state: 'done', status: 'idle' })), null, '
 
 // 4. 역할 누락(OPS-06 4): agent:true 역할인데 실제 agent_type이 다름. 기록이 없으면 판단하지 않음
 {
-  const ops = { roles: [{ name: 'WY-commit', agent: true }, { name: 'WY-pm', agent: false }, { name: 'WY-qa', agent: true }] };
+  const ops = { pmRole: 'WY-pm', roles: [{ name: 'WY-commit', agent: true }, { name: 'WY-pm', agent: false }, { name: 'WY-qa', agent: true }, { name: 'WY-x', agent: false }] };
   const missingOf = (rec) => buildStatus([live('WY-commit')], { ops, registry: new Map([['WY-commit-sid', { sessionId: 'WY-commit-sid', ...rec }]]), now: NOW })[0].roleMissing;
   // fork로 이어 띄운 세션: SessionStart가 agent_type을 못 받아 null → 알 수 없음, 경고 없음(2026-10-07 오탐)
   assert.strictEqual(missingOf({ agentType: null, source: 'fork' }), false, 'fork null은 경고 없음');
@@ -79,10 +79,14 @@ assert.strictEqual(reason(live('a', { state: 'done', status: 'idle' })), null, '
   assert.strictEqual(missingOf({ agentType: 'WY-qa' }), true, '시작 기록이 다른 역할이면 경고');
   assert.strictEqual(missingOf({ agentType: 'WY-commit', agentTypeSeen: 'WY-qa', seenAt: 't' }), true, '도구 사용 때 다른 역할이면 경고(시작 기록보다 우선)');
   assert.strictEqual(missingOf({ agentType: 'WY-commit' }), false, '역할이 맞으면 표시 없음');
-  // agent:false 역할·기록 없는 세션은 판단하지 않음
-  const registry = new Map([['WY-pm-sid', { sessionId: 'WY-pm-sid', agentType: null, agentTypeSeen: null, seenAt: 't' }]]);
-  const rows = buildStatus([live('WY-pm'), live('WY-design')], { ops, registry, now: NOW });
-  assert.deepStrictEqual(rows.map((r) => r.roleMissing), [false, false]);
+  // pm은 agent 값과 무관하게 판단(기존 설치의 agent:false가 남아도, attach 뒤 --agent를 잃어도 잡음)
+  // pm 아닌 agent:false 역할·기록 없는 세션은 판단하지 않음
+  const noAgent = { agentType: null, agentTypeSeen: null, seenAt: 't' };
+  const registry = new Map([['WY-pm-sid', { sessionId: 'WY-pm-sid', ...noAgent }], ['WY-x-sid', { sessionId: 'WY-x-sid', ...noAgent }]]);
+  const rows = buildStatus([live('WY-pm'), live('WY-x'), live('WY-design')], { ops, registry, now: NOW });
+  assert.deepStrictEqual(rows.map((r) => r.roleMissing), [true, false, false]);
+  registry.set('WY-pm-sid', { sessionId: 'WY-pm-sid', agentType: null, agentTypeSeen: 'WY-pm', seenAt: 't' });
+  assert.strictEqual(buildStatus([live('WY-pm')], { ops, registry, now: NOW })[0].roleMissing, false, '--agent로 뜬 pm은 경고 없음');
 }
 
 // 5. 메시지를 받을 수 있는가(B2 SendMessage 훅과 같은 기준)

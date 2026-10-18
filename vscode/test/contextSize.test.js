@@ -34,7 +34,7 @@ const assistant = (inp, read, create, extra) => line({ type: 'assistant', messag
     // 3. 훅: 프로젝트 설정(roles)과 가짜 claude agents 목록
     const proj = path.join(tmp, 'proj');
     fs.mkdirSync(path.join(proj, '.claude'), { recursive: true });
-    fs.writeFileSync(path.join(proj, '.claude', 'wy-ops.json'), JSON.stringify({ pmRole: 'WY-pm', roles: [{ name: 'WY-qa', agent: true }, { name: 'WY-pm', agent: false }] }));
+    fs.writeFileSync(path.join(proj, '.claude', 'wy-ops.json'), JSON.stringify({ pmRole: 'WY-pm', roles: [{ name: 'WY-qa', agent: true }, { name: 'WY-pm', agent: true }] })); // pm은 agent 값과 무관하게 pmRole로 뺀다
     const sid = '11111111-2222-3333-4444-555555555555';
     const input = { session_id: sid, transcript_path: t, cwd: proj, hook_event_name: 'Stop', stop_hook_active: false };
     const agents = (name) => async () => [{ name, sessionId: sid }];

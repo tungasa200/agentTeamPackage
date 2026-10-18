@@ -36,7 +36,8 @@ async function check(input, { listAgents } = {}) {
   fs.mkdirSync(path.dirname(marker), { recursive: true });
   fs.writeFileSync(marker, `${new Date().toISOString()} ${tokens}\n`, 'utf8');
   const me = (list || []).find((s) => s && s.sessionId === id);
-  const role = me && ops && Array.isArray(ops.roles) && ops.roles.find((r) => r && r.name === me.name && r.agent !== false);
+  // pm은 agent 값과 무관하게 뺀다(새 프로젝트 pm은 agent:true, 기존 설치는 agent:false가 남음)
+  const role = me && ops && Array.isArray(ops.roles) && ops.roles.find((r) => r && r.name === me.name && r.name !== ops.pmRole && r.agent !== false);
   if (!role) return null;
   return message(role.name, tokens, (ops && ops.pmRole) || 'pm');
 }
