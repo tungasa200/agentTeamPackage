@@ -16,10 +16,16 @@ function thresholds(ops) {
   return { contextTokens: num(r.contextTokens, DEFAULTS.contextTokens), notifyTokens: num(r.notifyTokens, DEFAULTS.notifyTokens) };
 }
 
-// Claude Code는 대화 기록 폴더 이름을 저장소 경로의 영문·숫자 외 문자를 '-'로 바꿔 만든다
-function transcriptFile(root, sessionId, home = os.homedir()) {
+// Claude Code는 대화 기록 폴더 이름을 세션 실행 폴더 경로의 영문·숫자 외 문자를 '-'로 바꿔 만든다.
+// cwd(worktree에서 뜬 세션, S4 WT-06)가 있으면 그 키를 쓰고, 그 파일이 없으면 저장소 키로 돌아간다
+function transcriptFile(root, sessionId, home = os.homedir(), cwd = null) {
   if (!root || !sessionId) return null;
-  return path.join(home, '.claude', 'projects', String(root).replace(/[^A-Za-z0-9]/g, '-'), `${sessionId}.jsonl`);
+  const at = (dir) => path.join(home, '.claude', 'projects', String(dir).replace(/[^A-Za-z0-9]/g, '-'), `${sessionId}.jsonl`);
+  if (cwd) {
+    const f = at(cwd);
+    if (fs.existsSync(f)) return f;
+  }
+  return at(root);
 }
 
 function usageTokens(line) {

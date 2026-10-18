@@ -225,6 +225,7 @@ function buildStatus(list, { requests = [], registry = new Map(), ops = null, bl
       name,
       id: s.id || (s.sessionId || '').slice(0, 8) || null,
       sessionId: s.sessionId || null,
+      cwd: s.cwd || null,
       kind: s.kind,
       state: s.state,
       status: s.status,
@@ -253,7 +254,7 @@ function safe(fn, fallback) {
 function withContext(rows, ops, home, now = Date.now()) {
   const { contextTokens } = thresholds(ops);
   return rows.map((r) => {
-    const file = ops && ops.root && r.sessionId ? transcriptFile(ops.root, r.sessionId, home) : null;
+    const file = ops && ops.root && r.sessionId ? transcriptFile(ops.root, r.sessionId, home, r.cwd) : null;
     const tokens = file ? readContextTokens(file) : null;
     return { ...r, contextTokens: tokens, rotate: !!tokens && tokens >= contextTokens, stuck: file ? stuckOf(r, file, ops, now) : null };
   });

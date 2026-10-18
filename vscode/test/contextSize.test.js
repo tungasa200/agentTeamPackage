@@ -30,6 +30,15 @@ const assistant = (inp, read, create, extra) => line({ type: 'assistant', messag
     assert.deepStrictEqual(thresholds(null), { contextTokens: 100000, notifyTokens: 130000 });
     assert.deepStrictEqual(thresholds({ rotation: { contextTokens: 1000 } }), { contextTokens: 1000, notifyTokens: 130000 });
     assert.ok(transcriptFile('C:\\projects\\my-project', 'abc', 'H').endsWith(path.join('projects', 'C--projects-my-project', 'abc.jsonl')));
+    // worktree에서 뜬 세션(S4): cwd 키 파일이 있으면 그것, 없으면 저장소 키
+    const wtHome = path.join(tmp, 'wthome');
+    const wtCwd = 'C:\\projects\\my-project\\.claude\\worktrees\\qa';
+    const rootKey = transcriptFile('C:\\projects\\my-project', 'abc', wtHome);
+    assert.strictEqual(transcriptFile('C:\\projects\\my-project', 'abc', wtHome, wtCwd), rootKey, 'cwd 파일 없으면 저장소 키');
+    const wtFile = path.join(wtHome, '.claude', 'projects', 'C--projects-my-project--claude-worktrees-qa', 'abc.jsonl');
+    fs.mkdirSync(path.dirname(wtFile), { recursive: true });
+    fs.writeFileSync(wtFile, '');
+    assert.strictEqual(transcriptFile('C:\\projects\\my-project', 'abc', wtHome, wtCwd), wtFile, 'cwd 파일 있으면 그것');
 
     // 3. 훅: 프로젝트 설정(roles)과 가짜 claude agents 목록
     const proj = path.join(tmp, 'proj');

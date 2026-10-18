@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
-const { ActivityReader, transcriptDir, bundle } = require('./sessionActivity');
+const { ActivityReader, transcriptDirs, bundle } = require('./sessionActivity');
 const { loadOpsConfig } = require('./opsConfig');
 const store = require('./approvalStore');
 
@@ -77,7 +77,8 @@ class ActivityView {
     this.root = ops ? ops.root : this.repo;
     this.ops = ops;
     this.roles = ops && Array.isArray(ops.roles) ? ops.roles.map((r) => r && r.name).filter(Boolean) : [];
-    this.reader = this.root ? new ActivityReader({ dir: transcriptDir(this.root) }) : null;
+    const root = this.root;
+    this.reader = root ? new ActivityReader({ dirs: () => transcriptDirs(root) }) : null;
     this.approvalsRoot = store.rootFor(this.repo);
   }
 

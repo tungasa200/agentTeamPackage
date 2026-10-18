@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { ActivityReader, transcriptDir, bundle, stageOf, taskId, bareName } = require('../sessionActivity');
+const { ActivityReader, transcriptDir, transcriptDirs, bundle, stageOf, taskId, bareName } = require('../sessionActivity');
 
 const T0 = Date.parse('2026-10-07T10:00:00Z');
 const at = (min) => new Date(T0 + min * 60000).toISOString();
@@ -39,6 +39,26 @@ const append = (dir, f, lines) => fs.appendFileSync(path.join(dir, f), lines.map
 
 test('저장소 경로로 대화 기록 폴더를 계산한다', () => {
   assert.strictEqual(transcriptDir('C:\\projects\\my-project', 'H'), path.join('H', '.claude', 'projects', 'C--projects-my-project'));
+});
+
+test('worktree 세션 폴더도 함께 읽고, 이름이 이어지는 다른 저장소는 섞지 않는다(S4 WT-06)', () => {
+  const home = tmpDir();
+  const repo = path.resolve('C:\\projects\\my-project');
+  const main = transcriptDir(repo, home);
+  const wt = main + '--claude-worktrees-WY-qa';
+  const other = main + '2';
+  for (const d of [main, other]) fs.mkdirSync(d, { recursive: true });
+  assert.deepStrictEqual(transcriptDirs(repo, home), [main], '아직 worktree 폴더가 없음');
+  fs.mkdirSync(wt);
+  assert.deepStrictEqual(transcriptDirs(repo, home), [main, wt]);
+  assert.deepStrictEqual(transcriptDirs(repo, path.join(home, 'none')), [transcriptDir(repo, path.join(home, 'none'))], 'projects 폴더가 없어도 저장소 폴더');
+  write(main, 'b.jsonl', [nameLine('WY-pm', 'b'), recvLine(2, 'WY-qa', 'm1', '[완료] 저장소')]);
+  write(wt, 'a.jsonl', [nameLine('WY-qa', 'a'), sendLine(1, 't1', 'WY-pm', '[완료] 저장소', '보고'), sendResult(1, 't1', 'm1')]);
+  write(other, 'c.jsonl', [nameLine('XX-pm', 'c'), recvLine(3, 'XX-qa', 'm9', '다른 저장소')]);
+  const r = new ActivityReader({ dirs: () => transcriptDirs(repo, home), now: () => T0 });
+  assert.ok(r.poll());
+  const feed = r.feed();
+  assert.deepStrictEqual(feed.map((m) => [m.from, m.to, m.title]), [['WY-qa', 'WY-pm', '보고']], '두 폴더 기록을 msg_id로 합침');
 });
 
 test('받는 쪽 대상 이름에서 [ref]를 뗀다', () => {

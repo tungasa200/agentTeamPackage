@@ -24,6 +24,20 @@ function transcriptDir(repoRoot, home = os.homedir()) {
   return path.join(home, '.claude', 'projects', path.resolve(repoRoot).replace(/[^A-Za-z0-9]/g, '-'));
 }
 
+// 저장소 폴더와 그 역할 worktree(<저장소>/.claude/worktrees/<역할>) 폴더들(S4 WT-06).
+// 접두를 정확히 써서 이름이 이어지는 다른 저장소(my-app2 등)는 섞지 않는다
+function transcriptDirs(repoRoot, home = os.homedir()) {
+  const main = transcriptDir(repoRoot, home);
+  const prefix = path.basename(main) + '--claude-worktrees-';
+  let names = [];
+  try {
+    names = fs.readdirSync(path.dirname(main)).filter((n) => n.startsWith(prefix));
+  } catch {
+    // projects 폴더가 아직 없으면 저장소 폴더만
+  }
+  return [main, ...names.map((n) => path.join(path.dirname(main), n))];
+}
+
 // "XX-pm [363ba2]" → "XX-pm"
 const bareName = (to) => String(to || '').replace(/\s*\[[^\]]*\]\s*$/, '').trim();
 
@@ -69,29 +83,41 @@ function describeTool(b) {
 }
 
 class ActivityReader {
-  constructor({ dir, now = () => Date.now(), firstTail = FIRST_TAIL, maxAge = MAX_AGE } = {}) {
-    this.dir = dir;
+  // dirs: 폴더 배열 또는 매 주기 부를 함수(새로 생긴 worktree 폴더도 보게). dir 하나만 줘도 된다
+  constructor({ dir, dirs = [dir], now = () => Date.now(), firstTail = FIRST_TAIL, maxAge = MAX_AGE } = {}) {
+    this.dirs = dirs;
     this.now = now;
     this.firstTail = firstTail;
     this.maxAge = maxAge;
-    this.files = new Map(); // 파일 이름 → {offset, rest, sessionId, name, pending: Map(toolUseId → 보낸 메시지)}
+    this.files = new Map(); // 파일 경로 →{offset, rest, sessionId, name, pending: Map(toolUseId → 보낸 메시지)}
     this.messages = new Map(); // msg_id → 메시지
     this.sessions = new Map(); // 세션 이름 → {name, sessionId, lastAt, doing}
     this.unreadable = 0;
   }
 
+  dirList() {
+    return typeof this.dirs === 'function' ? this.dirs() : this.dirs;
+  }
+
+  // 첫 폴더(저장소 폴더). 활동 탭이 '대화 기록 폴더 없음'을 알릴 때 쓴다
+  get dir() {
+    return this.dirList()[0];
+  }
+
   // 새로 붙은 줄만 읽는다. 바뀐 것이 있으면 true
   poll() {
-    let names;
-    try {
-      names = fs.readdirSync(this.dir).filter((f) => f.endsWith('.jsonl'));
-    } catch {
-      return false;
+    const files = [];
+    for (const dir of this.dirList()) {
+      try {
+        for (const f of fs.readdirSync(dir)) if (f.endsWith('.jsonl')) files.push(path.join(dir, f));
+      } catch {
+        // 없는 폴더는 건너뛴다
+      }
     }
     let changed = false;
-    for (const f of names) {
+    for (const file of files) {
       try {
-        if (this.readFile(f)) changed = true;
+        if (this.readFile(file)) changed = true;
       } catch {
         // 읽는 중에 지워지거나 잠긴 파일은 다음 주기에 다시 본다
       }
@@ -99,16 +125,16 @@ class ActivityReader {
     return changed;
   }
 
-  readFile(f) {
-    const file = path.join(this.dir, f);
+  readFile(file) {
+    const f = path.basename(file);
     const st = fs.statSync(file);
-    let s = this.files.get(f);
+    let s = this.files.get(file);
     if (!s) {
       const age = this.now() - st.mtimeMs;
       if (age > this.maxAge) return false;
       const tail = age < RECENT ? this.firstTail * 4 : this.firstTail; // 최근에 쓴 기록은 시간 보기의 띠가 비지 않게 더 읽는다
       s = { offset: Math.max(0, st.size - tail), rest: '', skipFirst: st.size > tail, sessionId: f.replace(/\.jsonl$/, ''), name: null, pending: new Map(), bands: [] };
-      this.files.set(f, s);
+      this.files.set(file, s);
       if (s.skipFirst) s.name = this.nameFromHead(file, st.size);
     }
     if (st.size < s.offset) Object.assign(s, { offset: 0, rest: '', skipFirst: false }); // 잘리거나 새로 쓰인 파일
@@ -348,4 +374,4 @@ function bundle(feed) {
     .sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
 }
 
-module.exports = { ActivityReader, transcriptDir, bundle, stageOf, taskId, bareName };
+module.exports = { ActivityReader, transcriptDir, transcriptDirs, bundle, stageOf, taskId, bareName };
