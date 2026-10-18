@@ -52,6 +52,7 @@ try {
     for (const role of ops.roles.filter((x) => x.agent)) {
       const agent = fs.readFileSync(path.join(P, '.claude', 'agents', `${role.name}.md`), 'utf8');
       assert.ok(agent.includes(`name: ${role.name}`), `${id}: ${role.name} 역할 파일`);
+      if (role.name === ops.pmRole) continue; // pm 틀(templates/agent-pm.md, D-36)에는 검증 명령 절이 없다
       assert.ok(agent.includes('## 검증 명령'), `${id}: 역할 파일에 검증 명령 절`);
       if (over.test) assert.ok(agent.includes(over.test), '덮어쓴 명령이 역할 파일에');
     }

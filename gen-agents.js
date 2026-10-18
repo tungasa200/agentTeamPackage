@@ -3,9 +3,11 @@
 //   node tools/wy-ops/gen-agents.js [--check] [--root <저장소>] [--out <폴더>]
 //   --check  쓰지 않고 지금 파일과 비교만 한다(줄바꿈·BOM은 무시). 다르면 처음 달라진 줄을 보여 주고 종료 코드 1
 // 입력
-//   <저장소>/.claude/wy-ops.json         roles(agent:false는 건너뜀), pmRole, commitRole, docs, memory …
+//   <저장소>/.claude/wy-ops.json         roles(agent:false는 건너뜀, pm 역할은 agent 값과 상관없이 만듦), pmRole, commitRole, docs, memory …
 //   <저장소>/.claude/ops/agent.md        프로젝트 템플릿(없으면 tools/wy-ops/templates/agent.md)
+//   <저장소>/.claude/ops/agent-pm.md     pm 역할 템플릿(없으면 tools/wy-ops/templates/agent-pm.md, D-36)
 //   <저장소>/.claude/ops/roles/<역할>.md  역할 원본: frontmatter(description + 추가 줄) + '이 역할의 작업 방식' 본문
+//                                        pm 역할 원본이 없으면(agent:false였던 기존 설치) 패키지 templates/roles/pm.md를 project·prefix로 채워 쓴다
 // 자리표시자: {{name}} {{description}} {{frontmatter}} {{body}} {{verifyList}}(verify·stackNotes에서 만든 목록)와 설정 경로({{pmRole}}, {{docs.progress}} …).
 //   {{경로|size}}는 MB 값을 1024의 배수면 'nGB', 아니면 'nMB'로 쓴다. {{경로|indent}}는 줄마다 두 칸 들여 써서 앞 글머리의 하위 목록으로 만든다.
 //   모르는 자리표시자는 오류로 멈춘다.
@@ -15,6 +17,8 @@ const { loadOpsConfig, findProjectRoot } = require('./vscode/opsConfig');
 const { agentRules, hasTreeRules } = require('./lib/worktree');
 
 const DEFAULT_TEMPLATE = path.join(__dirname, 'templates', 'agent.md');
+const DEFAULT_PM_TEMPLATE = path.join(__dirname, 'templates', 'agent-pm.md');
+const PM_ROLE = path.join(__dirname, 'templates', 'roles', 'pm.md');
 
 function args(argv) {
   const out = { check: false, root: null, out: null };
@@ -30,8 +34,8 @@ function args(argv) {
 const read = (f) => fs.readFileSync(f, 'utf8').replace(/^﻿/, '').replace(/\r\n/g, '\n');
 
 // 역할 원본: --- description: …, 추가 줄 … --- 본문
-function readRole(file) {
-  const m = read(file).match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+function readRole(file, text = read(file)) {
+  const m = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!m) throw new Error(`${file}: frontmatter(---)가 없습니다`);
   const lines = m[1].split('\n');
   const desc = lines.find((l) => l.startsWith('description: '));
@@ -126,21 +130,31 @@ function fill(template, values, where) {
   });
 }
 
+// 템플릿: 프로젝트 것(.claude/ops/<이름>)이 있으면 그것, 없으면 패키지 기본
+function loadTemplate(root, name, fallback) {
+  const own = path.join(root, '.claude', 'ops', name);
+  const file = fs.existsSync(own) ? own : fallback;
+  const text = read(file);
+  return { file, text, hasTree: hasTreeRules(text) }; // 프로젝트 템플릿에 자리표시자가 없으면 문구를 만들지 않는다(commitRole 없을 때 멈추지 않게)
+}
+
 function generate(root) {
   const ops = loadOpsConfig(root);
   if (!ops) throw new Error(`${root}/.claude/wy-ops.json을 읽지 못했습니다`);
-  const projectTemplate = path.join(root, '.claude', 'ops', 'agent.md');
-  const templateFile = fs.existsSync(projectTemplate) ? projectTemplate : DEFAULT_TEMPLATE;
-  const template = read(templateFile);
-  const hasTree = hasTreeRules(template); // 프로젝트 템플릿에 자리표시자가 없으면 문구를 만들지 않는다(commitRole 없을 때 멈추지 않게)
-  const roles = (ops.roles || []).filter((r) => r && r.name && r.agent !== false);
-  if (!roles.length) throw new Error('wy-ops.json에 역할 파일을 만들 역할(agent가 false가 아닌 roles)이 없습니다');
+  const isPm = (r) => r.name === ops.pmRole;
+  const roles = (ops.roles || []).filter((r) => r && r.name && (r.agent !== false || isPm(r)));
+  if (!roles.length) throw new Error('wy-ops.json에 역할 파일을 만들 역할(roles)이 없습니다');
+  const role = loadTemplate(root, 'agent.md', DEFAULT_TEMPLATE);
+  const pm = loadTemplate(root, 'agent-pm.md', DEFAULT_PM_TEMPLATE);
   return roles.map((r) => {
+    const t = isPm(r) ? pm : role;
     const roleFile = path.join(root, '.claude', 'ops', 'roles', `${r.name}.md`);
-    if (!fs.existsSync(roleFile)) throw new Error(`역할 원본이 없습니다: ${roleFile}`);
-    const role = readRole(roleFile);
-    role.frontmatter = toolsFrontmatter(r, role.frontmatter);
-    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), treeRules: hasTree ? agentRules(ops, r.name) : '', ...role, name: r.name }, templateFile)) };
+    let src;
+    if (fs.existsSync(roleFile)) src = readRole(roleFile);
+    else if (isPm(r)) src = readRole(PM_ROLE, fill(read(PM_ROLE), { project: ops.project, prefix: ops.rolePrefix }, `${PM_ROLE}(project·rolePrefix)`));
+    else throw new Error(`역할 원본이 없습니다: ${roleFile}`);
+    src.frontmatter = toolsFrontmatter(r, src.frontmatter);
+    return { name: r.name, text: quoteFrontmatter(fill(t.text, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), treeRules: t.hasTree ? agentRules(ops, r.name) : '', ...src, name: r.name }, t.file)) };
   });
 }
 

@@ -30,7 +30,7 @@ try {
   ops.roles = expandRoles(catalog, { prefix: 'SB-', counts: { backend: 1, frontend: 1 } });
   const names = ops.roles.map((r) => r.name);
   assert.ok(names.includes(ops.pmRole) && names.includes(ops.commitRole), 'pm·커밋 역할이 roles에 있음');
-  assert.deepStrictEqual(ops.roles.map((r) => [r.name.replace('SB-', ''), r.agent]), [['commit', true], ['pm', false], ['planner', true], ['backend', true], ['frontend', true], ['qa', true], ['design', true], ['browser', true]], '1개씩 고른 역할');
+  assert.deepStrictEqual(ops.roles.map((r) => [r.name.replace('SB-', ''), r.agent]), [['commit', true], ['pm', true], ['planner', true], ['backend', true], ['frontend', true], ['qa', true], ['design', true], ['browser', true]], '1개씩 고른 역할');
   assert.strictEqual(ops.approvals.namespace, 'sandbox');
   assert.ok(!('handoff' in ops), 'handoff 없음');
   assert.deepStrictEqual(fs.readFileSync(path.join(T, 'gitignore.txt'), 'utf8').trim().split(/\r?\n/), GITIGNORE_LINES, '.gitignore 줄 = doctor 기준');
@@ -54,8 +54,8 @@ try {
   const first = update({ project, version: '0.6.0' });
   // session.ps1 코어 템플릿은 WY-backend2가 옮겨 오는 중이라, 있을 때만 대상이다
   const hasPs1 = fs.existsSync(path.join(T, 'pm-ops', 'scripts', 'session.ps1'));
-  const want = ['.claude/agents/SB-backend.md', '.claude/agents/SB-browser.md', '.claude/agents/SB-commit.md', '.claude/agents/SB-design.md', '.claude/agents/SB-frontend.md', '.claude/agents/SB-planner.md', '.claude/agents/SB-qa.md', '.claude/skills/pm-ops/SKILL.md', ...(hasPs1 ? ['.claude/skills/pm-ops/scripts/session.ps1'] : []), '.claude/skills/wy-resume-session/SKILL.md', '.claude/skills/wy-save-session/SKILL.md'];
-  assert.deepStrictEqual(first.map((r) => r.file).sort(), want, '생성 파일 목록(pm은 역할 파일 없음)');
+  const want = ['.claude/agents/SB-backend.md', '.claude/agents/SB-browser.md', '.claude/agents/SB-commit.md', '.claude/agents/SB-design.md', '.claude/agents/SB-frontend.md', '.claude/agents/SB-planner.md', '.claude/agents/SB-pm.md', '.claude/agents/SB-qa.md', '.claude/skills/pm-ops/SKILL.md', ...(hasPs1 ? ['.claude/skills/pm-ops/scripts/session.ps1'] : []), '.claude/skills/wy-resume-session/SKILL.md', '.claude/skills/wy-save-session/SKILL.md'];
+  assert.deepStrictEqual(first.map((r) => r.file).sort(), want, '생성 파일 목록(pm도 역할 파일, D-36)');
   assert.ok(first.every((r) => r.action === 'create'), '처음엔 모두 create');
   const agent = fs.readFileSync(path.join(project, '.claude', 'agents', 'SB-commit.md'), 'utf8');
   assert.ok(agent.includes('name: SB-commit') && agent.includes('`SB-pm`에 알린다') && agent.includes('sandbox'), '역할 파일에 이름·pm·프로젝트');

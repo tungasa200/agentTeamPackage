@@ -12,7 +12,8 @@
 #   session.ps1 unpin <역할>            고정 목록에서 뺀다. pin·unpin 모두 멈춘·없는 세션의 id를 목록에서 정리한다
 #                                       start·rotate는 고정하지 않는다. 허용 규칙 한 줄로 이 명령만 열기 위해 pm이 따로 부른다
 #   session.ps1 attach <역할>           실행 중인 그 역할 백그라운드 세션에 붙는다(claude attach <id>, 원격 접속용). pm 역할도 된다
-#   session.ps1 start-pm [경로|latest]  pm 역할을 백그라운드 세션으로 띄운다(역할 파일 없음: pm-ops 스킬·인수인계 경로·ListAgents 확인을 시작 지시로).
+#   session.ps1 start-pm [경로|latest]  pm 역할을 역할 파일(--agent)로 백그라운드 세션으로 띄운다. 시작 규칙은 역할 파일에 있고 시작 지시는 인수인계 경로 한 줄(D-36).
+#                                       pm은 start·rotate·prep 대신 이 명령을 쓴다.
 #                                       latest는 가장 최근 pm 인수인계 파일(없으면 인수인계 없이). 이미 백그라운드 pm이 실행 중이면 거부한다. pm 세션 교체 중이면 -Force(새 pm을 띄운 뒤 이전 pm을 멈추라고 알려 줌)
 #   session.ps1 wt-clean <역할>         그 역할의 worktree를 지운다(커밋하지 않은 변경·병합 안 된 커밋이 있거나 세션이 실행 중이면 멈춤). 가지는 남긴다
 # worktree(WT-01, S4): wy-ops.json의 worktree.enabled가 켜져 있으면 역할 세션(pm·commit 제외, worktree.roles로 고름)은
@@ -66,6 +67,7 @@ if (-not $Roles.Count -or -not $PmRole) { throw "프로젝트 설정 $Repo\.clau
 # Claude Code는 대화 기록 폴더 이름을 저장소 경로의 영문·숫자 외 문자를 '-'로 바꿔 만든다(Windows는 대소문자 무시)
 function Get-TranscriptDir($dir) { "$env:USERPROFILE\.claude\projects\" + (([string]$dir).TrimEnd('\', '/') -replace '[^A-Za-z0-9]', '-') }
 $Transcripts = Get-TranscriptDir $Repo
+if ($Cmd -in 'start','rotate','prep' -and $Role -eq $PmRole) { throw "$PmRole 은 start-pm을 쓰세요(세션 교체: pm-cmd)" }
 if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -and -not ($Cmd -in 'attach','stop' -and $Role -eq $PmRole)) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
 
 # PowerShell 5.1의 ConvertFrom-Json은 JSON 배열을 한 덩어리로 넘기므로 괄호로 풀어서 넘긴다
@@ -327,11 +329,8 @@ switch ($Cmd) {
     "pm 세션 교체(원격 운용: pm은 호스트의 백그라운드 세션, 노트북을 닫아도 계속 돎):"
     "  1. 인수인계 저장(끝남): $hp"
     "  2. 새 pm 띄우기: & '$PSCommandPath' start-pm '$hp' -Force"
-    "  3. 이전 pm 종료: 2가 알려 주는 대로(백그라운드면 claude stop <id>, 대화형 창이면 창 닫기). 이전 pm이 2를 실행했다면 3이 마지막 동작"
+    "  3. 이전 pm 종료: 2가 알려 주는 claude stop <id>. 이전 pm이 2를 실행했다면 3이 마지막 동작"
     "  4. 붙기: & '$PSCommandPath' attach $PmRole"
-    "호스트 앞에서 대화형으로 이어 갈 때(예전 방식): 새 터미널에서 아래 한 줄, 이전 pm 창은 닫기"
-    # 기본 실행 정책에서는 npm의 claude.ps1이 막히므로 claude.cmd로 부른다
-    "  cd $Repo; claude.cmd --name $PmRole `"/wy-resume-session $hp`""
   }
   'start-pm' {
     # 경로는 두 번째 자리($Role)로 들어온다. 'none'이나 빈 값이면 인수인계 없이 시작
@@ -342,19 +341,14 @@ switch ($Cmd) {
     $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
     $bg = @($live | Where-Object { $_.kind -eq 'background' })
     if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force"; break }
-    $load = if ($h) { "다음으로 /wy-resume-session $($h -replace '\\','/') 로 인수인계를 불러오고, " } else { "다음으로 CLAUDE.md와 $($ProgressDoc)를 읽고, " }
-    # pm은 역할 파일이 없어 이 문장이 지침의 전부다. '따르세요'만으로는 스킬을 부르지 않으므로(KI-05) 호출을 첫 동작으로 못 박는다
-    $first = "[$PmRole 시작] 이 세션은 호스트에서 백그라운드로 도는 $PmRole(개발 총괄)입니다. 사용자는 session.ps1 attach $PmRole 로 붙어 대화합니다. " +
-             "가장 먼저 Skill 도구로 pm-ops 스킬을 불러오세요(스킬 본문을 읽기 전에는 다른 일을 하지 않습니다). 이후 pm-ops 스킬을 따릅니다. " +
-             $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요. " +
-             "ListAgents에 자기 말고 같은 $PmRole 이름이 보이면 교체 직후 남은 항목입니다. 중복 $PmRole 여부는 session.ps1 list의 실행 중(pid 있음) 항목으로만 판단하고, 실행 중 $PmRole 이 하나면 경고하지 않습니다. $PmRole 이름으로 SendMessage를 보내지 마세요."
+    # 시작 규칙(pm-ops 먼저·인수인계·중복 pm 판단)은 역할 파일에 있다(D-36). 시작 지시는 인수인계 경로만 넘긴다
+    if (-not (Test-Path "$Repo\.claude\agents\$PmRole.md")) { throw "$PmRole 역할 파일(.claude/agents/$PmRole.md)이 없습니다. install.ps1 gen 먼저 실행하세요." }
+    $first = if ($h) { "[$PmRole 시작] 인수인계: $($h -replace '\\','/')" } else { "[$PmRole 시작] 인수인계 없음" }
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $first = $first -replace '"', "'"
-    Start-Bg @('--bg', '--name', $PmRole, $first)
+    Start-Bg @('--bg', '--agent', $PmRole, '--name', $PmRole, $first)
     "백그라운드 $PmRole 을 띄웠습니다. 붙기: session.ps1 attach $PmRole"
-    foreach ($o in $live) {
-      if ($o.kind -eq 'background') { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" } else { "이전 $PmRole 대화형 세션($($o.id))의 창을 닫으세요" }
-    }
+    foreach ($o in $live) { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" }
   }
   'wt-clean' {
     # 고정 worktree는 평소 지우지 않는다(D-31). 역할을 없애거나 worktree를 끌 때·트리가 망가졌을 때만. --force 없이 지우고 가지는 남긴다

@@ -15,8 +15,9 @@ const w = (rel, text) => {
 const run = (...args) => spawnSync(process.execPath, [GEN, '--root', root, ...args], { encoding: 'utf8' });
 
 try {
-  w('.claude/wy-ops.json', JSON.stringify({ pmRole: 'XX-pm', roles: [{ name: 'XX-a' }, { name: 'XX-b' }, { name: 'XX-c' }, { name: 'XX-pm', agent: false }] }));
+  w('.claude/wy-ops.json', JSON.stringify({ project: 'PX', rolePrefix: 'XX-', pmRole: 'XX-pm', roles: [{ name: 'XX-a' }, { name: 'XX-b' }, { name: 'XX-c' }, { name: 'XX-pm', agent: false }] }));
   w('.claude/ops/agent.md', '---\nname: {{name}}\ndescription: {{description}}\n{{frontmatter}}---\n\n{{body}}\n\n지시: {{pmRole}}\n');
+  w('.claude/ops/agent-pm.md', '---\nname: {{name}}\ndescription: {{description}}\n{{frontmatter}}---\n\npm 틀 {{project}}\n{{body}}\n');
   for (const n of ['XX-a', 'XX-b', 'XX-c']) w(`.claude/ops/roles/${n}.md`, `---\ndescription: ${n} 역할\n---\n- ${n} 본문\n`);
 
   // 기준 생성(LF) 후 a는 CRLF, b는 LF로 둔다. c는 지운다(새 파일 경우)
@@ -24,6 +25,14 @@ try {
   const file = (n) => path.join(root, '.claude', 'agents', `${n}.md`);
   const lf = fs.readFileSync(file('XX-a'), 'utf8');
   assert.ok(!lf.includes('\r'), '새로 만든 파일은 LF');
+  // D-36: pm은 agent:false여도 만든다. 원본이 없으면 패키지 templates/roles/pm.md(prefix 채움), 틀은 .claude/ops/agent-pm.md
+  const pmText = fs.readFileSync(file('XX-pm'), 'utf8');
+  assert.ok(pmText.includes('pm 틀 PX') && pmText.includes('Skill 도구로 `pm-ops`') && pmText.includes('`XX-pm` 이름으로 `SendMessage`를 보내지 않는다') && !/\{\{|지시: XX-pm/.test(pmText), `pm 역할 파일:\n${pmText}`);
+  assert.ok(/^disallowedTools: (?!.*AskUserQuestion).*NotebookEdit$/m.test(pmText), 'pm은 AskUserQuestion을 남김');
+  // 프로젝트가 pm 원본을 두면 그것을 쓴다
+  w('.claude/ops/roles/XX-pm.md', '---\ndescription: 총괄\n---\n- 프로젝트 pm 본문\n');
+  assert.strictEqual(run().status, 0);
+  assert.ok(fs.readFileSync(file('XX-pm'), 'utf8').includes('- 프로젝트 pm 본문'), '프로젝트 pm 원본 우선');
   fs.writeFileSync(file('XX-a'), lf.replace(/\n/g, '\r\n'));
   fs.rmSync(file('XX-c'));
 
@@ -170,9 +179,35 @@ try {
   assert.ok(wt.agentRules(base, 'XX-pm').startsWith('- 이 세션은 본 저장소에서 돈다') && !wt.agentRules(base, 'XX-pm').includes('--no-ff'), '켜짐: pm은 본 저장소');
   assert.ok(wt.claudeMdRules(base).commitTreeRules.startsWith('\n- '), '켜짐: 커밋 절에 한 줄 더함');
   // 기본 템플릿이 자리표시자를 쓴다(예전 문구가 남아 두 번 나오지 않게)
-  for (const [f, key] of [['templates/agent.md', '{{treeRules}}'], ['templates/claude-md.md', '{{treeRules}}'], ['templates/claude-md.md', '{{commitTreeRules}}'], ['templates/pm-ops/SKILL.md', '{{treeRules}}']]) {
+  for (const [f, key] of [['templates/agent.md', '{{treeRules}}'], ['templates/agent-pm.md', '{{treeRules}}'],['templates/claude-md.md', '{{treeRules}}'], ['templates/claude-md.md', '{{commitTreeRules}}'], ['templates/pm-ops/SKILL.md', '{{treeRules}}']]) {
     const t = fs.readFileSync(path.join(__dirname, f), 'utf8');
     assert.ok(t.includes(key) && !t.includes('워킹트리는 모든 세션이 함께') && !t.includes('공유 워킹트리에서'), `${f}: ${key}`);
   }
   console.log('gen-agents worktree 문구 검사 통과');
+}
+
+// pm 기본 틀(templates/agent-pm.md, D-36): 공통 줄(권한 창·보호 파일·메모리·treeRules·비밀값)만, 다른 역할 틀은 그대로
+{
+  const { generate } = require('./gen-agents');
+  const r4 = fs.mkdtempSync(path.join(os.tmpdir(), 'gen-agents-pm-'));
+  try {
+    fs.mkdirSync(path.join(r4, '.claude', 'ops', 'roles'), { recursive: true });
+    fs.writeFileSync(path.join(r4, '.claude', 'wy-ops.json'), JSON.stringify({
+      project: 'PX', rolePrefix: 'XX-', pmRole: 'XX-pm', commitRole: 'XX-commit', worktree: { enabled: false },
+      memory: { blockFreeMB: 500, warnFreeMB: 1024 }, docs: { progress: 'p.md' }, roles: [{ name: 'XX-commit' }, { name: 'XX-pm', agent: true }],
+    }));
+    fs.writeFileSync(path.join(r4, '.claude', 'ops', 'roles', 'XX-commit.md'), '---\ndescription: 커밋\n---\n- 커밋 본문\n');
+    const out = Object.fromEntries(generate(r4).map((x) => [x.name, x.text]));
+    const pm = out['XX-pm'];
+    assert.ok(pm.includes('너는 PX의 `XX-pm` 세션이다') && pm.includes('500MB 미만이면 시작하지도 역할 세션에 시키지도 않는다') && pm.includes('커밋 전담 세션(`XX-commit`)'), `pm 기본 틀:\n${pm}`);
+    assert.ok(!pm.includes('## 검증 명령') && !pm.includes('/wy-save-session'), 'pm 틀에는 역할 세션 전용 줄 없음');
+    assert.ok(out['XX-commit'].includes('## 모든 역할 공통') && !out['XX-commit'].includes('pm-ops'), '다른 역할은 기본 역할 틀');
+    const cfg = path.join(r4, '.claude', 'wy-ops.json');
+    const { rolePrefix, ...noPrefix } = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    fs.writeFileSync(cfg, JSON.stringify(noPrefix));
+    assert.throws(() => generate(r4), /\{\{prefix\}\}의 값이 없습니다/, `rolePrefix(${rolePrefix}) 없으면 자리표시자를 남기지 않고 멈춤`);
+  } finally {
+    fs.rmSync(r4, { recursive: true, force: true });
+  }
+  console.log('gen-agents pm 역할 검사 통과');
 }

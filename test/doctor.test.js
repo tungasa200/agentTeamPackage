@@ -339,7 +339,15 @@ try {
     pc.state.genAgents = 1;
     assert.ok(byId(doctor.checkAll(pc.opts)).config.fix.includes(' gen'), '역할 파일 다름');
     pc.state.genAgents = 0;
-    write(path.join(pc.repo, '.claude', 'ops', 'roles', 'X-qa.md'), `캡처는 ${pc.home.replace(/\\/g, '/')}/shots에\n`);
+    // D-36: 예전 설치에 남은 pm agent:false는 통과에 알림만 붙인다
+    const cfg = path.join(pc.repo, '.claude', 'wy-ops.json');
+    const base = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    assert.ok(!byId(doctor.checkAll(pc.opts)).config.detail.includes('agent:false'), 'pm agent:false 없으면 알림 없음');
+    json(cfg, { ...base, roles: base.roles.map((r) => (r.name === base.pmRole ? { ...r, agent: false } : r)) });
+    const pmOld = byId(doctor.checkAll(pc.opts)).config;
+    assert.ok(pmOld.level === 'ok' && pmOld.detail.includes('pm 역할 agent:false는 더 쓰지 않음(무시됨)'), JSON.stringify(pmOld));
+    json(cfg, base);
+    write(path.join(pc.repo, '.claude', 'ops', 'roles', 'X-qa.md'),`캡처는 ${pc.home.replace(/\\/g, '/')}/shots에\n`);
     const p = byId(doctor.checkAll(pc.opts))['paths-personal'];
     assert.ok(p.level === 'fail' && p.detail.includes('.claude/ops/roles/X-qa.md:1'), '개인 경로');
     write(path.join(pc.repo, '.gitignore'), 'node_modules\n/.claude/settings.local.json\n');
@@ -614,6 +622,12 @@ try {
     write(agentTpl, '# {{name}}\n  {{treeRules|indent}}\n');
     assert.strictEqual(check().level, 'ok', '필터 꼴 자리표시자도 통과');
     fs.unlinkSync(agentTpl);
+    // pm 틀 .claude/ops/agent-pm.md(D-36)도 같다
+    const pmTpl = path.join(pc.repo, '.claude', 'ops', 'agent-pm.md');
+    write(pmTpl, '# {{name}}\n');
+    r = check();
+    assert.ok(r.level === 'warn' && r.detail.includes('agent-pm.md에 {{treeRules}} 없음'), JSON.stringify(r));
+    fs.unlinkSync(pmTpl);
     // 목록에 없는 흔적 폴더, 역할 아닌 worktree·잠김·폴더 없는 등록, worktree-* 가지
     fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'X-frontend'), { recursive: true });
     fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'old'), { recursive: true });
