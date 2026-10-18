@@ -93,7 +93,7 @@ function Get-DemoCmd([string[]]$lines, [double]$sec = 0.4, [int]$exit = 0) {
 # ── 상태 ──
 $St = @{
   Step = 1; Done = @{}; Project = 'C:\projects\my-app'; Name = 'my-app'; NameTouched = $false; Existing = $null
-  Prefix = 'MY-'; PrefixTouched = $false; Counts = [ordered]@{ planner = 1; backend = 2; frontend = 2; qa = 1; design = 1 }
+  Prefix = 'MY-'; PrefixTouched = $false; Worktree = $true; WorktreeChoice = $true; WorktreeFixed = $false; Counts = [ordered]@{ planner = 1; backend = 2; frontend = 2; qa = 1; design = 1 }
   AdvOpen = $false; Installed = $false; Rows = $null; Run = $null; FailMsg = $null; CancelPending = $false
   ClaudeOk = $false; ClaudeWasOk = $false; ClaudeUrl = $null; PasteOpen = $false; PasteText = ''; PasteBusy = $false; PasteBad = $false; GhOk = $false; GhWasOk = $false; GhSkipped = $false; GhCode = $null
   TrustOk = $false; TrustWasOk = $false; TrustFail = $false; TrustWindow = $false; ClaudeMd = $null
@@ -279,9 +279,19 @@ function Read-Existing([string]$dir) {
   if (-not (Test-Path -LiteralPath $file)) { return $null }
   try { return ([IO.File]::ReadAllText($file, [Text.Encoding]::UTF8).TrimStart([char]0xFEFF) | ConvertFrom-Json) } catch { return $null }
 }
+function Get-WorktreeHint { if ($St.WorktreeFixed) { '이미 설정에 있는 값을 그대로 씁니다.' } else { '역할 세션이 각자 폴더(.claude/worktrees/<역할>)에서 일합니다. 폴더 하나에 디스크 약 300MB.' } }
 function Set-ProjectFolder([string]$dir) {
   $St.Project = $dir
   $St.Existing = Read-Existing $dir
+  # worktree(INS-04): 설정에 값이 있으면 그 값을 보여 준다(quickstart도 있는 값은 덮지 않음). 없으면 켬(D-32)
+  $we = if ($St.Existing -and $St.Existing.worktree) { $St.Existing.worktree.enabled } else { $null }
+  # 값이 있으면 lib/worktree.js isOn과 같은 판정(true·숫자 1·문자열 "true"만 켬, -eq는 대소문자 무시). 없으면 사용자가 고른 값
+  $St.WorktreeFixed = $null -ne $we
+  $St.Worktree = if ($St.WorktreeFixed) { ($we -is [bool] -and $we) -or ($we -isnot [string] -and $we -isnot [bool] -and "$we" -eq '1') -or ("$we" -eq 'true') } else { $St.WorktreeChoice }
+  if ($script:ui -and $script:ui.WtBox) {  # 고급 설정이 열려 있으면 체크 상자·안내도 맞춘다(폴더 칸을 고칠 때마다 불림)
+    $script:ui.WtBox.Enabled = -not $St.WorktreeFixed; $script:ui.WtBox.Checked = $St.Worktree
+    $script:ui.WtHint.Text = Get-WorktreeHint
+  }
   if ($St.Existing) {
     if ($St.Existing.project) { $St.Name = [string]$St.Existing.project; $St.NameTouched = $true }
     if ($St.Existing.rolePrefix) { $St.Prefix = [string]$St.Existing.rolePrefix; $St.PrefixTouched = $true }
@@ -345,7 +355,7 @@ function Show-Step2 {
   $line = New-Object Windows.Forms.Panel; $line.Height = 1; $line.Width = $ContentW; $line.BackColor = $C.Line; [void](Add-Ctl $line 16)
   $ar = New-Row 8
   $adv = New-Object Windows.Forms.LinkLabel; $adv.AutoSize = $true; $adv.LinkColor = $C.Accent
-  $changed = ($St.PrefixTouched -or @($St.Counts.Keys | Where-Object { $St.Counts[$_] -ne $DefaultCounts[$_] }).Count)
+  $changed = ($St.PrefixTouched -or (-not $St.Worktree -and -not $St.WorktreeFixed) -or @($St.Counts.Keys | Where-Object { $St.Counts[$_] -ne $DefaultCounts[$_] }).Count)
   $adv.Text = if ($St.AdvOpen) { "고급 설정 $([char]0x25BE)" } else { "고급 설정 $([char]0x25B8)" }
   $ar.Controls.Add($adv); $ar.Controls.Add((New-Label $(if ($changed -and -not $St.AdvOpen) { '(바꿈)' } else { '(바꾸지 않아도 됩니다)' }) $F.Small $C.Muted))
   $flow.Controls.Add($ar)
@@ -366,6 +376,15 @@ function Show-Step2 {
     $sr.Controls.AddRange(@($sl, $sq, $sb)); $flow.Controls.Add($sr); $flow.Controls.Add($hp2)
     $script:ui.Verify = Add-Ctl (New-Label '' $F.Small $C.Muted) 4
     $sb.Add_Click({ $script:ui.Verify.Text = (Get-DetectLines $St.Project) -join "`n" })
+    # 역할 worktree(INS-04): 기본 켬. 설정에 이미 값이 있으면 바꾸지 않으므로 고르지 못하게 둔다
+    $wr = New-Row 8
+    $wc = New-Object Windows.Forms.CheckBox; $wc.AutoSize = $true; $wc.Font = $F.Body; $wc.Text = '역할마다 작업 폴더 따로 쓰기'; $wc.AccessibleName = '역할마다 작업 폴더 따로 쓰기'
+    $wc.Checked = $St.Worktree; $wc.Enabled = -not $St.WorktreeFixed
+    $hp3 = New-HelpPanel 'AI 도우미마다 프로젝트 사본 폴더를 하나씩 두고 그 안에서 일합니다. 서로 고치는 파일이 섞이지 않습니다. 끄면 모두 한 폴더를 함께 씁니다. 설치 뒤에는 .claude/wy-ops.json의 worktree.enabled를 고치고 install.ps1 gen을 실행합니다.'
+    $wr.Controls.AddRange(@($wc, (New-HelpButton '역할마다 작업 폴더' $hp3))); $flow.Controls.Add($wr); $flow.Controls.Add($hp3)
+    $script:ui.WtHint = Add-Ctl (New-Label (Get-WorktreeHint) $F.Small $C.Muted) 4
+    $script:ui.WtBox = $wc
+    $wc.Add_CheckedChanged({ param($s) $St.Worktree = $s.Checked; if (-not $St.WorktreeFixed) { $St.WorktreeChoice = $s.Checked } })
     $cr = New-Object Windows.Forms.FlowLayoutPanel; $cr.AutoSize = $true; $cr.WrapContents = $true; $cr.MaximumSize = New-Object Drawing.Size($ContentW, 0); $cr.Margin = New-Object Windows.Forms.Padding(0, (Px 8), 0, (Px 14))  # 바닥에 붙지 않게
     $cl = New-Label '역할 수' $F.Body $C.Text (Px 140); $cl.MinimumSize = New-Object Drawing.Size((Px 150), 0); $cl.Margin = New-Object Windows.Forms.Padding(0, (Px 3), 0, 0); $cr.Controls.Add($cl)
     foreach ($k in $CountLabels.Keys) {
@@ -469,6 +488,7 @@ function Get-InstallCmd {
   if ($St.PrefixTouched -and $St.Prefix) { $a += @('--prefix', $St.Prefix) }
   $diff = @($St.Counts.Keys | Where-Object { $St.Counts[$_] -ne $DefaultCounts[$_] } | ForEach-Object { "$_=$($St.Counts[$_])" })
   if ($diff.Count) { $a += @('--count', ($diff -join ',')) }
+  if (-not $St.Worktree -and -not $St.WorktreeFixed) { $a += '--no-worktree' }  # 켬(기본)은 적지 않는다(키 없음 = 켬, 있는 설정을 다시 쓰지 않게)
   return 'powershell -NoProfile -ExecutionPolicy Bypass -File ' + (Q (Join-Path $Pkg 'install.ps1')) + ' ' + ($a -join ' ')
 }
 function Start-Install {
@@ -913,7 +933,7 @@ $btnNext.Add_Click({
       2 {
         $St.Done[2] = $true
         # 설치한 뒤 폴더·이름을 바꿨으면 설치 단계를 다시(있는 것은 건너뛰므로 금방 끝난다)
-        $key = "$($St.Project)|$($St.Name)|$($St.Prefix)|$(($St.Counts.Values) -join ',')"
+        $key = "$($St.Project)|$($St.Name)|$($St.Prefix)|$($St.Worktree)|$(($St.Counts.Values) -join ',')"
         if ($St.Installed -and $St.InstalledFor -ne $key) { $St.Installed = $false; $St.Rows = $null; $St.Done[3] = $false }
         $St.InstalledFor = $key
         if ($St.Installed) { Go-Step 4 } else { Go-Step 3 }

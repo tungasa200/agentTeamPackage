@@ -68,6 +68,7 @@ try {
   const ops = JSON.parse(fs.readFileSync(path.join(P, '.claude', 'wy-ops.json'), 'utf8'));
   assert.deepStrictEqual([ops.project, ops.rolePrefix, ops.stack, ops.detected], ['my-app', 'MY-', undefined, [{ dir: '.', stack: 'node' }]], r1.out);
   assert.strictEqual(ops.verify.setup, 'npm install', 'scripts가 없으면 설치 명령만');
+  assert.ok(ops.worktree === undefined && r1.out.includes('역할 worktree 켬'), '고르지 않으면 적지 않음(키 없음 = 켬)');
   assert.ok(VERIFY_NULL.every((k) => ops.verify[k] === null), JSON.stringify(ops.verify));
   const cmd = fs.readFileSync(path.join(P, 'CLAUDE.md'), 'utf8');
   assert.ok(cmd.startsWith('# my-app\n') && cmd.includes(qs.SECTION_MARK) && cmd.includes('맨 위 `MY-pm` 줄(백그라운드 `MY-pm`'), cmd.slice(0, 400));
@@ -96,7 +97,9 @@ try {
   assert.ok(!r1.out.includes('@@'), '진행 줄은 --progress일 때만');
   const W = path.join(tmp, 'work', 'wiz');
   put(path.join(W, 'README.md'), '');
-  const r5 = cli(['--project', W, '--progress', '--no-finish']);
+  const r5 = cli(['--project', W, '--progress', '--no-finish', '--no-worktree']); // 마법사는 체크 상자를 끄면 --no-worktree를 넘긴다(INS-04)
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(W, '.claude', 'wy-ops.json'), 'utf8')).worktree, { enabled: false }, r5.out);
+  assert.ok(r5.out.includes('역할 worktree 끔'), r5.out);
   const at = (s) => r5.out.indexOf(`@@${s}`);
   for (const s of ['step global start', 'step global done', 'step folder start', 'claudemd create', 'step folder done']) assert.ok(at(s) >= 0, `${s}\n${r5.out}`);
   assert.ok(at('step global done') < at('step folder start') && at('claudemd create') < at('step folder done'), r5.out);

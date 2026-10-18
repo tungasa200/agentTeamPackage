@@ -45,7 +45,7 @@ assert.strictEqual(r.stdout.trim(), '', `setup-wizard.ps1 구문 오류:\n${r.st
 // 4. 마법사가 부르는 install.js 명령·플래그가 실제로 있다
 const wiz = fs.readFileSync(WIZ, 'utf8');
 const js = fs.readFileSync(path.join(PKG, 'lib', 'install.js'), 'utf8');
-for (const f of ['--progress', '--no-finish', '--todos']) {
+for (const f of ['--progress', '--no-finish', '--todos', '--no-worktree']) { // worktree 켬(기본)은 넘기지 않음
   assert.ok(wiz.includes(f), `마법사: ${f}`);
   assert.ok(js.includes(`'${f}'`), `install.js: ${f}`);
 }

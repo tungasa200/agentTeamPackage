@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadOpsConfig, findProjectRoot } = require('./vscode/opsConfig');
+const { agentRules, hasTreeRules } = require('./lib/worktree');
 
 const DEFAULT_TEMPLATE = path.join(__dirname, 'templates', 'agent.md');
 
@@ -131,6 +132,7 @@ function generate(root) {
   const projectTemplate = path.join(root, '.claude', 'ops', 'agent.md');
   const templateFile = fs.existsSync(projectTemplate) ? projectTemplate : DEFAULT_TEMPLATE;
   const template = read(templateFile);
+  const hasTree = hasTreeRules(template); // 프로젝트 템플릿에 자리표시자가 없으면 문구를 만들지 않는다(commitRole 없을 때 멈추지 않게)
   const roles = (ops.roles || []).filter((r) => r && r.name && r.agent !== false);
   if (!roles.length) throw new Error('wy-ops.json에 역할 파일을 만들 역할(agent가 false가 아닌 roles)이 없습니다');
   return roles.map((r) => {
@@ -138,7 +140,7 @@ function generate(root) {
     if (!fs.existsSync(roleFile)) throw new Error(`역할 원본이 없습니다: ${roleFile}`);
     const role = readRole(roleFile);
     role.frontmatter = toolsFrontmatter(r, role.frontmatter);
-    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), treeRules: template.includes('{{treeRules}}') ? require('./lib/worktree').agentRules(ops, r.name) : '',...role, name: r.name }, templateFile)) };
+    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), treeRules: hasTree ? agentRules(ops, r.name) : '', ...role, name: r.name }, templateFile)) };
   });
 }
 

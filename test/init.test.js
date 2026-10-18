@@ -88,6 +88,19 @@ try {
   assert.strictEqual(R(Q, '.claude/wy-ops.json'), before, '있는 설정은 덮지 않음');
   assert.strictEqual(r5.files.find((f) => f.file === '.claude/wy-ops.json').action, 'unmanaged');
 
+  // 4a. worktree 켜고 끄기(INS-04): 고르지 않으면 키 없음(= 켬), 새 설정은 고른 값, 있는 설정은 값이 없을 때만 적고(.bak) 있으면 덮지 않음
+  assert.strictEqual(ops.worktree, undefined, '고르지 않으면 적지 않음');
+  const N = path.join(tmp, 'n');
+  init({ project: N, name: 'n', prefix: 'N-', worktree: false, templatesDir: T });
+  assert.deepStrictEqual(JSON.parse(R(N, '.claude/wy-ops.json')).worktree, { enabled: false });
+  const r6 = init({ project: Q, name: 'q', prefix: 'Q-', worktree: false, templatesDir: T });
+  assert.strictEqual(r6.files.find((f) => f.file === '.claude/wy-ops.json').action, 'filled');
+  assert.deepStrictEqual(JSON.parse(R(Q, '.claude/wy-ops.json')), { ...JSON.parse(before), worktree: { enabled: false } }, '다른 값은 그대로');
+  assert.strictEqual(fs.readdirSync(path.join(Q, '.claude')).filter((f) => f.startsWith('wy-ops.json.bak-')).length, 1, '원래 파일 백업');
+  const r7 = init({ project: Q, name: 'q', prefix: 'Q-', worktree: true, templatesDir: T });
+  assert.strictEqual(r7.files.find((f) => f.file === '.claude/wy-ops.json').action, 'unmanaged');
+  assert.strictEqual(JSON.parse(R(Q, '.claude/wy-ops.json')).worktree.enabled, false, '있는 값은 덮지 않음');
+
   // 4b. 공용 워킹트리·자동 압축 설정(INS-03, TOK-1): settings.json 없으면 만들고, 다시 하면 그대로(파일·백업 모두)
   assert.strictEqual(r1.bgIsolation, 'created');
   assert.strictEqual(r1.autoCompact, 'created');

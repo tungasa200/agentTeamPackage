@@ -604,6 +604,16 @@ try {
     pc.state.wtList = `${main}\nworktree ${wtOf('X-frontend')}\nHEAD ${HEAD}\nbranch refs/heads/wt/X-frontend\n`;
     r = check();
     assert.ok(r.level === 'ok' && r.detail.includes('1/1'), JSON.stringify(r));
+    // 프로젝트 템플릿 .claude/ops/agent.md에 {{treeRules}}가 없으면 주의, 있으면 통과
+    const agentTpl = path.join(pc.repo, '.claude', 'ops', 'agent.md');
+    write(agentTpl, '# {{name}}\n- 워킹트리는 모든 세션이 함께 쓴다.\n');
+    r = check();
+    assert.ok(r.level === 'warn' && r.detail.includes('{{treeRules}} 없음') && r.fix.includes('install.ps1 gen'), JSON.stringify(r));
+    write(agentTpl, '# {{name}}\n{{treeRules}}\n');
+    assert.strictEqual(check().level, 'ok', '자리표시자가 있으면 통과');
+    write(agentTpl, '# {{name}}\n  {{treeRules|indent}}\n');
+    assert.strictEqual(check().level, 'ok', '필터 꼴 자리표시자도 통과');
+    fs.unlinkSync(agentTpl);
     // 목록에 없는 흔적 폴더, 역할 아닌 worktree·잠김·폴더 없는 등록, worktree-* 가지
     fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'X-frontend'), { recursive: true });
     fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'old'), { recursive: true });
