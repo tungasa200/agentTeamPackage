@@ -173,7 +173,7 @@ function globRegExp(part) {
 // 경로 패턴을 파일 시스템에서 펼친다. 결과는 소문자·/ 구분자. 펼칠 수 없으면 빈 배열
 function expandGlob(pattern, cwd) {
   let s = String(pattern).replace(/^["']|["']$/g, '').replace(/\\/g, '/');
-  if (s === '~' || s.startsWith('~/')) s = os.homedir().replace(/\\/g, '/') + s.slice(1);
+  if (s === '~' || s.startsWith('~/')) s = HOME + s.slice(1);
   let base;
   let parts;
   if (/^\/[a-z]\//i.test(s)) {
@@ -215,45 +215,79 @@ function expandGlob(pattern, cwd) {
 
 // 임시 폴더에 만든 검증용 사본(git archive 등) 안의 프로젝트 설정 경로(KI-02). 이 프로젝트의 설정이 아니므로 보호 대상이 아니다.
 // 절대 경로이고 임시 폴더 안·cwd 밖이며 ..·와일드카드·변수가 없을 때만. 승인 파일·설치본 경로는 해당 없음
-function tempCopy(arg, cwd) {
+const TMP = os.tmpdir().replace(/\\/g, '/');
+const HOME = os.homedir().replace(/\\/g, '/');
+const TMP_ROOTS = [TMP.toLowerCase(), '/tmp'];
+// 한 번의 판단(writesApprovalFiles) 안에서 같은 인자를 여러 번 보므로 결과를 담아 둔다(판단마다 비운다)
+const decisionMemo = new Map();
+const memo = (fn) => (arg, cwd) => {
+  const key = `${fn.name}\0${cwd}\0${arg}`;
+  if (!decisionMemo.has(key)) decisionMemo.set(key, fn(arg, cwd));
+  return decisionMemo.get(key);
+};
+const tempCopy = memo(isTempCopy);
+const locate = memo(findPath);
+function isTempCopy(arg, cwd) {
   const p = arg.replace(/\\/g, '/').toLowerCase().replace(/^\/([a-z])\//, '$1:/');
+  if (!TMP_ROOTS.some((r) => p.startsWith(`${r}/`))) return false;
   // 쉼표·중괄호·세미콜론: PowerShell 배열·셸 펼치기로 다른 경로가 함께 들어올 수 있다
   if (UNKNOWN_TARGET.test(p) || GLOB.test(p) || /[,{};]/.test(p) || /(?:^|\/)\.\.(?:\/|$)/.test(p) || PROTECTED[0].test(p) || PROTECTED[1].test(p)) return false;
-  const roots = [os.tmpdir().replace(/\\/g, '/').toLowerCase(), '/tmp'];
-  if (!roots.some((r) => p.startsWith(`${r}/`))) return false;
   const rel = path.relative(path.resolve(cwd || process.cwd()), path.resolve(p));
   if (!(rel.startsWith('..') || path.isAbsolute(rel))) return false;
-  // 앞서 만든 링크(임시 폴더 → 프로젝트·홈)를 지나면 실제로는 보호 파일에 쓴다. 있는 가장 깊은 폴더의 실제 경로가 임시 폴더 안이어야 한다
-  try {
-    const real = (x) => fs.realpathSync.native(x).replace(/\\/g, '/').toLowerCase();
-    let q = path.resolve(process.platform === 'win32' && p.startsWith('/tmp/') ? os.tmpdir() + p.slice(4) : p);
-    // lstat: 깨진 링크도 '있음'으로 보고 realpath 실패 → 막음
-    const exists = (x) => {
-      try {
-        return !!fs.lstatSync(x);
-      } catch {
-        return false;
-      }
-    };
-    while (!exists(q) && path.dirname(q) !== q) q = path.dirname(q);
-    const t = real(os.tmpdir());
-    const r = real(q);
-    // 실제 경로가 작업 폴더(cwd) 안이어도 안 된다(임시 폴더 안의 프로젝트로 가는 링크)
-    let c = null;
-    try {
-      c = real(path.resolve(cwd || process.cwd()));
-    } catch {}
-    if (c && (r === c || r.startsWith(`${c}/`))) return false;
-    return r.startsWith(`${t}/`) || (r === t && path.resolve(q) !== path.resolve(p));
-  } catch {
-    return false;
-  }
+  // 앞서 만든 링크(임시 폴더 → 프로젝트·홈)를 지나면 실제로는 보호 파일에 쓴다. 있는 가장 깊은 곳의 실제 경로가 임시 폴더 안이어야 한다
+  const r = locate(arg, cwd).real; // 원래 대소문자로 찾는다(대소문자를 가리는 파일 시스템의 링크)
+  const t = locate(TMP).real;
+  if (!r || !t) return false;
+  // 실제 경로가 작업 폴더(cwd) 안이어도 안 된다(임시 폴더 안의 프로젝트로 가는 링크)
+  const c = locate(cwd || process.cwd()).real;
+  if (c && (r === c || r.startsWith(`${c}/`))) return false;
+  return r.startsWith(`${t}/`);
 }
 
-// 쓰기 대상이 보호 경로로 갈 수 있는지(직접 언급, 알 수 없는 값, 와일드카드를 펼친 결과)
+// 경로 인자를 절대 경로로 풀고, 있는 가장 깊은 곳(lstat: 깨진 링크도 '있음')의 실제 경로에 나머지를 붙인다(소문자·/).
+// 실제 경로를 못 구하면(깨진 링크) real은 null. st는 경로 자체가 있을 때 그 lstat
+function findPath(arg, cwd) {
+  let p = arg.replace(/\\/g, '/');
+  if (p === '~' || p.startsWith('~/')) p = HOME + p.slice(1);
+  p = p.replace(/^\/([a-z])\//i, '$1:/');
+  if (process.platform === 'win32' && /^\/tmp(?:\/|$)/i.test(p)) p = TMP + p.slice(4);
+  const abs = path.resolve(cwd || process.cwd(), p);
+  let q = abs;
+  let st = null;
+  for (;;) {
+    try {
+      st = fs.lstatSync(q);
+      break;
+    } catch {
+      if (path.dirname(q) === q) break;
+      q = path.dirname(q);
+    }
+  }
+  let real = null;
+  try {
+    real = (fs.realpathSync.native(q) + abs.slice(q.length)).replace(/\\/g, '/').toLowerCase();
+  } catch {}
+  return { abs: abs.replace(/\\/g, '/').toLowerCase(), real, st: q === abs ? st : null };
+}
+
+// 앞 명령에서 만든 링크(KI-02): 쓰기 대상이 이미 있는 하드링크 파일(링크 수 2 이상 — 다른 이름을 알 수 없다)이거나,
+// 링크를 지난 실제 경로가 보호 경로이면 막는다. 변수·와일드카드가 든 대상은 다른 검사가 본다. 임시 사본 예외는 실제 경로를 따로 본다
+function linkedTarget(arg, cwd) {
+  if (UNKNOWN_TARGET.test(arg) || GLOB.test(arg) || NULL_TARGET.test(arg) || !arg) return false;
+  const x = locate(arg, cwd);
+  if (x.st && x.st.isFile() && x.st.nlink > 1) return true;
+  if (!x.real) return true; // 깨진 링크
+  return x.real !== x.abs && !tempCopy(arg, cwd) && protectedTarget(x.real, cwd);
+}
+
+// 대상을 알 수 없는 인자: 변수·명령 치환, PowerShell 식((…), @(…)·@splat)
+const unknownArg = (a) => UNKNOWN_TARGET.test(a) || /^[(@]/.test(a);
+
+// 쓰기 대상이 보호 경로로 갈 수 있는지(직접 언급, 알 수 없는 값, 와일드카드를 펼친 결과, 링크)
 function riskyTarget(arg, cwd) {
+  if (linkedTarget(arg, cwd)) return true;
   if (tempCopy(arg, cwd)) return false;
-  if (mentionsProtected(arg) || UNKNOWN_TARGET.test(arg)) return true;
+  if (mentionsProtected(arg) || unknownArg(arg)) return true;
   // 상대 경로는 cwd 기준으로 풀어 본다(cwd가 .claude 안이면 wy-ops.json만 써도 보호 파일)
   if (!GLOB.test(arg) && !arg.startsWith('~') && mentionsProtected(path.resolve(cwd || process.cwd(), arg))) return true;
   if (!GLOB.test(arg)) return false;
@@ -339,7 +373,12 @@ function movesIntoProtected(command, cwd) {
     // 요청 폴더(requests/) 안으로의 이동은 통과(..로 거슬러 오르지 않을 때). 카드를 임시 이름으로 쓰고 rename하는 절차(0.8.0 오탐 수정)
     const into = (p) => (PROTECTED_DIR.test(p) && (up || !REQUESTS_PATH.test(p))) || (up && CLAUDE_SUBDIR.test(p));
     return args.some((a) => {
-      if (into(a.replace(/\\/g, '/').toLowerCase()) || into(normDir(a)) || UNKNOWN_TARGET.test(a)) return true;
+      if (into(a.replace(/\\/g, '/').toLowerCase()) || into(normDir(a)) || unknownArg(a)) return true;
+      // 링크를 지나 보호 폴더로 들어가는 이동(앞 명령에서 만든 링크)
+      if (!GLOB.test(a)) {
+        const x = locate(a, cwd);
+        if (!x.real || (x.real !== x.abs && into(x.real))) return true;
+      }
       if (!GLOB.test(a) && !a.startsWith('~') && into(normDir(path.resolve(cwd || process.cwd(), a)))) return true; // cwd 기준(.claude/jobs에서 cd ..)
       if (!GLOB.test(a)) return false;
       const hits = expandGlob(a, cwd);
@@ -348,34 +387,53 @@ function movesIntoProtected(command, cwd) {
   });
 }
 
+// $이름·${이름} 읽기 정규식(이름마다 한 번 만든다). env:은 PowerShell이라 대소문자를 가리지 않는다
+const VAR_READ = new Map();
+function varRead(name) {
+  if (!VAR_READ.has(name)) {
+    const n = name.replace(/[.*+?^${}()|[\]\\:]/g, '\\$&');
+    VAR_READ.set(name, new RegExp(`\\$\\{${n}\\}|\\$${n}(?![\\w:])`, name.startsWith('env:') ? 'gi' : 'g'));
+  }
+  return VAR_READ.get(name);
+}
+// 임시 폴더 변수 이름이 $로 읽는 것 말고 나오는 곳(+=·printf -v·eval 등)
+const TEMP_NAME_USE = /(?<![$\w{:])(TEMP|TMP|TMPDIR)\b|\$\{?(TEMP|TMP|TMPDIR)\}?\s*[^\s\w]?=(?!=)/g;
+// PowerShell Join-Path(위치 인자 둘, 또는 -Path·-ChildPath). 대입($S = Join-Path …)은 그 문장이 거기서 끝날 때만, 식((Join-Path …))은 인자 하나일 때만
+const JOIN_ASSIGN = /(?:^|[;\n]\s*)\$([A-Za-z_]\w*)\s*=\s*(?:\(\s*Join-Path\s+([^;&|\n()]*)\)|Join-Path\s+([^;&|\n()]*?))\s*(?=$|[;\n])/gi;
+const JOIN_EXPR = /(?<=^|[\s;])\(\s*Join-Path\s+([^;&|\n()]*)\)(?=$|[\s;])/gi;
+
 // 같은 명령 안에서 글자 그대로 정한 변수(S=/tmp/x, export S="…", $S = '…')와 홈 변수($HOME·${HOME}·$USERPROFILE·$env:USERPROFILE)를
 // 값으로 바꾼다. 알 수 없는 대상으로 보던 오탐(S=/tmp/x; rm -rf $S)을 줄이고, 보호 경로를 변수에 담은 우회는 값이 드러나 잡힌다
 // 임시 폴더 변수($TEMP·$TMP·$TMPDIR·$env:TEMP·$env:TMP)도 값으로 바꾼다(KI-02: 사본 폴더로 이동·복사). 명령에서 다시 정하면 알 수 없는 값으로 둔다.
 // 큰따옴표 값 안의 변수는 아는 값으로 풀고, 풀리지 않는 $가 남으면 알 수 없는 값으로 둔다($S="$env:TEMP\c1")
+// Join-Path의 인자가 모두 아는 값이면 이어 붙인 경로로 본다($S = Join-Path $env:TEMP c1, KI-02). S=$(mktemp -d)는 임시 폴더 안 새 폴더로 본다
 function resolveVars(command) {
-  const home = os.homedir().replace(/\\/g, '/');
-  const tmp = os.tmpdir().replace(/\\/g, '/');
-  const vars = new Map([['HOME', home], ['USERPROFILE', home], ['env:USERPROFILE', home], ['TEMP', tmp], ['TMP', tmp], ['TMPDIR', tmp], ['env:TEMP', tmp], ['env:TMP', tmp]]);
+  const vars = new Map([['HOME', HOME], ['USERPROFILE', HOME], ['env:USERPROFILE', HOME], ['TEMP', TMP], ['TMP', TMP], ['TMPDIR', TMP], ['env:TEMP', TMP], ['env:TMP', TMP]]);
   const unq = (v) => v.replace(/^(["'])(.*)\1$/, '$2');
   // 값을 다시 정할 수 있는 변수(read·for·mapfile·getopts, 명령 치환 대입, 서로 다른 값 두 번)는 바꾸지 않는다 → 알 수 없는 대상으로 남는다
   const unsafe = new Set();
   for (const m of command.matchAll(/\b(?:read|mapfile|readarray)\b((?:\s+-\S+(?:\s+\S+)?)*)((?:\s+[A-Za-z_]\w*)+)/g)) for (const n of m[2].trim().split(/\s+/)) unsafe.add(n);
   for (const m of command.matchAll(/\b(?:for|select)\s+([A-Za-z_]\w*)\s+in\b|\bgetopts\s+\S+\s+([A-Za-z_]\w*)|\bforeach\s*\(\s*\$([A-Za-z_]\w*)/gi)) unsafe.add(m[1] || m[2] || m[3]);
-  for (const m of command.matchAll(/(?:^|[;&|\n(\s])(?:export\s+|local\s+|declare\s+)?\$?([A-Za-z_]\w*)\s*\+?=\s*(?=[$`(])/g)) unsafe.add(m[1]);
-  const set = (n, v) => (vars.has(n) && !['HOME', 'USERPROFILE', 'env:USERPROFILE'].includes(n) && vars.get(n) !== v ? unsafe.add(n) : vars.set(n, v));
+  // 명령 치환 대입은 모르는 값. 단 S=$(mktemp -d)와 $S = (Join-Path …)는 아래에서 따로 본다
+  // (Join-Path …) 대입은 그 문장 전체가 JOIN_ASSIGN에 맞을 때만 뺀다(뒤에 + … 등이 붙으면 모르는 값)
+  const joins = [...command.matchAll(JOIN_ASSIGN)];
+  for (const m of command.matchAll(/(?:^|[;&|\n(\s])(?:export\s+|local\s+|declare\s+)?\$?([A-Za-z_]\w*)\s*\+?=\s*(?=[$`(])(?!\$\(mktemp -d\)(?:$|[\s;&|]))/g)) {
+    const end = m.index + m[0].length;
+    if (!joins.some((j) => j[1] === m[1] && j.index <= end && end < j.index + j[0].length)) unsafe.add(m[1]);
+  }
+  // PowerShell 변수 이름은 대소문자를 가리지 않는다($S·$s). 대소문자만 다른 이름이 둘 이상이면 모두 모르는 값으로 둔다
+  const set = (n, v) => {
+    for (const k of vars.keys()) if (k !== n && k.toLowerCase() === n.toLowerCase()) unsafe.add(k).add(n);
+    return vars.has(n) && !['HOME', 'USERPROFILE', 'env:USERPROFILE'].includes(n) && vars.get(n) !== v ? unsafe.add(n) : vars.set(n, v);
+  };
   // PowerShell 환경 변수를 명령에서 바꾸면($env:TEMP = …, Set-Item env:…, SetEnvironmentVariable) 그 값은 모른다
   const envNames = [...vars.keys()].filter((n) => n.startsWith('env:'));
   // 임시 폴더 값은 틀리면 '안전' 쪽으로 틀리므로, $로 읽는 것 말고 이름이 나오면(+=·printf -v·eval·'env:TEMP' 등) 모른다고 본다
   for (const m of command.matchAll(/\$env:(\w+)\s*[^\s\w]?=(?!=)|(?<![$\w])env:(\w+)/gi)) for (const n of envNames) if (n.toLowerCase() === `env:${m[1] || m[2]}`.toLowerCase()) unsafe.add(n);
-  for (const n of ['TEMP', 'TMP', 'TMPDIR']) if (new RegExp(`(?<![$\\w{:])${n}\\b|\\$\\{?${n}\\}?\\s*[^\\s\\w]?=(?!=)`).test(command)) unsafe.add(n);
+  for (const m of command.matchAll(TEMP_NAME_USE)) unsafe.add(m[1] || m[2]);
   if (/SetEnvironmentVariable|\b(?:set-item|new-item|si|ni)\s+(?:-\w+\s+)*['"]?env:/i.test(command)) for (const n of envNames) unsafe.add(n);
-  // env:은 PowerShell이라 대소문자를 가리지 않는다
   const subst = (s) => {
-    for (const [name, value] of vars) {
-      if (unsafe.has(name)) continue;
-      const n = name.replace(/[.*+?^${}()|[\]\\:]/g, '\\$&');
-      s = s.replace(new RegExp(`\\$\\{${n}\\}|\\$${n}(?![\\w:])`, name.startsWith('env:') ? 'gi' : 'g'), () => value);
-    }
+    for (const [name, value] of vars) if (!unsafe.has(name) && s.includes('$')) s = s.replace(varRead(name), () => value);
     return s;
   };
   const setQuoted = (n, raw) => {
@@ -385,8 +443,27 @@ function resolveVars(command) {
   };
   for (const m of command.matchAll(/(?:^|[;&|\n(]\s*)(?:export\s+|local\s+|declare\s+)?([A-Za-z_]\w*)=("[^"`]*"|'[^']*'|[^\s;&|$`'"()]+)/g)) setQuoted(m[1], m[2]);
   for (const m of command.matchAll(/(?:^|[;&|\n]\s*)\$([A-Za-z_]\w*)\s*=\s*("[^"`]*"|'[^']*')/g)) setQuoted(m[1], m[2]);
-  for (const n of unsafe) vars.delete(n);
-  return subst(command);
+  // mktemp -d는 $TMPDIR(없으면 /tmp) 아래 새 폴더를 만든다. TMPDIR·PATH를 바꾸거나 mktemp를 함수·별칭으로 다시 정하는 명령이면 모른다
+  const fakeMktemp = unsafe.has('TMPDIR') || /\bPATH\s*\+?=|\b(?:function|alias)\s+mktemp\b|\bmktemp\s*\(\)/.test(command);
+  for (const m of command.matchAll(/(?:^|[;&|\n(]\s*)(?:export\s+|local\s+)?([A-Za-z_]\w*)=\$\(mktemp -d\)(?=$|[\s;&|])/g)) (fakeMktemp ? unsafe.add(m[1]) : set(m[1], `${TMP}/wy-mktemp-0`));
+  // Join-Path 인자: 작은따옴표는 글자 그대로, 나머지는 아는 변수를 푼다. 풀리지 않는 값·식·배열(,)이면 null
+  const joinPath = (args) => {
+    const t = args.trim().match(/"[^"]*"|'[^']*'|\S+/g) || [];
+    const named = t.length === 4 && /^-path$/i.test(t[0]) && /^-childpath$/i.test(t[2]);
+    if (!(named || (t.length === 2 && !t.some((a) => a.startsWith('-'))))) return null;
+    const v = (named ? [t[1], t[3]] : t).map((a) => (a.startsWith("'") ? unq(a) : subst(unq(a))));
+    if (v.some((a) => !a || /[$`(),;{}@'"]/.test(a))) return null;
+    return `${v[0].replace(/[\\/]+$/, '')}/${v[1].replace(/^[\\/]+/, '')}`;
+  };
+  for (const m of joins) {
+    const v = joinPath(m[2] !== undefined ? m[2] : m[3]);
+    if (v === null) unsafe.add(m[1]);
+    else set(m[1], v);
+  }
+  // 대소문자만 다른 이름도 함께 지운다(PowerShell)
+  const unknown = new Set([...unsafe].map((n) => n.toLowerCase()));
+  for (const n of [...vars.keys()]) if (unknown.has(n.toLowerCase())) vars.delete(n);
+  return subst(command.replace(JOIN_EXPR, (all, a) => joinPath(a) || all));
 }
 
 // ── 0.8.0 오탐 수정: here-doc 본문과 코드의 쓰기 대상 ──────────────────────────────
@@ -717,6 +794,7 @@ function codeWritesProtected(code, cwd, strict = true) {
 //    다른 파일에 쓰는 것은 통과(커밋 메시지 본문에 보호 파일 이름이 들어 있는 경우 등)
 //  - 인터프리터는 코드가 읽기 API만 쓸 때만 통과시키고, 판단할 수 없으면 막는다
 function writesApprovalFiles(command, cwd) {
+  decisionMemo.clear(); // 판단 사이에 파일 상태가 바뀔 수 있다
   command = dataHereStrings(neutralizeReadOnlyCli(resolveVars(command)));
   // 보호 폴더로 cd 등을 했으면 그 뒤의 모든 쓰기(상대 경로)를 보호 경로 쓰기로 본다
   const moved = movesIntoProtected(command, cwd);
@@ -775,12 +853,13 @@ function writesApprovalFiles(command, cwd) {
     const targets = CONTENT_WRITERS.has(prog) && !/@['"]\s*\n/.test(seg) ? contentArgs(rest).target : COPIERS.has(prog) ? copyTarget(prog, rest) : null;
     // riskyTarget은 임시 사본을 빼고 본다. 조각 전체 언급은 임시 사본 토큰이 있을 때만 그 토큰을 뺀 나머지로 본다
     const notTemp = (list) => list.filter((a) => !tempCopy(a, cwd));
-    const risky = moved || (targets ? targets.some((a) => riskyTarget(a, cwd)) || mentionsProtected(notTemp(targets).join(' ')) : rest.some((a) => riskyTarget(a, cwd)) || mentionsProtected(!COPIERS.has(prog) && rest.some((a) => tempCopy(a, cwd)) ? notTemp(rest).join(' ') : seg));
-    if (WRITERS.has(prog) && risky) return true;
+    // 쓰기 프로그램·find에서만 쓰므로 그때 계산한다(대상마다 파일 시스템을 본다)
+    const risky = () => moved || (targets ? targets.some((a) => riskyTarget(a, cwd)) || mentionsProtected(notTemp(targets).join(' ')) : rest.some((a) => riskyTarget(a, cwd)) || mentionsProtected(!COPIERS.has(prog) && rest.some((a) => tempCopy(a, cwd)) ? notTemp(rest).join(' ') : seg));
+    if (WRITERS.has(prog) && risky()) return true;
     // 문자열을 코드로 실행(파이프로 받는 iex): 실행할 코드가 앞 조각에 있으므로 명령 어디든 보호 이름이 나오면 막는다
     if ((prog === 'iex' || prog === 'invoke-expression') && (mentioned || named)) return true;
     if (prog === 'sed' && rest.some((a) => a.startsWith('-i') || a.startsWith('--in-place')) && (moved || mentionsProtected(seg) || sedFiles(rest).some((a) => riskyTarget(a, cwd)))) return true;
-    if (prog === 'find' && risky && rest.some((a) => ['-delete', '-exec', '-execdir', '-ok'].includes(a))) return true;
+    if (prog === 'find' && rest.some((a) => ['-delete', '-exec', '-execdir', '-ok'].includes(a)) && risky()) return true;
     if (CODE_INTERPRETERS.has(prog) && (sensitive || named || rest.some(unknownGlob))) {
       // node·python 등은 쓰기 호출의 대상을 풀어 본다(다른 파일에 쓰면서 내용에 보호 경로 이름이 든 코드는 통과, 0.8.0).
       // 보호 폴더 이름만 나와도(path.join(…, 'wy-approvals', …, 'decisions')처럼 경로가 조각난 경우) 대상을 본다

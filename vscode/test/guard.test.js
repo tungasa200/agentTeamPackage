@@ -23,6 +23,16 @@ const tmpLink = path.join(os.tmpdir(), `wy-guard-link-${process.pid}`);
 const tmpLinkCwd = path.join(os.tmpdir(), `wy-guard-linkcwd-${process.pid}`);
 fs.symlinkSync(path.resolve(__dirname, '..', '..'), tmpLink, 'junction');
 fs.symlinkSync(proj, tmpLinkCwd, 'junction');
+// 앞 명령에서 만든 것으로 치는 링크(KI-02 2차): 하드링크 파일, 대상이 사라진 링크, 보호 폴더(.claude)로 가는 링크
+fs.writeFileSync(path.join(proj, 'h1.txt'), '');
+fs.linkSync(path.join(proj, 'h1.txt'), path.join(proj, 'h2.txt'));
+const gone = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-guard-gone-'));
+const brokenLink = path.join(proj, 'broken');
+fs.symlinkSync(gone, brokenLink, 'junction');
+fs.rmSync(gone, { recursive: true, force: true });
+const claudeLink = path.join(os.tmpdir(), `wy-guard-claudelink-${process.pid}`);
+fs.symlinkSync(path.join(proj, '.claude'), claudeLink, 'junction');
+const fwd = (p) => p.replace(/\\/g, '/');
 
 const deny = [
   // 보호 경로에 직접 쓰기
@@ -215,8 +225,19 @@ const deny = [
   `ln -s ~/.cl''aude /tmp/h`,
   'ln -s ~/.cla?de /tmp/h',
   `node -e "require('fs').symlinkSync('C:/proj','/tmp/h')" && cp e.json /tmp/h/.claude/wy-ops.json`,
-  `cp e.json ${tmpLink.replace(/\\/g, '/')}/.claude/wy-ops.json`,
-  `cp e.json ${tmpLinkCwd.replace(/\\/g, '/')}/.claude/wy-ops.json`,
+  `cp e.json ${fwd(tmpLink)}/.claude/wy-ops.json`,
+  `cp e.json ${fwd(tmpLinkCwd)}/.claude/wy-ops.json`,
+  // KI-02 2차: 이미 있는 하드링크·깨진 링크·링크를 지나 보호 폴더로 가는 쓰기, Join-Path가 보호 경로를 만드는 경우, PowerShell 식 인자
+  'cat .claude/wy-ops.json > h2.txt',
+  'cp .claude/wy-ops.json broken/x.json',
+  `cat .claude/wy-ops.json > ${fwd(claudeLink)}/settings.local.json`,
+  `cd ${fwd(claudeLink)} && echo {} > x.json && cat ../.claude/wy-ops.json`,
+  '$S = Join-Path $HOME .claude/wy-ops.json; Set-Content $S 1',
+  '$S = Join-Path $X c1; Set-Content $S/wy-ops.json 1',
+  'Copy-Item .claude/wy-ops.json (Get-Item x)',
+  W`$S = "$env:TEMP\c1"; $S = (Join-Path $HOME '.claude') + '\wy-ops.json'; Set-Content $S 1`,
+  `$S = Join-Path $env:TEMP c1; $s = '~/.claude'; Set-Content $S/wy-ops.json 1`,
+  'mktemp() { echo ~/.claude; }; S=$(mktemp -d); cp x $S/wy-ops.json',
 ];
 const allow = [
   // 읽기
@@ -331,6 +352,13 @@ const allow = [
   `mkdir -p /tmp/k && cat > /tmp/k/try.js <<'EOF'${NL}const c = ['cp .claude/wy-ops.json $S/x', 'rm ~/.claude/wy-approvals/a/decisions/x'];${NL}console.log(c.length);${NL}EOF${NL}node /tmp/k/try.js`,
   `node -e "const fs=require('fs');const d=require('os').homedir()+'/.claude/wy-approvals/my-project/requests/';fs.renameSync(d+'20261013-guard-rename.json.part',d+'20261013-guard-rename.json')"`,
   'Remove-Item ~/.claude/wy-approvals/my-project/requests/20261014-a.json',
+  // KI-02 2차: Join-Path·mktemp로 만든 임시 사본 경로, 하드링크가 아닌 파일에 쓰기
+  '$S = Join-Path $env:TEMP c1; Set-Location $S; node gen-agents.test.js',
+  '$S = Join-Path $env:TEMP "c1"; Copy-Item .claude/wy-ops.json (Join-Path $S .claude/wy-ops.json)',
+  "$S = Join-Path -Path $env:TEMP -ChildPath 'c1'; Remove-Item -Recurse -Force $S; New-Item -ItemType Directory $S",
+  'S=$(mktemp -d); git archive HEAD | tar -x -C $S; cp .claude/wy-ops.json $S/.claude/wy-ops.json',
+  'cat .claude/wy-ops.json > h3.txt',
+  '$S = (Join-Path $env:TEMP c1); Copy-Item .claude/wy-ops.json $S/.claude/wy-ops.json',
 ];
 for (const c of deny) { const e = ev(c); ok(e && e.decision === 'deny', 'should deny: ' + c); }
 // 설정에 commitRole이 없으면 기본 이름 없이 잠금 대상은 모두 거부(커밋 역할 이름으로 띄운 세션도)
@@ -378,7 +406,7 @@ ok(writesApprovalFiles('ls') === false, 'unrelated passes');
   ok(noteAgentType({ session_id: '../x' }, root) === null, '이상한 id는 쓰지 않음');
   fs.rmSync(root, { recursive: true, force: true });
 }
-for (const l of [tmpLink, tmpLinkCwd]) fs.unlinkSync(l);
+for (const l of [tmpLink, tmpLinkCwd, claudeLink, brokenLink]) fs.unlinkSync(l);
 fs.rmSync(proj, { recursive: true, force: true });
 fs.rmSync(process.env.WY_APPROVALS_DIR, { recursive: true, force: true });
 console.log(fail ? `${fail} FAILED` : `guard 검사 통과 (거부 ${deny.length}, 통과 ${allow.length})`);
