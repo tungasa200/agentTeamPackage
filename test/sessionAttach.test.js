@@ -17,6 +17,7 @@ try {
   fs.writeFileSync(path.join(tmp, 'repo', '.claude', 'wy-ops.json'), JSON.stringify({
     rolePrefix: 'AB-', pmRole: 'AB-pm', commitRole: 'AB-commit',
     roles: [{ name: 'AB-commit', agent: true }, { name: 'AB-pm', agent: false }, { name: 'AB-qa', agent: true }],
+    worktree: { enabled: false }, // 임시 저장소는 git이 아님. worktree는 sessionWorktree.test.js가 본다
   }));
   // 가짜 claude: agents --json --all이면 목록, attach면 받은 id를 출력
   const bin = path.join(tmp, 'bin');
