@@ -32,6 +32,9 @@ fs.symlinkSync(gone, brokenLink, 'junction');
 fs.rmSync(gone, { recursive: true, force: true });
 const claudeLink = path.join(os.tmpdir(), `wy-guard-claudelink-${process.pid}`);
 fs.symlinkSync(path.join(proj, '.claude'), claudeLink, 'junction');
+// KI-08: 승인 결정 폴더로 가는 링크(보호 이름 없이 쓰기)
+const decLink = path.join(os.tmpdir(), `wy-guard-declink-${process.pid}`);
+fs.symlinkSync(path.join(proj, 'h', '.claude', 'wy-approvals', 'my-project', 'decisions'), decLink, 'junction');
 const fwd = (p) => p.replace(/\\/g, '/');
 
 const deny = [
@@ -237,6 +240,51 @@ const deny = [
   W`$S = "$env:TEMP\c1"; $S = (Join-Path $HOME '.claude') + '\wy-ops.json'; Set-Content $S 1`,
   `$S = Join-Path $env:TEMP c1; $s = '~/.claude'; Set-Content $S/wy-ops.json 1`,
   'mktemp() { echo ~/.claude; }; S=$(mktemp -d); cp x $S/wy-ops.json',
+  // KI-08: 글자 목록 반복 변수, .claude 아래 모르는 값, 앞 명령에서 만든 링크(보호 이름 없이)
+  'for f in wy-ops.json; do cp x .claude/$f; done',
+  'for f in ~/.claude/wy-ops.json; do cp x $f; done',
+  'for f in a.json wy-ops.json; do cp x ".claude/${f}"; done',
+  'D=/tmp/c1; for f in wy-ops.json; do f=~/.claude/wy-ops.json; cp x $f; done',
+  'cp x .claude/$f; for f in a; do echo $f; done',
+  'for f in $(ls); do cp x ~/.claude/$f; done',
+  'cp x ~/.claude/$f',
+  'cp x ~/.claude/wy-$n',
+  `echo {} > ${fwd(decLink)}/a.json`,
+  `cp x.json ${fwd(decLink)}/a.json`,
+  `Set-Content ${fwd(decLink)}/a.json 1`,
+  'mktemp() { echo ~/.claude; }; cd "$(mktemp -d)" && echo {} > wy-ops.json',
+  'cat ~/.wy-tools/x/package.json | node',
+  'cat ~/.wy-tools/x/install.ps1 > ~/.wy-tools/x/b.ps1',
+  // KI-08 점검에서 찾은 퇴행: 읽기 조각 뒤의 .NET 쓰기·하위 셸, 반복 변수 재정의, cd·pushd 재정의, rg --pre
+  "cat ~/.claude/wy-ops.json; [IO.File]::WriteAllText($p, 'x')",
+  'cat ~/.claude/wy-ops.json; bash -c "$x"',
+  'cat ~/.claude/wy-ops.json; powershell -c "$x"',
+  'for f in a.json; do unset f; cp x ~/.claude/$f; done',
+  "foreach ($f in 'a.json') { ${f} = 'wy-ops.json'; Copy-Item x .claude/$f }",
+  'for f in a.json; do : ${f:=x}; cp x ~/.claude/$f; done',
+  "foreach ($f in 'a.json') { $f, $g = 'wy-ops.json', 1; Copy-Item x .claude/$f }",
+  "foreach ($f in 'a.json') { Remove-Variable f; Copy-Item x .claude/$f }",
+  "foreach ($f in 'a.json') { Set-Item variable:f 'wy-ops.json'; Copy-Item x .claude/$f }",
+  "foreach ($f in 'a.json') { Set-It ([ref]$f); Copy-Item x .claude/$f }",
+  'cd() { builtin cd ~/.claude; }; cd "$(mktemp -d)" && echo {} > wy-ops.json',
+  "alias cd='cd ~/.claude'; cd \"$(mktemp -d)\" && echo {} > wy-ops.json",
+  'pushd() { builtin cd ~/.claude; }; pushd "$(mktemp -d)" && echo {} > wy-ops.json',
+  'rg --pre ./w.sh x ~/.claude/wy-ops.json && node a.js',
+  // 반복 헤더가 실행 자리가 아님(따옴표·here-doc·단락 조건·함수·if 안), 이름을 변수에 담은 대입, source·. 로 불러온 파일
+  'cat ~/.claude/wy-ops.json; echo "for f in a.json; do"; cp x $f',
+  'cat ~/.claude/wy-ops.json; cat <<E\nfor f in a.json; do\nE\ncp x $f',
+  'cat ~/.claude/wy-ops.json; false && for f in a.json; do :; done; cp x $f',
+  'cat ~/.claude/wy-ops.json; g() { for f in a.json; do :; done; }; cp x $f',
+  'if false; then for f in a.json; do :; done; fi; cp x ~/.claude/$f',
+  "function g { foreach ($f in 'a.json') { } }; Copy-Item x .claude/$f",
+  "v=$(printf '\\x66'); for f in a.json; do printf -v \"$v\" %s wy-ops.json; cp x ~/.claude/$f; done",
+  "v=$(printf '\\x66'); for f in a.json; do read \"$v\" <<< wy-ops.json; cp x ~/.claude/$f; done",
+  "v=$(printf '\\x66'); for f in a.json; do declare \"$v=wy-ops.json\"; cp x ~/.claude/$f; done",
+  "$v = [string][char]102; foreach ($f in 'a.json') { Set-Variable -Name $v -Value 'wy-ops.json'; Copy-Item x .claude/$f }",
+  '. ./r.sh; cd "$(mktemp -d)" && echo {} > wy-ops.json',
+  'source ./r.sh; cd "$(mktemp -d)" && echo {} > wy-ops.json',
+  'cat ~/.claude/wy-ops.json; for f in a.json; do source ./r.sh; cp x $f; done',
+  "foreach ($f in 'a.json') { . ./r.ps1; Copy-Item x .claude/$f }",
 ];
 const allow = [
   // 읽기
@@ -358,6 +406,12 @@ const allow = [
   'S=$(mktemp -d); git archive HEAD | tar -x -C $S; cp .claude/wy-ops.json $S/.claude/wy-ops.json',
   'cat .claude/wy-ops.json > h3.txt',
   '$S = (Join-Path $env:TEMP c1); Copy-Item .claude/wy-ops.json $S/.claude/wy-ops.json',
+  // KI-08: 설치본 경로 변수·읽기와 node 실행을 한 명령에
+  W`$i = "$HOME\.wy-tools\wy-ops\current\install.ps1"; & $i doctor`,
+  'cd /tmp/x && node a.js; ls ~/.wy-tools/wy-ops/current/vscode/hooks/',
+  'node a.js && cat ~/.wy-tools/wy-ops/current/package.json',
+  'node a.js; cat ~/.wy-tools/wy-ops/current/package.json | jq .version',
+  `echo {} > ${fwd(tmpLinkCwd)}/src/b.log`,
 ];
 // 저장소 링크 쓰기: 저장소가 임시 폴더 밖이면 거부, 저장소 자체가 임시 사본(git archive 등)이면 임시 사본 예외로 통과
 const repoRel = path.relative(fs.realpathSync.native(os.tmpdir()), fs.realpathSync.native(path.resolve(__dirname, '..', '..')));
@@ -409,7 +463,7 @@ ok(writesApprovalFiles('ls') === false, 'unrelated passes');
   ok(noteAgentType({ session_id: '../x' }, root) === null, '이상한 id는 쓰지 않음');
   fs.rmSync(root, { recursive: true, force: true });
 }
-for (const l of [tmpLink, tmpLinkCwd, claudeLink, brokenLink]) fs.unlinkSync(l);
+for (const l of [tmpLink, tmpLinkCwd, claudeLink, brokenLink, decLink]) fs.unlinkSync(l);
 fs.rmSync(proj, { recursive: true, force: true });
 fs.rmSync(process.env.WY_APPROVALS_DIR, { recursive: true, force: true });
 console.log(fail ? `${fail} FAILED` : `guard 검사 통과 (거부 ${deny.length}, 통과 ${allow.length})`);
