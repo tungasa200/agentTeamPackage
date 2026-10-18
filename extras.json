@@ -54,14 +54,6 @@
       "install": [["py", "-3", "-m", "pipx", "install", "graphifyy"], ["~/.local/bin/graphify.exe", "install", "--platform", "windows"]],
       "requiredFor": [], "default": true
     },
-    {
-      "id": "headroom", "kind": "mcp", "label": "headroom MCP (컨텍스트 압축)",
-      "source": "PyPI headroom-ai",
-      "needs": ["pipx"],
-      "check": [{ "mcp": "headroom" }],
-      "install": [["py", "-3", "-m", "pipx", "install", "headroom-ai"], ["~/.local/bin/headroom.exe", "mcp", "install", "--agent", "claude"]],
-      "requiredFor": [], "default": true
-    },
     { "id": "impeccable", "kind": "plugin", "label": "플러그인 impeccable (화면 점검)", "plugin": "impeccable@impeccable", "requiredFor": ["frontend", "design"], "default": true },
     { "id": "claude-mem", "kind": "plugin", "label": "플러그인 claude-mem (대화 기억 검색)", "plugin": "claude-mem@thedotmack", "requiredFor": [], "default": false },
     { "id": "prompts.chat", "kind": "plugin", "label": "플러그인 prompts.chat (프롬프트 모음)", "plugin": "prompts.chat@prompts.chat", "requiredFor": [], "default": false }

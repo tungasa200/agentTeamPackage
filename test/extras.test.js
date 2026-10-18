@@ -25,7 +25,7 @@ for (const it of items) {
   for (const g of it.requiredFor) assert.ok(GROUPS.has(g), `${it.id}: 모르는 그룹 ${g}`);
   for (const n of it.needs || []) assert.ok(ids.indexOf(n) >= 0 && ids.indexOf(n) < ids.indexOf(it.id), `${it.id}: needs ${n}은 앞에 있어야 함`);
 }
-for (const id of ['agent-browser', 'agent-browser-mcp', 'agent-reach', 'find-skills', 'graphify', 'headroom', 'claude-mem', 'prompts.chat']) assert.ok(ids.includes(id), `항목 ${id}`);
+for (const id of ['agent-browser', 'agent-browser-mcp', 'agent-reach', 'find-skills', 'graphify', 'claude-mem', 'prompts.chat']) assert.ok(ids.includes(id), `항목 ${id}`);
 assert.throws(() => plan({ items: [{ id: 'a', needs: ['zz'], requiredFor: [], check: [], install: [] }] }), /needs zz/);
 
 // 2. plan
@@ -33,17 +33,18 @@ const opsOf = (...gs) => ({ roles: gs.map((g) => ({ name: `AB-${g}`, group: g })
 const by = (p) => Object.fromEntries(p.map((e) => [e.id, e]));
 let p = by(plan({ ops: opsOf('pm', 'commit', 'backend') }));
 assert.ok(!ids.includes('ecc'), 'ecc는 뺌(TOK-4, D-25 뒤 전역 삭제)');
+assert.ok(!ids.includes('headroom'), 'headroom은 뺌(D-29)');
 assert.ok(!p['claude-mem'].on && !p['prompts.chat'].on, 'claude-mem·prompts.chat 기본 꺼짐');
 assert.ok(!p['agent-browser'].required && p['agent-browser'].on, 'qa·design·browser 없으면 선택이지만 기본 켜짐');
 p = by(plan({ ops: { ...opsOf('qa'), extras: { off: ['agent-browser', 'claude-mem'] } } }));
 assert.ok(p['agent-browser'].required && p['agent-browser'].on, 'qa가 있으면 agent-browser는 끌 수 없음');
 assert.ok(!p['claude-mem'].on && !p['claude-mem'].required, 'ops.extras.off로 끔');
-p = by(plan({ ops: opsOf('backend'), off: ['pipx', 'python', 'agent-reach', 'graphify'] }));
-assert.ok(!p['agent-reach'].on && !p.graphify.on);
-assert.ok(p.pipx.on && p.python.on, 'headroom이 켜져 있으면 pipx·python도 켬');
-assert.deepStrictEqual(p.pipx.forcedBy, ['headroom']);
+p = by(plan({ ops: opsOf('backend'), off: ['pipx', 'python', 'graphify'] }));
+assert.ok(!p.graphify.on);
+assert.ok(p.pipx.on && p.python.on, 'agent-reach가 켜져 있으면 pipx·python도 켬');
+assert.deepStrictEqual(p.pipx.forcedBy, ['agent-reach']);
 assert.deepStrictEqual(p.python.forcedBy, ['pipx']);
-p = by(plan({ ops: opsOf('backend'), off: ['pipx', 'python', 'agent-reach', 'graphify', 'headroom'] }));
+p = by(plan({ ops: opsOf('backend'), off: ['pipx', 'python', 'agent-reach', 'graphify'] }));
 assert.ok(!p.pipx.on && !p.python.on, 'pipx를 부르는 것이 모두 꺼지면 pipx·python도 끔');
 
 // 3. check·install(가짜 run, 가짜 홈)
@@ -51,7 +52,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-extras-'));
 try {
   fs.mkdirSync(path.join(home, '.claude', 'skills', 'find-skills'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'skills', 'find-skills', 'SKILL.md'), '');
-  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { headroom: { command: 'x' } }, projects: { [home]: { mcpServers: { 'agent-browser': { command: 'agent-browser', args: ['mcp'] } } } } }));
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ projects: { [home]: { mcpServers: { 'agent-browser': { command: 'agent-browser', args: ['mcp'] } } } } }));
   const calls = [];
   const have = new Set(['py -3 --version', 'py -3 -m pipx --version']);
   const failing = new Set();
@@ -67,7 +68,6 @@ try {
   const st = Object.fromEntries(check({ run, home, plan: plan({ ops: opsOf('backend'), off: ['claude-mem'] }) }).map((r) => [r.id, r]));
   assert.strictEqual(st.python.state, 'ok');
   assert.strictEqual(st['find-skills'].state, 'ok', 'path 점검');
-  assert.strictEqual(st.headroom.state, 'ok', 'mcp 점검');
   assert.strictEqual(st['prompts.chat'].state, 'off', 'prompts.chat은 기본 꺼짐');
   assert.strictEqual(st.impeccable.state, 'missing', 'projectEnabled false·설정에 없음 → 끔(표준)이 아님');
   assert.match(st.impeccable.detail, /꺼져 있음/);
@@ -118,7 +118,8 @@ try {
   assert.strictEqual(res['agent-browser-mcp'].state, 'installed');
   assert.ok(calls.includes('claude mcp add --scope user agent-browser -- agent-browser mcp'));
   assert.ok(!calls.some((c) => /npm install|agent-browser install/.test(c)), 'MCP만 없을 때 재설치 안 함');
-  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { headroom: {}, 'agent-browser': {} } }));
+  fs.writeFileSync(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { 'agent-browser': {} } }));
+  assert.strictEqual(check({ run, home }).find((r) => r.id === 'agent-browser-mcp').state, 'ok', 'mcp 점검(사용자 범위)');
   calls.length = 0;
   res = Object.fromEntries(install(['agent-browser-mcp'], { run, home }).map((r) => [r.id, r]));
   assert.strictEqual(res['agent-browser-mcp'].state, 'ok', '이미 등록돼 있으면 건너뜀');
@@ -128,13 +129,18 @@ try {
   calls.length = 0;
   have.clear();
   failing.add('winget');
-  res = Object.fromEntries(install(plan({ ops: opsOf('backend'), off: ['agent-reach', 'graphify', 'headroom', 'find-skills', 'agent-browser', 'agent-browser-mcp', 'ecc', 'impeccable', 'prompts.chat'] }), { run, home }).map((r) => [r.id, r]));
+  res = Object.fromEntries(install(plan({ ops: opsOf('backend'), off: ['agent-reach', 'graphify', 'find-skills', 'agent-browser', 'agent-browser-mcp', 'ecc', 'impeccable', 'prompts.chat'] }), { run, home }).map((r) => [r.id, r]));
   assert.ok(!('pipx' in res) && !('python' in res), '부르는 항목이 없으면 python·pipx도 설치 안 함');
-  res = Object.fromEntries(install(['python', 'pipx', 'headroom'], { run, home }).map((r) => [r.id, r]));
+  fs.mkdirSync(path.join(home, '.claude', 'skills', 'agent-reach'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'skills', 'agent-reach', 'SKILL.md'), '');
+  calls.length = 0;
+  res = Object.fromEntries(install(['python', 'pipx', 'agent-reach', 'graphify'], { run, home }).map((r) => [r.id, r]));
   assert.strictEqual(res.python.state, 'failed');
   assert.match(res.python.error, /winget install .*: last line/);
   assert.strictEqual(res.pipx.state, 'skipped');
-  assert.strictEqual(res.headroom.state, 'ok', 'headroom은 MCP가 이미 등록돼 있음');
+  assert.strictEqual(res['agent-reach'].state, 'ok', 'agent-reach는 이미 있음(needs 실패와 무관)');
+  assert.strictEqual(res.graphify.state, 'skipped', 'needs(pipx) 실패로 건너뜀');
+  assert.ok(!calls.some((c) => /pipx install/.test(c)), '건너뛴 항목은 설치 명령을 부르지 않음');
 } finally {
   rmTree(home);
 }
