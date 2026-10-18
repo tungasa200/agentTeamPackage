@@ -73,6 +73,10 @@ function makePc(name, { home: homeName = 'home' } = {}) {
     const ok = (stdout = '') => ({ status: 0, stdout });
     if (cmd === 'git' && args[0] === '--version') return ok('git version 2.50.0\n');
     if (cmd === 'git' && args.includes('rev-parse')) return ok(HEAD + '\n');
+    // 역할 worktree 점검(S4): 기본은 본 워킹트리만 있고 깨끗함
+    if (cmd === 'git' && args.includes('worktree')) return state.wtList === null ? { status: 128, stdout: '' } : ok(state.wtList || `worktree ${repo.replace(/\\/g, '/')}\nHEAD ${HEAD}\nbranch refs/heads/main\n\n`);
+    if (cmd === 'git' && args.includes('branch')) return ok(state.wtBranches || '');
+    if (cmd === 'git' && args.includes('status')) return ok(state.wtStatus || '');
     if (cmd === 'code' && args[0] === '--version') return ok('1.140.0\n');
     if (cmd === 'code' && args[0] === '--list-extensions') return ok(state.extensions.join('\n') + '\n');
     if (cmd === 'claude' && args[0] === '--version') return ok('2.1.292 (Claude Code)\n');
@@ -564,6 +568,56 @@ try {
     assert.ok(r.level === 'warn' && r.fix.includes('init --name p --prefix X- --yes'), r.fix);
     write(shared, '{ 깨진');
     assert.strictEqual(byId(doctor.checkAll(pc.opts))['bg-isolation'].level, 'warn', '깨진 settings.json은 주의');
+    // 역할 worktree(S4)를 켠 프로젝트는 "none"이어야 한다(Claude Code 격리와 겹침). 끈 프로젝트는 값이 있으면 통과(예전 그대로)
+    json(cfg, { ...JSON.parse(fs.readFileSync(cfg, 'utf8')), worktree: undefined });
+    json(shared, { worktree: { bgIsolation: 'worktree' } });
+    r = byId(doctor.checkAll(pc.opts))['bg-isolation'];
+    assert.ok(r.level === 'warn' && r.detail.includes('겹침') && r.fix.includes('"none"'), JSON.stringify(r));
+    json(shared, {});
+    assert.ok(byId(doctor.checkAll(pc.opts))['bg-isolation'].detail.includes('역할 worktree와 겹침'), '켜짐: 없을 때 이유');
+    json(cfg, { ...JSON.parse(fs.readFileSync(cfg, 'utf8')), worktree: { enabled: false } });
+    assert.ok(byId(doctor.checkAll(pc.opts))['bg-isolation'].detail.includes('공용 워킹트리를 고치지 못함'), '꺼짐: 예전 문구');
+    json(shared, { worktree: { bgIsolation: 'worktree' } });
+    assert.strictEqual(byId(doctor.checkAll(pc.opts))['bg-isolation'].level, 'ok', '꺼짐: 값이 있으면 통과');
+  }
+
+  // 역할 worktree 점검(S4, D-32 다): 켜진 프로젝트에서만. 흔적 폴더·역할 아닌 worktree·잠김·폴더 없는 등록·worktree-* 가지·처음 만들기 전 미커밋 파일은 주의
+  {
+    const pc = makePc('worktrees');
+    const cfg = path.join(pc.repo, '.claude', 'wy-ops.json');
+    const ops0 = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    const wtOf = (n) => path.join(pc.repo, '.claude', 'worktrees', n).replace(/\\/g, '/');
+    const main = `worktree ${pc.repo.replace(/\\/g, '/')}\nHEAD ${HEAD}\nbranch refs/heads/main\n`;
+    const check = () => byId(doctor.checkAll(pc.opts)).worktrees;
+    let r = check();
+    assert.ok(r.level === 'ok' && r.detail.includes('0/1'), '키 없으면 켬, 대상은 pm·commit 뺀 X-frontend: ' + JSON.stringify(r));
+    json(cfg, { ...ops0, worktree: { enabled: false } });
+    pc.state.calls = [];
+    r = check();
+    assert.ok(r.level === 'ok' && r.detail.includes('꺼짐') && !pc.state.calls.some((c) => c.includes('worktree list')), '꺼짐이면 git을 부르지 않음');
+    json(cfg, ops0);
+    // 처음 만들기 전 미커밋 파일 → 주의. 역할 worktree가 있으면 보지 않음
+    pc.state.wtStatus = ' M a.js\n?? b.js\n';
+    r = check();
+    assert.ok(r.level === 'warn' && r.detail.includes('커밋하지 않은 변경 2개') && r.fix.includes('X-commit'), JSON.stringify(r));
+    assert.ok(pc.state.calls.some((c) => c.includes('--no-optional-locks') && c.includes('status') && c.includes('--untracked-files=no')), 'status는 index를 고쳐 쓰지 않고 추적 파일만');
+    pc.state.wtList = `${main}\nworktree ${wtOf('X-frontend')}\nHEAD ${HEAD}\nbranch refs/heads/wt/X-frontend\n`;
+    r = check();
+    assert.ok(r.level === 'ok' && r.detail.includes('1/1'), JSON.stringify(r));
+    // 목록에 없는 흔적 폴더, 역할 아닌 worktree·잠김·폴더 없는 등록, worktree-* 가지
+    fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'X-frontend'), { recursive: true });
+    fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'old'), { recursive: true });
+    r = check();
+    assert.ok(r.level === 'warn' && r.detail.includes('흔적 폴더: old') && !r.detail.includes('X-frontend'), JSON.stringify(r));
+    rmTree(path.join(pc.repo, '.claude', 'worktrees', 'old'));
+    pc.state.wtList = `${main}\nworktree ${wtOf('hp')}\nHEAD ${HEAD}\nbranch refs/heads/worktree-hp\nlocked claude agent\n\nworktree C:/gone\nHEAD ${HEAD}\ndetached\nprunable gitdir file points to non-existent location\n`;
+    pc.state.wtBranches = 'worktree-hp\n';
+    pc.state.wtStatus = '';
+    r = check();
+    for (const s of ['역할이 아닌 worktree(claude -w 등): hp', '잠긴 worktree', '폴더 없는 등록', 'claude -w가 남긴 가지: worktree-hp']) assert.ok(r.detail.includes(s), `${s}: ${r.detail}`);
+    assert.ok(r.level === 'warn' && r.fix.includes('git worktree prune') && r.fix.includes('git branch -d'), r.fix);
+    pc.state.wtList = null;
+    assert.strictEqual(check().level, 'warn', 'git worktree list 실패는 주의');
   }
 
   // 자동 압축 기준(TOK-1): autoCompactWindow가 없으면 주의 + init 다시 실행 안내, 있으면 통과, settings env가 있으면 우선한다고 적음

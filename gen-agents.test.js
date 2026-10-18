@@ -143,3 +143,36 @@ try {
   }
   console.log('gen-agents 머리글 따옴표 검사 통과');
 }
+
+// worktree 문구(S4 5단계, WT-09): 꺼진 프로젝트는 예전 문구와 글자까지 같고, 켜지면 역할마다(worktree·commit·pm) 다르다.
+// 켜짐 판정은 session.ps1과 같다: 키가 없으면 켬, enabled를 적었으면 true일 때만, roles가 있으면 그 목록
+{
+  const wt = require('./lib/worktree');
+  const base = { pmRole: 'XX-pm', commitRole: 'XX-commit' };
+  const off = { ...base, worktree: { enabled: false } };
+  assert.strictEqual(wt.isOn(base), true, '키 없으면 켬');
+  assert.strictEqual(wt.isOn({ ...base, worktree: {} }), true, 'enabled 없으면 켬');
+  assert.strictEqual(wt.isOn({ ...base, worktree: { enabled: 'yes' } }), false, 'true가 아니면 끔');
+  assert.strictEqual(wt.isOn(off), false);
+  assert.deepStrictEqual(['true', 'TRUE', 1, 'false', 0].map((v) => wt.isOn({ worktree: { enabled: v } })), [true, true, true, false, false], 'PowerShell -eq $true와 같음');
+  assert.deepStrictEqual(['XX-a', 'XX-b'].map((n) => wt.isWtRole({ ...base, worktree: { roles: 'XX-b' } }, n)), [false, true], 'roles 문자열 하나도 목록');
+  assert.throws(() => wt.agentRules({ pmRole: 'XX-pm' }, 'XX-a'), /commitRole/, 'commitRole 없으면 멈춤');
+  assert.deepStrictEqual(['XX-a', 'XX-pm', 'XX-commit'].map((n) => wt.isWtRole(base, n)), [true, false, false], 'pm·commit은 본 저장소');
+  assert.deepStrictEqual(['XX-a', 'XX-b'].map((n) => wt.isWtRole({ ...base, worktree: { roles: ['XX-b'] } }, n)), [false, true], 'roles로 고름');
+  assert.strictEqual(wt.isWtRole(off, 'XX-a'), false);
+  assert.strictEqual(wt.agentRules(off, 'XX-a'), '- 워킹트리는 모든 세션이 함께 쓴다. `git stash`·`checkout`·`restore`·`reset`·`clean` 금지. 일부 파일만 검증하려면 `git archive`로 사본을 만들어 그 안에서 돌린다. 커밋은 커밋 전담 세션(`XX-commit`)에 요청하고, 요청한 파일은 완료 회신 전까지 고치지 않는다.', '꺼짐: 예전 문구 그대로');
+  assert.strictEqual(wt.agentRules(off, 'XX-commit'), wt.agentRules(off, 'XX-a'), '꺼짐: 역할마다 같음');
+  assert.deepStrictEqual(wt.claudeMdRules(off), { treeRules: '- 워킹트리는 모든 세션이 함께 쓴다. `git stash`·`checkout`·`restore`·`reset`·`clean`처럼 워킹트리 파일을 바꾸는 git 명령은 쓰지 않는다. 일부 파일만으로 검증하려면 `git archive` 등으로 사본을 만들어 그 안에서 돌린다.', commitTreeRules: '' });
+  assert.strictEqual(wt.skillRules(off), '- 커밋을 요청한 파일은 완료 회신 전까지 아무도 고치지 않는다. 공유 워킹트리에서 stash·checkout·restore·reset·clean 금지.');
+  const a = wt.agentRules(base, 'XX-a');
+  assert.ok(a.includes('`.claude/worktrees/XX-a`(가지 `wt/XX-a`)') && !a.includes('git archive`로 사본을'), '켜짐: 자기 worktree');
+  assert.ok(wt.agentRules(base, 'XX-commit').includes('git merge --no-ff wt/<역할>'), '켜짐: commit은 병합 흐름');
+  assert.ok(wt.agentRules(base, 'XX-pm').startsWith('- 이 세션은 본 저장소에서 돈다') && !wt.agentRules(base, 'XX-pm').includes('--no-ff'), '켜짐: pm은 본 저장소');
+  assert.ok(wt.claudeMdRules(base).commitTreeRules.startsWith('\n- '), '켜짐: 커밋 절에 한 줄 더함');
+  // 기본 템플릿이 자리표시자를 쓴다(예전 문구가 남아 두 번 나오지 않게)
+  for (const [f, key] of [['templates/agent.md', '{{treeRules}}'], ['templates/claude-md.md', '{{treeRules}}'], ['templates/claude-md.md', '{{commitTreeRules}}'], ['templates/pm-ops/SKILL.md', '{{treeRules}}']]) {
+    const t = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    assert.ok(t.includes(key) && !t.includes('워킹트리는 모든 세션이 함께') && !t.includes('공유 워킹트리에서'), `${f}: ${key}`);
+  }
+  console.log('gen-agents worktree 문구 검사 통과');
+}

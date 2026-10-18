@@ -37,7 +37,7 @@ try {
   const claudeMd = fs.readFileSync(path.join(T, 'claude-md.md'), 'utf8');
   assert.ok(claudeMd.includes('{{rolesTable}}'), 'CLAUDE.md 절에 역할 표 자리');
   // CLAUDE.md 절은 설정 값(pmRole·commitRole·memory 등)으로 채운다: 채워지면 됨
-  require('../gen-agents').fill(claudeMd, { ...ops, project: 'sandbox', prefix: 'SB-', rolesTable: '-', verifyList: '-', parallelRules: '-', principles: '' }, 'claude-md.md');
+  require('../gen-agents').fill(claudeMd, { ...ops, project: 'sandbox', prefix: 'SB-', rolesTable: '-', verifyList: '-', parallelRules: '-', principles: '', ...require('../lib/worktree').claudeMdRules(ops) }, 'claude-md.md');
   for (const f of ['wy-ops.json', 'pm-ops.project.md', ...fs.readdirSync(path.join(T, 'roles')).map((n) => `roles/${n}`)]) {
     const left = (fs.readFileSync(path.join(T, f), 'utf8').match(/\{\{[^}]+\}\}/g) || []).filter((p) => !['{{project}}', '{{prefix}}', '{{rolesTable}}'].includes(p));
     assert.deepStrictEqual(left, [], `${f}: init이 모르는 자리표시자 없음`);

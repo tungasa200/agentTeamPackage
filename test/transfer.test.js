@@ -58,6 +58,9 @@ try {
   put(path.join(cA, 'session-data', '2026-10-09-dddd-session.tmp'), `# Session: 2026-10-09\n\n${filled.join('\n')}\n`);
   put(path.join(cA, 'session-data', 'token-usage.js'), '//\n');
   put(path.join(cA, 'projects', projectKey(projA), 'abc.jsonl'), '{"type":"user"}\n');
+  // 역할 worktree 세션(S4)의 기록은 프로젝트 키 옆 '<키>--claude-worktrees-<역할>' 폴더. 이름만 비슷한 다른 프로젝트 폴더는 빼야 한다
+  put(path.join(cA, 'projects', projectKey(path.join(projA, '.claude', 'worktrees', 'X-dev')), 'wt.jsonl'), '{"type":"wt"}\n');
+  put(path.join(cA, 'projects', projectKey(projA) + '-2', 'other.jsonl'), '{}\n');
   const hookA = path.join(homeA, '.wy-tools', 'hooks', 'a.js');
   put(
     path.join(cA, 'settings.json'),
@@ -136,11 +139,12 @@ try {
   assert.ok(!exportState({ project: projA, out: path.join(tmp, 'out', 'nosl.zip'), home: homeA, include: { ...P, settingsLocal: false } }).files.some((f) => f.kind === 'settingsLocal'));
   const out2 = path.join(tmp, 'out', 'full.zip');
   const ex2 = exportState({ project: projA, out: out2, home: homeA, include: { ...P, transcripts: true } });
-  assert.ok(ex2.files.some((f) => f.name === 'transcripts/abc.jsonl'));
+  assert.deepStrictEqual(ex2.files.filter((f) => f.kind === 'transcripts').map((f) => f.rel).sort(), ['--claude-worktrees-X-dev/wt.jsonl', 'abc.jsonl'], 'worktree 세션 기록도, 다른 프로젝트는 빼고');
   const off = importState({ project: projB, zip: out2, home: homeB, dryRun: true, include: P });
   assert.ok(off.skipped.some((s) => s.kind === 'transcripts' && s.reason === '옵션으로 끔'), '들일 때 옵션이 꺼져 있으면 넣지 않음');
   importState({ project: projB, zip: out2, home: homeB, include: { ...P, transcripts: true } });
   assert.ok(fs.existsSync(path.join(homeB, '.claude', 'projects', projectKey(projB), 'abc.jsonl')));
+  assert.strictEqual(fs.readFileSync(path.join(homeB, '.claude', 'projects', projectKey(path.join(projB, '.claude', 'worktrees', 'X-dev')), 'wt.jsonl'), 'utf8'), '{"type":"wt"}\n', '새 프로젝트 경로의 worktree 키로');
 
   // 7. 손상·경로 탈출 묶음은 거부
   const m = JSON.parse(items.get('manifest.json').toString());

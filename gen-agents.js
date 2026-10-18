@@ -138,7 +138,7 @@ function generate(root) {
     if (!fs.existsSync(roleFile)) throw new Error(`역할 원본이 없습니다: ${roleFile}`);
     const role = readRole(roleFile);
     role.frontmatter = toolsFrontmatter(r, role.frontmatter);
-    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), ...role, name: r.name }, templateFile)) };
+    return { name: r.name, text: quoteFrontmatter(fill(template, { ...ops, verifyList: verifyList(ops), skillNotes: skillNotes(r), treeRules: template.includes('{{treeRules}}') ? require('./lib/worktree').agentRules(ops, r.name) : '',...role, name: r.name }, templateFile)) };
   });
 }
 

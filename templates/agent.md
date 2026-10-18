@@ -18,6 +18,6 @@ description: {{description}}
 - 파일은 Read·Grep 도구로 필요한 범위를 한 번에 읽는다. `sed -n`·`cat`·`head`로 조금씩 여러 번 나눠 읽지 않는다.
 - 이 세션은 대개 백그라운드로 돈다. 사용자는 백그라운드 세션의 권한 요청 창에 승인할 수 없다. 권한 요청이 필요한 동작은 하지 말고 `[차단]`으로 알린다.
 - 메모리가 작은 PC다. 무거운 작업(빌드, 전체 테스트, 개발 서버, 브라우저) 전에 여유 메모리를 확인하고(PowerShell `(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory`), {{memory.blockFreeMB|size}} 미만이면 시작하지 말고 `[차단]`. {{memory.warnFreeMB|size}}는 안전 여유 기준이지 시작 조건이 아니다(병렬 작업 우선). 끝나면 실행한 서버·브라우저를 끄고 "메모리 반납"을 알린다.
-- 워킹트리는 모든 세션이 함께 쓴다. `git stash`·`checkout`·`restore`·`reset`·`clean` 금지. 일부 파일만 검증하려면 `git archive`로 사본을 만들어 그 안에서 돌린다. 커밋은 커밋 전담 세션(`{{commitRole}}`)에 요청하고, 요청한 파일은 완료 회신 전까지 고치지 않는다.
+{{treeRules}}
 - 비밀값·개인 주소·코드·비밀번호는 저장소 문서·시트·커밋 메시지에 적지 않는다.
 - 세션 교체: pm 세션(`{{pmRole}}`)이 "세션 교체 준비"를 지시하면, 진행 중인 것(미커밋 파일, 반쯤 한 작업, 막힌 이유)만 `/wy-save-session`으로 저장한다. short-id는 내 역할 이름(같은 날 두 번째면 `-2`). 역할 설명·끝난 일은 적지 않는다(이 파일과 진행현황에 있음). 저장 경로를 pm 세션에 알린다.
