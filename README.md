@@ -64,7 +64,7 @@
 | design | 화면 설계·목업, 구현 화면 점검 | 1 |
 | browser | 외부 서비스 콘솔 작업(코드는 수정하지 않음) | 1 |
 
-스택: `node`, `python`, `java-gradle`, `java-maven`, `csharp`, `cpp`, `custom`. 고르지 않고 루트와 바로 아래 폴더의 표지 파일(`package.json`, `build.gradle`·`gradlew`, `pom.xml`, `pyproject.toml`·`requirements.txt`, `*.sln`·`*.csproj`, `CMakeLists.txt` 등)로 폴더마다 알아내, 검증 명령(`wy-ops.json`의 `verify`)과 개발 도구 확인 목록을 정합니다. 루트가 Gradle·Maven·.NET 솔루션·CMake면 루트와 같은 스택인 하위 폴더는 모듈로 보고 빼고, Node·Python 하위 폴더는 폴더별 명령을 잡습니다. node 실행기는 잠금 파일로 고릅니다(npm·pnpm·yarn·bun). 틀리면 `.claude/wy-ops.json`의 `verify`를 고치고 `install.ps1 gen`. `init --stack <id>`는 덮어쓰기용(그 템플릿을 루트에 그대로 씀)입니다. 개발 도구가 없으면 winget 설치를 제안합니다.
+스택: `node`, `python`, `java-gradle`, `java-maven`, `csharp`, `cpp`, `custom`. 고르지 않고 루트와 바로 아래 폴더의 표지 파일(`package.json`, `build.gradle`·`gradlew`, `pom.xml`, `pyproject.toml`·`requirements.txt`, `*.sln`·`*.csproj`, `CMakeLists.txt` 등)로 폴더마다 알아내, 검증 명령(`wy-ops.json`의 `verify`)과 개발 도구 확인 목록을 정합니다. 루트가 Gradle·Maven·.NET 솔루션·CMake면 루트와 같은 스택인 하위 폴더는 모듈로 보고 빼고, Node·Python 하위 폴더는 폴더별 명령을 잡습니다. node 실행기는 잠금 파일로 고릅니다(npm·pnpm·yarn·bun). 틀리면 `.claude/wy-ops.json`의 `verify`를 고치고 `install.ps1 gen`. `init --stack <id>`는 덮어쓰기용(알아내지 않고 그 템플릿을 씀)입니다. 루트에 그 스택의 파일(`package.json`·`build.gradle` 등)이 있으면 폴더 내용으로 다듬습니다. node는 `scripts`에 있는 명령만 쓰고, `gradlew`·`mvnw`가 없으면 `gradle`·`mvn`을 씁니다. 빈 폴더면 템플릿 값을 그대로 씁니다. 개발 도구가 없으면 winget 설치를 제안합니다.
 
 `init`이 만드는 CLAUDE.md 절에는 '작업 원칙'(가정 명시, 단순함 우선, 정밀한 수정, 완료 전 검증, 하나 가르치기)이 들어갑니다. 빼려면 `--no-principles`.
 
@@ -95,7 +95,7 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 | `init` | 새 프로젝트에 설정·역할 파일·스킬 만들기 |
 | `doctor` | 설치 상태 점검(읽기만). FAIL 줄의 '고치기'를 따름 |
 | `trust` | 폴더 사용 허락을 `~/.claude.json`에 기록(설치 마법사가 씀, `--check`는 확인만) |
-| `update` | 이 저장소를 pull하고 새 버전 설치, 생성 파일 다시 만들기(사람이 고친 파일은 덮지 않고 차이만) |
+| `update` | 이 저장소를 pull하고 새 버전 설치, 생성 파일 다시 만들기(사람이 고친 파일은 덮지 않고 차이만), `.claude/settings.json` 표준의 빈 키만 채우기(있는 값은 그대로, 다르면 '다름'으로 알림) |
 | `gen` | `.claude/ops`의 역할 원본을 고친 뒤 역할 파일·스킬 다시 만들기 |
 | `deploy` / `rollback` | 설치본만 갱신 / 이전 버전으로 |
 | `export` / `import` / `restore` | 개인 이전 묶음 만들기 / 들여오기 / 새 PC 한 번에 복원 |
