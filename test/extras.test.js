@@ -90,6 +90,11 @@ try {
   const sp = Object.fromEntries(check({ run, home, project: proj }).map((r) => [r.id, r]));
   assert.strictEqual(sp.impeccable.state, 'ok');
   assert.match(sp.impeccable.detail, /프로젝트에서 끔/);
+  // KI-07: 프로젝트가 있으면 plugin 목록을 그 폴더에서 읽는다(enabled는 실행 폴더의 프로젝트 settings를 따름)
+  const cwds = [];
+  check({ run: (cmd, args, o = {}) => (cmd === 'claude' && cwds.push(o.cwd), run(cmd, args)), home, project: proj });
+  check({ run: (cmd, args, o = {}) => (cmd === 'claude' && cwds.push(o.cwd), run(cmd, args)), home });
+  assert.deepStrictEqual(cwds, [proj, undefined], 'plugin list 실행 폴더');
   calls.length = 0;
   assert.strictEqual(install(['impeccable'], { run, home, project: proj })[0].state, 'ok', '프로젝트에서 끈 것은 다시 깔지 않음');
   assert.ok(!calls.some((c) => /plugin install/.test(c)));

@@ -286,6 +286,15 @@ try {
     assert.ok(r.level === 'fail' && r.detail.includes('impeccable@impeccable 꺼져 있음'), `impeccable 꺼짐은 끔(표준)이 아니라 실패\n${r.detail}`);
     imp.enabled = true;
     delete imp.projectEnabled;
+    // KI-07: 플러그인 목록은 대상 프로젝트 폴더에서 읽는다(enabled는 실행 폴더의 프로젝트 settings를 따름)
+    const cwds = [];
+    const byCwd = (cmd, args, o = {}) => {
+      if (cmd !== 'claude' || args[0] !== 'plugin') return pc.opts.run(cmd, args, o);
+      cwds.push(o.cwd);
+      return { status: 0, stdout: JSON.stringify(pc.state.plugins.map((p) => ({ ...p, enabled: o.cwd === pc.repo }))) };
+    };
+    r = byId(doctor.checkAll({ ...pc.opts, run: byCwd })).plugins;
+    assert.ok(cwds.length && cwds.every((c) => c === pc.repo) && r.level === 'ok', `대상 프로젝트에서 plugin list\n${JSON.stringify(cwds)}\n${r.detail}`);
     // plugins-standard: 표준 값이 없으면 주의, 깨진 파일도 주의
     const sfile = path.join(pc.repo, '.claude', 'settings.json');
     json(sfile, { worktree: { bgIsolation: 'none' }, autoCompactWindow: 200000, enabledPlugins: { 'ecc@ecc': true } });

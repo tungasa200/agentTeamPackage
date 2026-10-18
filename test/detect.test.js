@@ -170,6 +170,7 @@ try {
   assert.ok(c.status === 0 && c.stdout.includes('java-maven') && c.stdout.includes('mvn test -q'), c.stdout + c.stderr);
 
   // 8. detect --apply: 빈 폴더 init 뒤 코드가 생기면 다시 판정해 쓴다(.bak, 옛 stack 지움, 다른 키 그대로). 알아낸 것이 없으면 바이트 그대로
+  //    verify는 빈 키만 채우고 있는 값(손으로 적은 명령)은 그대로, 판정과 다르면 '다름: 키 · 기존 · 판정'(pm 결정 2026-10-18)
   const P7 = proj({});
   init({ project: P7, name: 'demo', prefix: 'AB-', templatesDir: T });
   const empty = read(P7);
@@ -179,22 +180,26 @@ try {
   assert.ok(c.status === 0 && c.stdout.includes('알아낸 것이 없어 설정을 바꾸지 않았습니다'), c.stdout + c.stderr);
   assert.strictEqual(fs.readFileSync(cfgOf(P7), 'utf8'), before, '알아낸 것이 없으면 바이트 그대로');
   assert.ok(!fs.readdirSync(path.join(P7, '.claude')).some((f) => f.includes('.bak-')), '.bak 없음');
-  fs.writeFileSync(cfgOf(P7), JSON.stringify({ ...empty, stack: 'custom', verify: { test: 'old' }, mine: 1 }, null, 2));
+  fs.writeFileSync(cfgOf(P7), JSON.stringify({ ...empty, stack: 'custom', verify: { test: 'old', lint: 'my-lint', build: null, custom: 'x' }, mine: 1 }, null, 2));
   fs.writeFileSync(path.join(P7, 'package.json'), pkg({ build: 'tsc', test: 'vitest' }));
   c = cli(['--apply', '--project', P7]);
   assert.strictEqual(c.status, 0, c.stderr);
   ops = read(P7);
-  assert.ok(ops.verify.build === 'npm run build' && ops.verify.test === 'npm test' && ops.detected[0].stack === 'node' && ops.tools.length, JSON.stringify(ops));
+  assert.ok(ops.verify.build === 'npm run build' && ops.verify.setup === 'npm install' && ops.detected[0].stack === 'node' && ops.tools.length, `빈 키는 채움\n${JSON.stringify(ops)}`);
+  assert.ok(ops.verify.test === 'old' && ops.verify.lint === 'my-lint' && ops.verify.custom === 'x', `있는 값은 그대로\n${JSON.stringify(ops.verify)}`);
   assert.ok(ops.stack === undefined, '옛 stack 키 지움');
   assert.ok(ops.mine === 1 && JSON.stringify(ops.roles) === JSON.stringify(empty.roles) && ops.project === 'demo', '다른 키 그대로');
   assert.ok(fs.readdirSync(path.join(P7, '.claude')).some((f) => f.startsWith('wy-ops.json.bak-')), '.bak');
-  assert.ok(c.stdout.includes('테스트: old') && c.stdout.includes('테스트: npm test') && c.stdout.includes('.bak-') && c.stdout.includes('- 테스트: `npm test`') && c.stdout.trim().endsWith('install.ps1 gen'), c.stdout);
+  assert.ok(c.stdout.includes('다름: test · 기존 old · 판정 npm test') && !c.stdout.includes('다름: lint') && c.stdout.includes('빌드: npm run build') && c.stdout.includes('.bak-') && c.stdout.includes('- 테스트: `old`') && c.stdout.trim().endsWith('install.ps1 gen'), c.stdout);
   const after = fs.readFileSync(cfgOf(P7), 'utf8');
   const baks = () => fs.readdirSync(path.join(P7, '.claude')).filter((f) => f.includes('.bak-')).length;
   const nBak = baks();
   c = cli(['--apply', '--project', P7]);
-  assert.ok(c.status === 0 && c.stdout.includes('이미 폴더와 같아'), c.stdout);
-  assert.ok(fs.readFileSync(cfgOf(P7), 'utf8') === after && baks() === nBak, '이미 같으면 다시 쓰지 않음');
+  assert.ok(c.status === 0 && c.stdout.includes('채울 빈 검증 명령이 없어') && c.stdout.includes('다름: test · 기존 old · 판정 npm test'), c.stdout);
+  assert.ok(fs.readFileSync(cfgOf(P7), 'utf8') === after && baks() === nBak, '바꿀 것이 없으면 다시 쓰지 않음');
+  fs.writeFileSync(cfgOf(P7), JSON.stringify({ ...read(P7), verify: { ...read(P7).verify, test: 'npm test' } }, null, 2));
+  c = cli(['--apply', '--project', P7]);
+  assert.ok(c.status === 0 && c.stdout.includes('이미 폴더와 같아') && !c.stdout.includes('다름:'), c.stdout);
   c = cli(['--apply', '--project', proj({ 'package.json': '{}' })]);
   assert.ok(c.status === 1 && c.stdout.includes('install.ps1 init'), '설정이 없으면 init 안내');
   console.log('detect 검사 통과');
