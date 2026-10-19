@@ -66,7 +66,7 @@ choice 요청에는 카드 필수 칸 what(무엇을)·why(왜)·onClick(누르�
 
 - 커밋·푸시는 OPS-commit만 한다. 사용자 승인은 WY 승인 센터 카드로 받는다.
 - 문서만 바뀐 커밋은 사본 빌드 없이 diff 확인만. 코드 커밋은 바뀐 모듈만, 전체는 CI.
-- 커밋을 요청한 파일은 완료 회신 전까지 아무도 고치지 않는다. 역할 세션은 각자 `.claude/worktrees/<역할>`에서 일하고, 본 저장소(pm·commit)에서는 stash·checkout·restore·reset·clean 금지. 남은 worktree는 `session.ps1 wt-clean <역할>`로 지운다.
+- 커밋을 요청한 파일은 완료 회신 전까지 아무도 고치지 않는다. `OPS-dev1`·`OPS-dev2`는 각자 `.claude/worktrees/<역할>`에서 일하고, 본 저장소(`OPS-pm`·`OPS-commit`·`OPS-review`)에서는 stash·checkout·restore·reset·clean 금지. 남은 worktree는 `session.ps1 wt-clean <역할>`로 지운다.
 - pm 자신의 파일(CLAUDE.md, 진행현황) 커밋 요청: 파일 목록, 브랜치, 메시지, "다른 요청과 별도 커밋".
 
 ## 5. 사용자에게 보고
