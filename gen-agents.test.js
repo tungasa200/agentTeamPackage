@@ -179,6 +179,15 @@ try {
   assert.ok(wt.agentRules(base, 'XX-commit').includes('git merge --no-ff wt/<역할>'), '켜짐: commit은 병합 흐름');
   assert.ok(wt.agentRules(base, 'XX-pm').startsWith('- 이 세션은 본 저장소에서 돈다') && !wt.agentRules(base, 'XX-pm').includes('--no-ff'), '켜짐: pm은 본 저장소');
   assert.ok(wt.claudeMdRules(base).commitTreeRules.startsWith('\n- '), '켜짐: 커밋 절에 한 줄 더함');
+  // roles 없으면 예전 문구, 있으면 roles는 worktree·나머지 역할(roles에 없는 것)은 본 저장소로 이름을 적는다
+  assert.ok(wt.claudeMdRules(base).treeRules.startsWith('- 역할 세션은 각자 `.claude/worktrees/<역할>`(가지 `wt/<역할>`)에서 일한다(`XX-pm`·`XX-commit`은 본 저장소).'), 'roles 없음: 예전 문구');
+  assert.ok(wt.skillRules(base).includes('역할 세션은 각자 `.claude/worktrees/<역할>`에서 일하고, 본 저장소(pm·commit)에서는'), 'roles 없음: 스킬 예전 문구');
+  assert.ok(wt.agentRules(base, 'XX-pm').startsWith('- 이 세션은 본 저장소에서 돈다. 역할 세션은 각자 `.claude/worktrees/<역할>`(가지 `wt/<역할>`)에서 일하고, 본 저장소는 여기 도는 세션들이 함께 쓴다.'), 'roles 없음: 역할 파일 예전 문구');
+  const withRoles = { ...base, roles: [{ name: 'XX-commit' }, { name: 'XX-pm' }, { name: 'XX-a' }, { name: 'XX-b' }, { name: 'XX-qa' }], worktree: { roles: ['XX-a', 'XX-b'] } };
+  assert.ok(wt.claudeMdRules(withRoles).treeRules.startsWith('- `XX-a`·`XX-b`는 각자 `.claude/worktrees/<역할>`(가지 `wt/<역할>`)에서 일한다(`XX-pm`·`XX-commit`·`XX-qa`는 본 저장소).'), 'roles: CLAUDE.md 문구');
+  assert.ok(wt.skillRules(withRoles).includes('`XX-a`·`XX-b`는 각자 `.claude/worktrees/<역할>`에서 일하고, 본 저장소(`XX-pm`·`XX-commit`·`XX-qa`)에서는'), 'roles: 스킬 문구');
+  assert.ok(wt.agentRules(withRoles, 'XX-qa').startsWith('- 이 세션은 본 저장소에서 돈다. `XX-a`·`XX-b`는 각자 `.claude/worktrees/<역할>`(가지 `wt/<역할>`)에서 일하고, 본 저장소는 `XX-pm`·`XX-commit`·`XX-qa`가 함께 쓴다.') && !wt.agentRules(withRoles, 'XX-qa').includes('--no-ff'), 'roles: 본 저장소 역할 파일 문구');
+  assert.ok(wt.agentRules(withRoles, 'XX-commit').includes('`XX-pm`·`XX-commit`·`XX-qa`가 함께 쓴다') && wt.agentRules(withRoles, 'XX-commit').includes('--no-ff'), 'roles: commit 문구');
   // 기본 템플릿이 자리표시자를 쓴다(예전 문구가 남아 두 번 나오지 않게)
   for (const [f, key] of [['templates/agent.md', '{{treeRules}}'], ['templates/agent-pm.md', '{{treeRules}}'],['templates/claude-md.md', '{{treeRules}}'], ['templates/claude-md.md', '{{commitTreeRules}}'], ['templates/pm-ops/SKILL.md', '{{treeRules}}']]) {
     const t = fs.readFileSync(path.join(__dirname, f), 'utf8');

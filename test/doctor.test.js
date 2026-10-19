@@ -632,6 +632,13 @@ try {
     r = check();
     assert.ok(r.level === 'warn' && r.detail.includes('agent-pm.md에 {{treeRules}} 없음'), JSON.stringify(r));
     fs.unlinkSync(pmTpl);
+    // worktree.roles에 역할이 아닌 이름·pm·commit이 있으면 주의
+    json(cfg, { ...ops0, worktree: { roles: ['X-frontend', 'X-fronted', ops0.pmRole] } });
+    r = check();
+    assert.ok(r.level === 'warn' && r.detail.includes(`pm·commit인 이름: X-fronted, ${ops0.pmRole}`) && r.fix.includes('worktree.roles'), JSON.stringify(r));
+    json(cfg, { ...ops0, worktree: { roles: 'X-frontend' } });
+    assert.strictEqual(check().level, 'ok', 'roles가 역할 이름이면 통과');
+    json(cfg, ops0);
     // 목록에 없는 흔적 폴더, 역할 아닌 worktree·잠김·폴더 없는 등록, worktree-* 가지
     fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'X-frontend'), { recursive: true });
     fs.mkdirSync(path.join(pc.repo, '.claude', 'worktrees', 'old'), { recursive: true });
