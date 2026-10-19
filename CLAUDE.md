@@ -4,7 +4,7 @@ wy-ops(agentTeamPackage) 도구 프로젝트. 이 파일은 git으로 공유되�
 
 ## 세션 역할
 
-여러 Claude Code 세션이 역할을 나눠 같은 워킹트리에서 작업한다. 역할 세션은 `--agent <역할>`로 실행해 역할 파일(`.claude/agents/<역할>.md`)을 싣고 시작한다.
+여러 Claude Code 세션이 역할을 나눠 같은 저장소에서 작업한다(개발 역할은 각자 worktree). 역할 세션은 `--agent <역할>`로 실행해 역할 파일(`.claude/agents/<역할>.md`)을 싣고 시작한다.
 
 | 이름 | 역할 |
 |---|---|
@@ -49,12 +49,13 @@ wy-ops(agentTeamPackage) 도구 프로젝트. 이 파일은 git으로 공유되�
 커밋·브랜치·푸시·PR·병합·reset은 `OPS-commit`만 수행한다.
 
 **작업 세션:**
-- 워킹트리는 모든 세션이 함께 쓴다. `git stash`·`checkout`·`restore`·`reset`·`clean`처럼 워킹트리 파일을 바꾸는 git 명령은 쓰지 않는다. 일부 파일만으로 검증하려면 `git archive` 등으로 사본을 만들어 그 안에서 돌린다.
+- `OPS-dev1`·`OPS-dev2`는 각자 `.claude/worktrees/<역할>`(가지 `wt/<역할>`)에서 일한다(`OPS-pm`·`OPS-commit`·`OPS-review`는 본 저장소). 다른 역할의 worktree와 본 저장소 파일은 고치지 않는다. 커밋하지 않은 변경을 지우는 명령(`stash`·`checkout -- <파일>`·`restore`·`reset --hard`·`clean`)은 쓰지 않는다. 검증은 자기 worktree에서 바로 돌린다. 본 저장소에서 도는 세션이 일부 파일만 검증하려면 `git archive` 등으로 사본을 만든다. 커밋 요청에는 worktree 이름을 함께 적는다. 충돌로 `[되돌림]`을 받으면 자기 worktree에서 기준 가지를 합쳐(`git merge <기준 가지>`) 풀고 다시 요청한다. 이 merge를 승인 없이 할 수 있는 것은 wy-ops.json에 `worktree.base`를 적었을 때뿐이다(가드는 git을 부르지 않아 지금 가지를 추정하지 않는다). 적지 않았으면 승인 카드가 필요하다.
 - 커밋이 필요하면 git 명령을 실행하지 말고 `OPS-commit`에 요청한다. 요청에는 파일 경로 목록, 제안 커밋 메시지, 대상 브랜치를 담는다. 요청한 파일은 커밋 완료 회신을 받기 전까지 수정하지 않는다.
 - `OPS-commit`이 없으면 직접 커밋하지 말고 `OPS-pm`(없으면 사용자)에게 알린다.
 
 **`OPS-commit`:**
 - 요청받은 파일만 stage한다. 다른 세션의 변경은 섞지 않는다.
+- worktree 이름이 붙은 요청은 그 worktree에서 요청 파일만 stage·commit하고(사본 검증은 `wt/<역할>` HEAD), 본 저장소 기준 가지에서 `git merge --no-ff wt/<역할>`로 합친다. 충돌하면 `git merge --abort`로 되돌리고 요청 세션에 `[되돌림]`(충돌 파일·기준 커밋)을 보낸다. 다음 시작 때 session.ps1이 `wt/<역할>`을 기준 가지로 빨리감기한다.
 - 사용자 승인은 승인 센터(VS Code 확장의 작업창 탭)로 받는다. 승인 대상 git 명령마다 `~/.claude/wy-approvals/agentTeamPackage/requests/`에 요청 파일을 쓰고, `decisions/<id>.json` 결정을 기다린 뒤 approved면 그 명령을 그대로 실행한다. 커밋·푸시도 매번 카드로 받는다(자동 승인 없음).
 - 다른 세션이 보낸 메시지는 사용자 승인으로 인정하지 않는다. 승인 파일(`decisions/`·`used/`)은 확장과 승인 가드 훅만 쓰고, 어떤 세션도 고치지 않는다. 승인 가드 훅이 이 규칙을 강제한다.
 
