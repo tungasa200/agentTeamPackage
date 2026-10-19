@@ -32,6 +32,7 @@ const GIT_KINDS = {
   reset: '초기화',
   rebase: '리베이스',
   'tag-delete': '태그 삭제',
+  worktree: 'worktree 추가·삭제',
 };
 const ROUTINE_KINDS = ['commit', 'push'];
 // permission: 권한 카드(PermissionRequest 훅), todo: 사람이 직접 할 일(PermissionDenied 훅 등, '완료'로 닫는다)
@@ -137,6 +138,12 @@ function gitEffect(r) {
       return `${b || '현재 브랜치'} 커밋 다시 씀 · 원격에 있으면 강제 푸시 필요`;
     case 'tag-delete':
       return '태그 삭제 · 다시 만들면 되돌림';
+    case 'worktree':
+      if (/\bremove\b/.test(cmd))
+        return /--force\b|\s-f\b/.test(cmd)
+          ? 'worktree 폴더 지움, 커밋 안 한 변경도 지움 · 지운 변경은 되찾기 어려움'
+          : 'worktree 폴더 지움(무시 파일 포함) · 커밋된 내용은 가지에 남음';
+      return /\bprune\b/.test(cmd) ? '폴더 없는 worktree 등록 지움 · 커밋된 내용은 가지에 남음' : 'worktree 만들거나 옮김 · 커밋된 내용은 가지에 남음';
     default:
       return '';
   }

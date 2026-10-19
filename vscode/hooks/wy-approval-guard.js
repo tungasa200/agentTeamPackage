@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // wy-ops 승인 가드(PreToolUse 훅, Bash·PowerShell). 초안 — 적용은 사용자 설정에서 한다.
-// - 잠금 대상 git 명령: commit·push·강제 푸시·브랜치 생성/삭제·merge(gh pr merge)·reset·rebase·태그 삭제. 모두 승인 센터의 승인 결정이 있어야 한다.
+// - 잠금 대상 git 명령: commit·push·강제 푸시·브랜치 생성/삭제·merge(gh pr merge)·reset·rebase·태그 삭제·worktree 추가/삭제(pull·cherry-pick·revert·update-ref 등 포함). 모두 승인 센터의 승인 결정이 있어야 한다.
+// - 예외 하나(S4, D-32): 역할 세션이 자기 worktree(.claude/worktrees/<자기 역할>, 가지 wt/<자기 역할>)에서 `git merge <worktree.base>`만 한 명령은 승인 없이 통과.
 // - 잠금 대상은 프로젝트 설정의 커밋 역할(wy-ops.json commitRole, agent_type)만 실행한다. agent_type이 없는 세션도, 설정이 없으면 모두 거부한다.
 // - 승인 한 건은 한 번만 쓴다(used/<id>.json).
 // - 승인 폴더는 훅 입력의 cwd가 속한 프로젝트의 것(~/.claude/wy-approvals/<namespace>, 설정이 없으면 바탕 폴더).
@@ -146,6 +147,23 @@ function classify(segment) {
       return has('-c', '-C', '--create', '--force-create', '--orphan') ? 'branch' : null;
     case 'tag':
       return has('-d', '--delete') ? 'tag-delete' : null;
+    // S4 WT-05: 안에서 merge·rebase를 하는 pull, 커밋을 만드는 cherry-pick·revert·commit-tree, 가지를 직접 옮기는 update-ref·symbolic-ref
+    case 'pull':
+      return has('-r', '--rebase', '--rebase=') && !has('--rebase=false', '--no-rebase') ? 'rebase' : 'merge';
+    case 'cherry-pick':
+    case 'revert':
+      return has('--abort', '--quit') ? null : 'commit';
+    case 'commit-tree':
+      return 'commit';
+    case 'update-ref':
+      return has('-d') ? 'delete-branch' : 'branch';
+    case 'symbolic-ref':
+      if (has('-d', '--delete')) return 'delete-branch';
+      return positional.length >= 2 ? 'branch' : null; // 인자 하나는 읽기
+    // worktree add·remove·prune·move·unlock: 다른 경로에 가드 없는 트리를 만들거나 다른 역할 트리를 지운다. list·lock은 그대로
+    case 'worktree':
+      if (rest[0] === 'add') return has('-b', '-B', '--orphan') ? 'branch' : 'worktree';
+      return ['remove', 'prune', 'move', 'unlock'].includes(rest[0]) ? 'worktree' : null;
     default:
       return null;
   }
@@ -1107,6 +1125,35 @@ function markUsed(ids, input, root) {
   }
 }
 
+// S4 D-32 예외: 역할 세션이 자기 worktree에서 기준 가지를 자기 가지에 합치는 `git merge <base>` 한 명령.
+// 명령 전체가 이 세 낱말뿐이어야 한다(옵션·-C·환경 변수·cd·다른 조각이 붙으면 아님). cwd는 .claude/worktrees/<agent_type> 안,
+// 그 폴더의 .git이 본 저장소 .git/worktrees/ 아래를 가리키는 표지 파일이고 HEAD가 wt/<역할> 가지여야 한다.
+// base는 본 저장소의 wy-ops.json(+local) worktree.base(없으면 예외 없음). worktree 안 사본은 역할 세션이 고칠 수 있어 보지 않는다
+function ownWorktreeMerge(input, command) {
+  const role = input.agent_type;
+  if (!role || !input.cwd) return false;
+  const t = tokens(command.trim());
+  if (t.length !== 3 || !/^git(?:\.exe)?$/i.test(t[0]) || t[1] !== 'merge' || segments(command).length !== 1 || innerSegments(command).length) return false;
+  const cwd = path.resolve(input.cwd);
+  const m = [...cwd.matchAll(/[\\/]\.claude[\\/]worktrees[\\/]([^\\/]+)(?=[\\/]|$)/g)].pop();
+  if (!m || m[1] !== role) return false;
+  const repo = cwd.slice(0, m.index);
+  const wt = cwd.slice(0, m.index + m[0].length);
+  const ops = loadOpsConfig(repo);
+  const base = ops && ops.worktree && ops.worktree.base;
+  if (typeof base !== 'string' || !/^[A-Za-z0-9._/-]+$/.test(base) || base.startsWith('-') || t[2] !== base || ops.root !== repo) return false;
+  try {
+    const dotGit = fs.readFileSync(path.join(wt, '.git'), 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+    const admin = dotGit && path.resolve(wt, dotGit[1]);
+    const rel = admin && path.relative(path.join(repo, '.git', 'worktrees'), admin);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    const head = fs.readFileSync(path.join(admin, 'HEAD'), 'utf8').trim();
+    return head === `ref: refs/heads/wt/${role}`;
+  } catch {
+    return false;
+  }
+}
+
 // rootOverride는 테스트용. 보통은 훅 입력의 cwd로 프로젝트 승인 폴더를 정한다
 function evaluate(input, rootOverride) {
   const command = String((input.tool_input && input.tool_input.command) || '');
@@ -1120,6 +1167,7 @@ function evaluate(input, rootOverride) {
   const root = rootOverride || store.rootFor(input.cwd || process.cwd());
   const guarded = allSegments(command).map((s) => ({ segment: s, kind: classify(s) })).filter((g) => g.kind);
   if (!guarded.length) return null;
+  if (ownWorktreeMerge(input, command)) return null; // 평소 권한 흐름대로
   const ops = loadOpsConfig(input.cwd || process.cwd());
   const COMMIT_SESSION = ops && typeof ops.commitRole === 'string' && ops.commitRole;
   if (!COMMIT_SESSION) {

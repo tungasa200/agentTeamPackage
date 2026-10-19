@@ -529,6 +529,124 @@ ok(writesApprovalFiles('echo {} > wy-ops.json', path.join(proj, '.claude')), 'cw
 ok(!inJobs('echo {} > a.json && sed -i s/a/b/ a.json'), 'cwd .claude/jobs: 그 안 파일은 통과');
 ok(classify('git push -f origin x') === 'force-push' && classify('git status') === null && classify('git rebase --abort') === null, 'classify regression');
 ok(ev('git push').decision === 'deny', 'non-commit session git push denied');
+// S4 WT-05: 설계 6절 잠금 표
+{
+  const want = {
+    'git worktree add -b wt/x .claude/worktrees/x main': 'branch',
+    'git worktree add -B wt/x ../x': 'branch',
+    'git worktree add ../x': 'worktree',
+    'git -C . worktree add ../x wt/x': 'worktree',
+    'git worktree remove --force ../x': 'worktree',
+    'git worktree remove ../x': 'worktree',
+    'git worktree prune': 'worktree',
+    'git worktree move ../x ../y': 'worktree',
+    'git worktree unlock ../x': 'worktree',
+    'git worktree list': null,
+    'git worktree list --porcelain': null,
+    'git worktree lock ../x': null,
+    'git merge --ff-only main': 'merge',
+    'git merge main': 'merge',
+    'git pull': 'merge',
+    'git pull --ff-only origin main': 'merge',
+    'git pull --no-rebase': 'merge',
+    'git pull --rebase=false': 'merge',
+    'git pull --rebase': 'rebase',
+    'git pull -r origin main': 'rebase',
+    'git pull --rebase=merges': 'rebase',
+    'git cherry-pick abc123': 'commit',
+    'git cherry-pick --continue': 'commit',
+    'git cherry-pick --abort': null,
+    'git revert HEAD': 'commit',
+    'git revert --quit': null,
+    'git commit-tree HEAD^{tree} -m x': 'commit',
+    'git update-ref refs/heads/main abc123': 'branch',
+    'git update-ref -d refs/heads/x': 'delete-branch',
+    'git symbolic-ref HEAD refs/heads/x': 'branch',
+    'git symbolic-ref --delete HEAD': 'delete-branch',
+    'git symbolic-ref HEAD': null,
+    'git symbolic-ref --short HEAD': null,
+  };
+  for (const [c, k] of Object.entries(want)) ok(classify(c) === k, `classify ${c} → ${classify(c)}, want ${k}`);
+  ok(ev('git worktree add ../x').decision === 'deny' && ev('git pull').decision === 'deny', 'S4: 역할 세션의 worktree add·pull 거부');
+  const store = require('../approvalStore');
+  ok(store.KINDS.worktree && store.gitEffect({ kind: 'worktree', command: 'git worktree remove --force x' }).includes('커밋 안 한 변경'), 'worktree 카드 종류·한 줄 설명');
+}
+// S4 D-32 예외: 자기 worktree에서 `git merge <worktree.base>` 한 명령만 승인 없이 통과
+{
+  const tmpRoots = [];
+  const cfg = (dir, worktree) => {
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.claude', 'wy-ops.json'), JSON.stringify({ commitRole: 'AB-commit', worktree }));
+  };
+  const mkRepo = (worktree) => {
+    const r = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-guard-wt-'));
+    tmpRoots.push(r);
+    cfg(r, worktree);
+    return r;
+  };
+  // 가짜 worktree: <repo>/.claude/worktrees/<이름>, .git 표지 파일 → <repo>/.git/worktrees/<이름>/HEAD.
+  // worktree 안 wy-ops.json 사본은 역할 세션이 고칠 수 있는 것(ownCfg)
+  const mkWt = (r, name, { head = `ref: refs/heads/wt/${name}`, admin = path.join(r, '.git', 'worktrees', name), ownCfg = { enabled: true, base: 'main' } } = {}) => {
+    const wt = path.join(r, '.claude', 'worktrees', name);
+    fs.mkdirSync(admin, { recursive: true });
+    fs.writeFileSync(path.join(admin, 'HEAD'), head + '\n');
+    cfg(wt, ownCfg);
+    fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${fwd(admin)}\n`);
+    return wt;
+  };
+  const repo = mkRepo({ enabled: true, base: 'main' });
+  const wt1 = mkWt(repo, 'AB-dev1');
+  mkWt(repo, 'AB-dev2');
+  const badHead = mkWt(repo, 'AB-dev4', { head: 'ref: refs/heads/main' });
+  // worktree 사본에서 base를 다른 가지로 바꿈(본 저장소 설정은 main)
+  const ownBase = mkWt(repo, 'AB-dev7', { ownCfg: { enabled: true, base: 'wt/AB-dev2' } });
+  // 표지 파일이 본 저장소 .git/worktrees 밖(다른 저장소)을 가리킴
+  const elsewhere = mkWt(repo, 'AB-dev8', { admin: path.join(mkRepo({}), '.git', 'worktrees', 'AB-dev8') });
+  const noBase = mkWt(mkRepo({ enabled: true }), 'AB-dev3', { ownCfg: { enabled: true, base: 'main' } });
+  const optBase = mkWt(mkRepo({ enabled: true, base: '--ff-only' }), 'AB-dev6');
+  // .git이 폴더(표지 파일 아님)인 같은 이름 폴더
+  const dirGit = path.join(repo, '.claude', 'worktrees', 'AB-dev5');
+  cfg(dirGit, { enabled: true, base: 'main' });
+  fs.mkdirSync(path.join(dirGit, '.git'), { recursive: true });
+  fs.mkdirSync(path.join(wt1, 'src'), { recursive: true });
+  const run = (command, agent_type, cwd) => evaluate({ tool_name: 'Bash', tool_input: { command }, agent_type, cwd, session_id: 's' }, process.env.WY_APPROVALS_DIR);
+  ok(run('git merge main', 'AB-dev1', wt1) === null, '자기 worktree merge <기준> 통과');
+  ok(run('git merge main', 'AB-dev1', path.join(wt1, 'src')) === null, '자기 worktree 하위 폴더 merge <기준> 통과');
+  ok(run('git  merge  "main"', 'AB-dev1', wt1) === null, '따옴표·공백만 다른 merge <기준> 통과');
+  const denyWt = [
+    ['다른 역할의 worktree', 'git merge main', 'AB-dev2', wt1],
+    ['본 저장소', 'git merge main', 'AB-dev1', repo],
+    ['agent_type 없음', 'git merge main', undefined, wt1],
+    ['다른 대상 가지', 'git merge feature', 'AB-dev1', wt1],
+    ['다른 역할 가지', 'git merge wt/AB-dev2', 'AB-dev1', wt1],
+    ['--ff-only', 'git merge --ff-only main', 'AB-dev1', wt1],
+    ['--no-edit', 'git merge --no-edit main', 'AB-dev1', wt1],
+    ['--no-ff', 'git merge main --no-ff', 'AB-dev1', wt1],
+    ['-C 본 저장소', `git -C ${fwd(repo)} merge main`, 'AB-dev1', wt1],
+    ['-c 설정', 'git -c core.hooksPath=x merge main', 'AB-dev1', wt1],
+    ['환경 변수', 'GIT_DIR=../../../.git git merge main', 'AB-dev1', wt1],
+    ['cd 뒤', 'cd ../../.. && git merge main', 'AB-dev1', wt1],
+    ['Set-Location 뒤', 'Set-Location ../../..; git merge main', 'AB-dev1', wt1],
+    ['다른 조각 붙음', 'git merge main && git push', 'AB-dev1', wt1],
+    ['명령 치환 안', 'echo $(git merge main)', 'AB-dev1', wt1],
+    ['하위 셸', '(git merge main)', 'AB-dev1', wt1],
+    ['두 번', 'git merge main; git merge main', 'AB-dev1', wt1],
+    ['base 없음', 'git merge main', 'AB-dev3', noBase],
+    ['HEAD가 wt/<역할> 아님', 'git merge main', 'AB-dev4', badHead],
+    ['.git이 폴더', 'git merge main', 'AB-dev5', dirGit],
+    ['base가 옵션 모양', 'git merge --ff-only', 'AB-dev6', optBase],
+    ['worktree 사본의 base', 'git merge wt/AB-dev2', 'AB-dev7', ownBase],
+    ['표지 파일이 다른 저장소', 'git merge main', 'AB-dev8', elsewhere],
+    ['merge 아닌 명령', 'git rebase main', 'AB-dev1', wt1],
+    ['pull', 'git pull origin main', 'AB-dev1', wt1],
+  ];
+  for (const [why, c, who, cwd] of denyWt) {
+    const e = run(c, who, cwd);
+    ok(e && e.decision === 'deny', `S4 예외 거부(${why}): ${c} → ${JSON.stringify(e)}`);
+  }
+  ok(run('git merge main', 'AB-dev7', ownBase) === null, '사본 base와 상관없이 본 저장소 base로는 통과');
+  for (const r of tmpRoots) fs.rmSync(r, { recursive: true, force: true });
+}
 ok(writesApprovalFiles('ls') === false, 'unrelated passes');
 
 // 세션 등록 기록에 실제 agent_type 덧쓰기(fork 세션은 SessionStart 기록이 null)
