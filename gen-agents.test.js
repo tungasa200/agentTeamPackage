@@ -175,6 +175,7 @@ try {
   assert.strictEqual(wt.skillRules(off), '- 커밋을 요청한 파일은 완료 회신 전까지 아무도 고치지 않는다. 공유 워킹트리에서 stash·checkout·restore·reset·clean 금지.');
   const a = wt.agentRules(base, 'XX-a');
   assert.ok(a.includes('`.claude/worktrees/XX-a`(가지 `wt/XX-a`)') && !a.includes('git archive`로 사본을'), '켜짐: 자기 worktree');
+  for (const t of [a, wt.claudeMdRules(base).treeRules]) assert.ok(t.includes('`worktree.base`를 적었을 때뿐'), '켜짐: merge 예외는 worktree.base를 적었을 때만(결함 A)');
   assert.ok(wt.agentRules(base, 'XX-commit').includes('git merge --no-ff wt/<역할>'), '켜짐: commit은 병합 흐름');
   assert.ok(wt.agentRules(base, 'XX-pm').startsWith('- 이 세션은 본 저장소에서 돈다') && !wt.agentRules(base, 'XX-pm').includes('--no-ff'), '켜짐: pm은 본 저장소');
   assert.ok(wt.claudeMdRules(base).commitTreeRules.startsWith('\n- '), '켜짐: 커밋 절에 한 줄 더함');

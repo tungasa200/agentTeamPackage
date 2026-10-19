@@ -84,7 +84,7 @@ function makePc(name, { home: homeName = 'home' } = {}) {
     // 호스트 점검(lib/host.js probe, -EncodedCommand): 기본은 호스트가 아닌 PC(sshd 없음)
     if (cmd === 'powershell' && args.includes('-EncodedCommand')) return ok(JSON.stringify({ admin: false, sshd: null, tailscale: null, ...state.host }));
     if (cmd === 'powershell') return ok('5.1.19041.1\n');
-    if (cmd === 'node' && args.includes('--check') && String(args[0]).endsWith('gen-agents.js')) return { status: state.genAgents, stdout: state.genAgents ? 'X-commit.md가 다름\n' : '' };
+    if (cmd === 'node' && args.includes('--check') && String(args[0]).endsWith('gen-agents.js')) return { status: state.genAgents, stdout: state.genAgents ? state.genOut || 'X-commit.md가 다름\n' : '' };
     if (cmd === 'node' && args[0] === '--check') return ok();
     if (cmd === 'gh') return { status: state.gh, stdout: '' };
     if (cmd === 'where') return ok('C:\\Users\\me\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code\n');
@@ -338,6 +338,10 @@ try {
     const pc = makePc('config');
     pc.state.genAgents = 1;
     assert.ok(byId(doctor.checkAll(pc.opts)).config.fix.includes(' gen'), '역할 파일 다름');
+    // 결함 B: --check 출력의 '같음' 줄은 빼고 다른 줄만 보여 준다
+    pc.state.genOut = '같음  X-pm.md\n같음  X-dev.md\n다름  X-commit.md (3행)\n  생성: a\n  지금: b\n다른 파일 1개\n';
+    const why = byId(doctor.checkAll(pc.opts)).config.detail;
+    assert.ok(why.includes('다름  X-commit.md (3행)') && !why.includes('같음'), why);
     pc.state.genAgents = 0;
     // D-36: 예전 설치에 남은 pm agent:false는 통과에 알림만 붙인다
     const cfg = path.join(pc.repo, '.claude', 'wy-ops.json');

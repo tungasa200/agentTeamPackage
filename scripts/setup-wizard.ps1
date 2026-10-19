@@ -380,7 +380,7 @@ function Show-Step2 {
     $wr = New-Row 8
     $wc = New-Object Windows.Forms.CheckBox; $wc.AutoSize = $true; $wc.Font = $F.Body; $wc.Text = '역할마다 작업 폴더 따로 쓰기'; $wc.AccessibleName = '역할마다 작업 폴더 따로 쓰기'
     $wc.Checked = $St.Worktree; $wc.Enabled = -not $St.WorktreeFixed
-    $hp3 = New-HelpPanel 'AI 도우미마다 프로젝트 사본 폴더를 하나씩 두고 그 안에서 일합니다. 서로 고치는 파일이 섞이지 않습니다. 끄면 모두 한 폴더를 함께 씁니다. 설치 뒤에는 .claude/wy-ops.json의 worktree.enabled를 고치고 install.ps1 gen을 실행합니다.'
+    $hp3 = New-HelpPanel 'AI 도우미마다 프로젝트 사본 폴더를 하나씩 두고 그 안에서 일합니다. 서로 고치는 파일이 섞이지 않습니다. 끄면 모두 한 폴더를 함께 씁니다. 설치 뒤에는 .claude/wy-ops.json의 worktree.enabled를 고치고 install.ps1 gen을 실행합니다. CLAUDE.md의 워킹트리·커밋 줄은 자동으로 바뀌지 않으니 손으로 고치고, 떠 있는 역할 세션은 rotate로 바꿉니다.'
     $wr.Controls.AddRange(@($wc, (New-HelpButton '역할마다 작업 폴더' $hp3))); $flow.Controls.Add($wr); $flow.Controls.Add($hp3)
     $script:ui.WtHint = Add-Ctl (New-Label (Get-WorktreeHint) $F.Small $C.Muted) 4
     $script:ui.WtBox = $wc
