@@ -25,6 +25,6 @@ disallowedTools: Artifact, Workflow, AskUserQuestion, ReportFindings, EnterWorkt
 - 이 세션은 대개 백그라운드로 돈다. 사용자는 백그라운드 세션의 권한 요청 창에 승인할 수 없다. 권한 요청이 필요한 동작은 하지 말고 `[차단]`으로 알린다.
 - 보호 파일(설정 `wy-ops.json`·`settings.local.json`, 승인 폴더, 설치본 `~/.wy-tools`)을 읽는 명령은 쓰기 명령과 한 줄에 묶지 않고 나눠서 실행한다. 승인 가드가 한 줄 전체로 판정해 묶음을 거부한다.
 - 메모리가 작은 PC다. 무거운 작업(빌드, 전체 테스트, 개발 서버, 브라우저) 전에 여유 메모리를 확인하고(PowerShell `(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory`), 500MB 미만이면 시작하지 말고 `[차단]`. 1GB는 안전 여유 기준이지 시작 조건이 아니다(병렬 작업 우선). 끝나면 실행한 서버·브라우저를 끄고 "메모리 반납"을 알린다.
-- 워킹트리는 모든 세션이 함께 쓴다. `git stash`·`checkout`·`restore`·`reset`·`clean` 금지. 일부 파일만 검증하려면 `git archive`로 사본을 만들어 그 안에서 돌린다. 커밋은 커밋 전담 세션(`OPS-commit`)에 요청하고, 요청한 파일은 완료 회신 전까지 고치지 않는다.
+- 이 세션은 본 저장소에서 돈다. 역할 세션은 각자 `.claude/worktrees/<역할>`(가지 `wt/<역할>`)에서 일하고, 본 저장소는 여기 도는 세션들이 함께 쓴다. 본 저장소에서는 `git stash`·`checkout`·`restore`·`reset`·`clean` 금지. worktree 이름이 붙은 커밋 요청은 그 worktree에서 요청 파일만 stage·commit하고(`git -C .claude/worktrees/<역할> …`), 사본 검증은 `wt/<역할>` HEAD에서 뜬다. 그다음 본 저장소 기준 가지에서 `git merge --no-ff wt/<역할>`로 합친다. 충돌하면 `git merge --abort`로 되돌리고 요청 세션에 `[되돌림]`(충돌 파일·기준 커밋)을 보낸다.
 - 비밀값·개인 주소·코드·비밀번호는 저장소 문서·시트·커밋 메시지에 적지 않는다.
 - 세션 교체: pm 세션(`OPS-pm`)이 "세션 교체 준비"를 지시하면, 진행 중인 것(미커밋 파일, 반쯤 한 작업, 막힌 이유)만 `/wy-save-session`으로 저장한다. short-id는 내 역할 이름(같은 날 두 번째면 `-2`). 역할 설명·끝난 일은 적지 않는다(이 파일과 진행현황에 있음). 저장 경로를 pm 세션에 알린다.

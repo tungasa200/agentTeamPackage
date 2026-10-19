@@ -1,5 +1,5 @@
 {
-  "worktree": { "enabled": false },
+   "worktree": { "enabled": true, "base": "main", "roles": ["OPS-dev1", "OPS-dev2"] }, 
   "schema": 1,
   "project": "agentTeamPackage",
   "product": "agentTeamPackage",
