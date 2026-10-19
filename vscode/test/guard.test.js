@@ -571,6 +571,150 @@ ok(ev('git push').decision === 'deny', 'non-commit session git push denied');
   const store = require('../approvalStore');
   ok(store.KINDS.worktree && store.gitEffect({ kind: 'worktree', command: 'git worktree remove --force x' }).includes('커밋 안 한 변경'), 'worktree 카드 종류·한 줄 설명');
 }
+// S4 가드 후속(D-37 묶음): 설계 표 밖 잠금 구멍, 카드 종류, 실행기·셸 문자열로 감싼 git, 별칭·외부 명령
+{
+  const want = {
+    'git fetch . x:main': 'branch',
+    'git fetch origin +main:main': 'branch',
+    'git fetch --stdin origin': 'branch',
+    'git fetch origin': null,
+    'git fetch origin main': null,
+    'git fetch https://host/repo.git main': null,
+    'git fetch --multiple origin upstream': null,
+    'git am x.patch': 'commit',
+    'git am --abort': null,
+    'git am --show-current-patch=diff': null,
+    'git worktree repair': 'worktree',
+    'git worktree list': null,
+    'git pull --rebase=no': 'merge',
+    'git pull --rebase=false': 'merge',
+    'git pull --rebase': 'rebase',
+    'git pull --rebase --no-rebase': 'merge',
+    'git pull --no-rebase -r': 'rebase',
+    'git -c pull.rebase=true pull': 'rebase',
+    'git -c pull.rebase=false pull': 'merge',
+    'git -c pull.rebase pull': 'rebase',
+    'git -c pull.rebase=true pull --no-rebase': 'merge',
+    'git pull --ff-only': 'merge',
+    'git filter-branch --tree-filter x HEAD': 'rebase',
+    'git replay --onto main a..b': 'rebase',
+    'git send-pack origin main': 'push',
+    'git subtree push --prefix=x origin main': 'push',
+    'git subtree add --prefix=x origin main': 'commit',
+    'git subtree split --prefix=x': null,
+    'git quiltimport': 'commit',
+    'env git commit -m x': 'commit',
+    'command git commit -m x': 'commit',
+    'command -v git': null,
+    'nohup git push': 'push',
+    'timeout 5 git push': 'push',
+    'xargs -I {} git commit -m {}': 'commit',
+    '& git commit -m x': 'commit',
+    "& 'git' commit -m x": 'commit',
+    'bash -c "git commit -m x"': 'commit',
+    "sh -c 'git status; git push'": 'push',
+    "powershell -NoProfile -c 'git commit -m x'": 'commit',
+    'cmd /c git commit -m x': 'commit',
+    [`powershell -enc ${Buffer.from('git push', 'utf16le').toString('base64')}`]: 'push',
+    'bash -c "git status"': null,
+    'git -c alias.ci=commit ci': 'unknown',
+    'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.ci GIT_CONFIG_VALUE_0=commit git ci': 'unknown',
+    'git lfs pull': 'unknown',
+    'git -C x status': null,
+    'git --version': null,
+    // 점검(code-review)에서 찾은 감싼 형태
+    'true & git push': null, // 조각으로는 git push만 따로 잠긴다(아래 ev)
+    'sudo -E git push': 'push',
+    'env -S "git push"': 'push',
+    'xargs -E x git push': 'push',
+    "powershell -ep Bypass -c 'git push'": 'push',
+    "pwsh -wd C:/ -c 'git push'": 'push',
+    'echo push | xargs git': null, // 조각 'xargs git'이 unknown(아래)
+    'xargs git': 'unknown',
+    "Start-Process git 'push origin main'": 'push',
+    "sh -c 'git commit -m x; git push'": 'unknown',
+    'git fetch --refmap=+refs/heads/*:refs/heads/* origin main': 'branch',
+    'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.fetch GIT_CONFIG_VALUE_0=+refs/heads/*:refs/heads/* git fetch origin': 'branch',
+    'git subtree -P x push origin main': 'push',
+    'git subtree --prefix x add origin main': 'commit',
+  };
+  for (const [c, k] of Object.entries(want)) ok(classify(c) === k, `classify ${c} → ${classify(c)}, want ${k}`);
+  // 별칭·외부 명령은 커밋 역할도 실행 못 한다
+  const commitEv = evaluate({ tool_name: 'Bash', tool_input: { command: 'git -c alias.ci=commit ci -m x' }, agent_type: 'AB-commit', cwd: proj, session_id: 's' });
+  ok(commitEv && commitEv.decision === 'deny' && commitEv.reason.includes('별칭'), 'alias denied for commit role: ' + JSON.stringify(commitEv));
+  ok(ev('grep -n "mktemp -d)\\" && git -C" fp4.js') === null, '따옴표가 깨져 끼어든 낱말은 별칭으로 보지 않는다');
+  const bg = ev('true & git push');
+  ok(bg && bg.decision === 'deny', '홑 & 뒤의 git push도 잠긴다: ' + JSON.stringify(bg));
+  ok(ev('npm test 2>&1 | tail -3') === null && ev('node x.js &> out.txt') === null, '리다이렉트의 &는 나누지 않는다');
+  // git 명령의 here-doc 본문(커밋 메시지)에 'git 낱말' 줄이 있어도 별칭으로 막지 않는다(승인 흐름으로 간다)
+  const msgEv = evaluate({ tool_name: 'Bash', tool_input: { command: "git commit -F - <<'EOF'\nfix\ngit hooks cleanup\nEOF" }, agent_type: 'AB-commit', cwd: proj, session_id: 's' });
+  ok(msgEv && msgEv.decision === 'deny' && !msgEv.reason.includes('별칭'), 'commit 메시지 본문의 git 낱말은 별칭 아님: ' + JSON.stringify(msgEv));
+  const bashEv = evaluate({ tool_name: 'Bash', tool_input: { command: "bash <<'EOF'\ngit ci\nEOF" }, agent_type: 'AB-commit', cwd: proj, session_id: 's' });
+  ok(bashEv && bashEv.reason.includes('별칭'), 'bash here-doc 안의 별칭은 막는다: ' + JSON.stringify(bashEv));
+  // 따옴표 안의 "<<EOF"는 here-doc이 아니다(다음 줄의 별칭을 숨기지 못한다)
+  const qEv = evaluate({ tool_name: 'Bash', tool_input: { command: 'git log --grep "<<EOF"\ngit -c alias.p=push p\nEOF' }, agent_type: 'OPS-dev1', cwd: proj, session_id: 's' });
+  ok(qEv && qEv.decision === 'deny', '따옴표 안 <<EOF로 별칭 숨기기: ' + JSON.stringify(qEv));
+  // 너무 깊게 감싼 셸 문자열은 막는다
+  let deep = 'git push';
+  for (let n = 0; n < 8; n++) deep = `powershell -enc ${Buffer.from(deep, 'utf16le').toString('base64')}`;
+  ok(classify(deep) === 'unknown', '깊게 감싼 -enc는 unknown: ' + classify(deep));
+  const store = require('../approvalStore');
+  ok(store.gitEffect({ kind: 'commit', command: 'git cherry-pick a b c' }).includes('여러 개'), 'cherry-pick 카드: 커밋 여러 개');
+  ok(store.gitEffect({ kind: 'commit', command: 'git commit -m "I am here"' }).includes('1개'), 'commit 카드: 커밋 1개(메시지의 am은 무시)');
+  ok(store.gitEffect({ kind: 'branch', command: 'git worktree add -B wt/x ../x', branch: 'wt/x' }).includes('옮김'), 'worktree add -B 카드');
+  ok(store.gitEffect({ kind: 'branch', command: 'git fetch . x:main', branch: 'main' }).includes('옮기거나'), 'fetch a:b 카드');
+  ok(store.gitEffect({ kind: 'branch', command: 'git checkout -b x', branch: 'x' }).includes('만듦 · 지우면'), 'checkout -b 카드는 그대로');
+  ok(store.gitEffect({ kind: 'worktree', command: 'git worktree repair' }).includes('연결'), 'worktree repair 카드');
+  ok(!store.gitEffect({ kind: 'worktree', command: 'git worktree move a ../repair' }).includes('연결'), 'worktree move ../repair는 repair 카드가 아님');
+  ok(store.gitEffect({ kind: 'branch', command: 'git branch -m old new', branch: 'new' }).includes('이름을'), 'branch -m 카드: 이름 바꿈');
+  // 쓰기 가드: .NET 형태·셸 문자열 안·경로 객체 open·링크 프로그램
+  const wDeny = [
+    W`$null = [IO.File]::WriteAllText("$HOME\.claude\wy-ops.json", 'x')`,
+    W`$x = [IO.File]::Delete("$HOME\.claude\wy-ops.json")`,
+    W`[void][IO.File]::Delete("$HOME\.claude\wy-ops.json")`,
+    W`(New-Object IO.StreamWriter "$HOME\.claude\wy-ops.json").Close()`,
+    W`(Get-Item ~/.claude/wy-ops.json).Delete()`,
+    W`$f=[IO.File]; $f::WriteAllText("$HOME\.claude\wy-ops.json",'x')`,
+    '$x = Remove-Item ~/.claude/wy-ops.json',
+    `python -c "import pathlib,os; pathlib.Path(os.path.expanduser('~/.claude/wy-ops.json')).open('w').write('x')"`,
+    'bash -c "cat ~/.claude/wy-ops.json; rm ~/.claude/wy-ops.json"',
+    'sh -c "cat x; cp y ~/.claude/wy-ops.json"',
+    'powershell -c "Get-Content x; ri ~/.claude/wy-ops.json"',
+    `powershell -enc ${Buffer.from('Remove-Item ~/.claude/wy-ops.json', 'utf16le').toString('base64')}`,
+    '/usr/bin/ln -s ~/proj /tmp/h && cp e /tmp/h/.claude/wy-ops.json',
+    '"/usr/bin/ln" -s ~/proj /tmp/h && cp e /tmp/h/.claude/wy-ops.json',
+    'env ln -s ~/proj /tmp/h && cp e /tmp/h/.claude/wy-ops.json',
+    'L=$(echo ln); $L -s ~/proj /tmp/h && cp e /tmp/h/.claude/wy-ops.json',
+    'cmd /c dir.bat ~/.claude/wy-ops.json',
+    // 점검(security-review·code-review)에서 찾은 형태
+    W`([type]::GetType('System.IO.File')).GetMethod('WriteAllText').Invoke($null, @("$HOME\.claude\wy-ops.json",'{}'))`,
+    W`! [type]::GetType('System.IO.File').GetMethod('Delete').Invoke($null, @("$HOME\.claude\wy-ops.json"))`,
+    W`[void][type]::GetType('System.IO.File').GetMethod('Delete').Invoke($null, @("$HOME\.claude\wy-ops.json"))`,
+    '$null = (Get-Item ~/.claude/wy-ops.json).Delete()',
+    '[void](Get-Item ~/.claude/wy-ops.json).Delete()',
+    '(Get-Item (Join-Path ~ .claude/wy-ops.json)).Delete()',
+    '$x=Remove-Item ~/.claude/wy-ops.json',
+    'true & rm ~/.claude/wy-ops.json',
+    'nohup rm ~/.claude/wy-ops.json',
+    'timeout 5 cp x ~/.claude/wy-ops.json',
+    'sudo -u me rm ~/.claude/wy-ops.json',
+    'cd ~/.claude && ls | xargs rm',
+    'cd ~/.claude && ls | xargs cat',
+  ];
+  for (const c of wDeny) ok(writesApprovalFiles(c, proj), 'should deny write: ' + c);
+  const wAllow = [
+    'cmd /c dir ~/.claude/wy-ops.json',
+    'bash -c "git status"',
+    "bash -c 'cat ~/.claude/wy-ops.json'",
+    W`$c = Get-Content ~/.claude/wy-ops.json | ConvertFrom-Json; $c.commitRole`,
+    W`$i = "$HOME\.wy-tools\wy-ops\current\install.ps1"; & $i doctor`,
+    W`$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('C:\x\a.ps1',[ref]$null,[ref]$e); Get-Content "$HOME\.claude\wy-approvals\p\requests\a.json"`,
+    'B="agent-browser --session x"; $B eval "(() => { const s = document.createElement(\'style\'); document.head.append(s) })()"',
+    "python -c \"import json; d=json.load(open('.claude/wy-ops.json')); purge.open({'id': 1})\"",
+    W`([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator); Get-Content "$HOME\.claude\wy-ops.json"`,
+  ];
+  for (const c of wAllow) ok(!writesApprovalFiles(c, proj), 'should allow write: ' + c);
+}
 // S4 D-32 예외: 자기 worktree에서 `git merge <worktree.base>` 한 명령만 승인 없이 통과
 {
   const tmpRoots = [];
