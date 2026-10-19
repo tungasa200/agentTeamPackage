@@ -117,14 +117,22 @@ function gitEffect(r) {
   const files = Number.isFinite(r.fileCount) ? r.fileCount : Array.isArray(r.files) ? r.files.length : 0;
   const on = b ? `${b}에` : '현재 브랜치에';
   const count = n ? ` ${n}개 커밋` : '';
+  const sub = (re) => new RegExp(`\\bgit(?:\\s+-[cC]\\s+\\S+|\\s+-\\S+)*\\s+(?:${re})(?=\\s|$)`).test(cmd);
   switch (r.kind) {
     case 'commit':
+      // cherry-pick·revert·am 등은 고른 커밋·패치 수만큼 커밋을 만든다
+      if (sub('cherry-pick|revert|am|quiltimport|subtree')) return `${on} 커밋 ${n ? `${n}개` : '여러 개일 수 있음'} 추가 · 푸시 전이라 되돌리기 쉬움`;
       return `${on} 커밋 1개 추가${files ? `(파일 ${files}개)` : ''} · 푸시 전이라 되돌리기 쉬움`;
     case 'push':
       return `원격 ${b || '브랜치'}에${count || ' 커밋'} 올림 · revert로 되돌림`;
     case 'force-push':
       return `원격 ${b || '브랜치'}를 로컬 내용으로 덮어씀 · 덮인 커밋은 되찾기 어려움`;
     case 'branch':
+      // 있는 가지를 옮기는 형태(-B·-C·-f, update-ref, fetch a:b 등)는 '만듦'만으로는 모자란다
+      if (sub('worktree')) return `worktree 만들고 브랜치 ${b || '새 브랜치'} 만듦${/\s-B\b/.test(cmd) ? '(있던 브랜치면 위치를 옮김)' : ''} · 커밋된 내용은 가지에 남음`;
+      if (sub('branch') && /\s(?:-[mM]|--move)(?=\s|$)/.test(cmd)) return `브랜치 이름을 ${b || '새 이름'}(으)로 바꿈 · 다시 바꾸면 되돌림`;
+      if (sub('update-ref|symbolic-ref|fetch|fast-import') || /\s(?:-[BCf]|--force(?:-create)?)(?=\s|$)/.test(cmd))
+        return `브랜치 ${b || ''} 위치를 옮기거나 만듦 · reflog로 되찾음`.replace('  ', ' ');
       return `브랜치 ${b || '새 브랜치'} 만듦 · 지우면 되돌림`;
     case 'delete-branch':
       return `브랜치 ${b || ''} 삭제 · 병합 안 된 커밋은 잃을 수 있음`.replace('  ', ' ');
@@ -143,7 +151,8 @@ function gitEffect(r) {
         return /--force\b|\s-f\b/.test(cmd)
           ? 'worktree 폴더 지움, 커밋 안 한 변경도 지움 · 지운 변경은 되찾기 어려움'
           : 'worktree 폴더 지움(무시 파일 포함) · 커밋된 내용은 가지에 남음';
-      return /\bprune\b/.test(cmd) ? '폴더 없는 worktree 등록 지움 · 커밋된 내용은 가지에 남음' : 'worktree 만들거나 옮김 · 커밋된 내용은 가지에 남음';
+      if (sub('worktree\\s+repair')) return 'worktree와 저장소 사이 연결 정보를 다시 씀 · 폴더 내용은 그대로';
+      return /\bprune\b/.test(cmd) ?'폴더 없는 worktree 등록 지움 · 커밋된 내용은 가지에 남음' : 'worktree 만들거나 옮김 · 커밋된 내용은 가지에 남음';
     default:
       return '';
   }

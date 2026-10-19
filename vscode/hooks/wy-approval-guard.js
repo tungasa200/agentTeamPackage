@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // wy-ops 승인 가드(PreToolUse 훅, Bash·PowerShell). 초안 — 적용은 사용자 설정에서 한다.
-// - 잠금 대상 git 명령: commit·push·강제 푸시·브랜치 생성/삭제·merge(gh pr merge)·reset·rebase·태그 삭제·worktree 추가/삭제(pull·cherry-pick·revert·update-ref 등 포함). 모두 승인 센터의 승인 결정이 있어야 한다.
+// - 잠금 대상 git 명령: commit·push·강제 푸시·브랜치 생성/삭제·merge(gh pr merge)·reset·rebase·태그 삭제·worktree 추가/삭제(pull·cherry-pick·revert·am·update-ref·fetch a:b 등 포함). 모두 승인 센터의 승인 결정이 있어야 한다.
+//   env·&·bash -c·cmd /c·powershell -c 등으로 감싼 git도 본다. git 별칭·외부 명령(내장이 아닌 하위 명령)은 아무도 실행 못 한다.
 // - 예외 하나(S4, D-32): 역할 세션이 자기 worktree(.claude/worktrees/<자기 역할>, 가지 wt/<자기 역할>)에서 `git merge <worktree.base>`만 한 명령은 승인 없이 통과.
 // - 잠금 대상은 프로젝트 설정의 커밋 역할(wy-ops.json commitRole, agent_type)만 실행한다. agent_type이 없는 세션도, 설정이 없으면 모두 거부한다.
 // - 승인 한 건은 한 번만 쓴다(used/<id>.json).
@@ -48,9 +49,12 @@ const WRITE_API = new RegExp(
 const OBFUSCATION = /\[[^\]]*\+[^\]]*\]|\beval\b|\bFunction\s*\(|getattr|__import__|\bexec\s*\(|\bcompile\s*\(|fromCharCode|\batob\b|\\x[0-9a-f]{2}|\\u[0-9a-f]{4}|Buffer\.from|Invoke-Expression|\biex\b|-EncodedCommand|-enc\b|globalThis|process\.binding|\bimportlib\b/i;
 // 읽기 API. 인터프리터 코드가 이것만 쓰면 통과
 const READ_API = /readFileSync|readFile|\brequire\s*\(|existsSync|statSync|readdirSync|JSON\.parse|json\.load|\bopen\s*\(|read_text|Get-Content|Test-Path|Get-ChildItem|Get-Item|ConvertFrom-Json|Select-String|\bsls\b|Select-Object|Measure-Object|\]::(?:ReadAll|Exists)|\bcat\b|\btype\b/i;
+// .NET 파일·폴더 객체의 쓰기 메서드((Get-Item p).Delete(), $fi.MoveTo(…)). 문자열 .Replace(는 넣지 않는다
+// 받는 쪽은 조각 맨 앞의 (PowerShell 명령 …) 또는 $변수뿐이다(JS 코드의 .append( 등과 섞지 않게)
+const PS_WRITE_METHOD = /^(?:\(\s*(?:[A-Za-z]+-[A-Za-z]+|gi|gci)\b(?:[^()]|\([^()]*\))*\)|\$[\w:]+)\.(?:Delete|MoveTo|CopyTo|OpenWrite|AppendText|CreateText|CreateSubdirectory|Encrypt|Decrypt|SetAccessControl|Write\w*|Append\w*)\s*\(/i;
 // 버리는 리다이렉트 대상
 const NULL_TARGET = /^(?:\/dev\/null|nul|\$null|&\d)$/i;
-const LEADING_KEYWORDS = new Set(['do', 'then', 'else', 'elif', 'until', 'while', 'if', '!', '{', '(', 'time', 'exec', 'sudo', 'env', '&']);
+const LEADING_KEYWORDS = new Set(['do', 'then', 'else', 'elif', 'until', 'while', 'if', '!', '{', '(']); // 실행기(time·exec·sudo·env·& …)는 RUNNERS·stripRunners가 옵션과 함께 뗀다
 
 // 명령을 &&, ||, ;, |, 줄바꿈으로 나눈다(따옴표 안은 나누지 않는다). pipes=false면 파이프(|)로는 나누지 않는다(파이프라인을 한 덩어리로)
 function segments(command, pipes = true) {
@@ -67,8 +71,9 @@ function segments(command, pipes = true) {
       cur += ch;
     } else if (ch === '|' && !pipes && command[i + 1] !== '|') {
       cur += ch;
-    } else if (ch === ';' || ch === '\n' || ch === '|' || (ch === '&' && command[i + 1] === '&')) {
-      if (ch === '&' || (ch === '|' && command[i + 1] === '|')) i++;
+    } else if (ch === ';' || ch === '\n' || ch === '|' || (ch === '&' && !/[<>&]/.test(command[i - 1] || '') && command[i + 1] !== '>')) {
+      // 홑 & (뒤로 돌리기·cmd 이어 쓰기)도 나눈다. 리다이렉트(2>&1·&>·>&2)는 빼고
+      if ((ch === '&' || ch === '|') && command[i + 1] === ch) i++;
       out.push(cur);
       cur = '';
     } else cur += ch;
@@ -108,19 +113,107 @@ function tokens(segment) {
   return (segment.match(/"[^"]*"|'[^']*'|\S+/g) || []).map((t) => t.replace(/^["']|["']$/g, ''));
 }
 
-// 한 조각이 잠금 대상이면 종류를, 아니면 null
-function classify(segment) {
-  let t = tokens(segment);
-  while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) t = t.slice(1); // 앞의 VAR=값
+// git 내장 명령(2.55 `git --list-cmds=main,nohelpers`). 이 밖의 하위 명령은 별칭(-c alias.*·설정 파일·GIT_CONFIG_* 환경 변수)이나
+// 외부 명령(git-<이름>)이라 무엇을 하는지 모른다 → 'unknown'(아무도 실행 못 함). 내장 이름은 별칭이 덮지 못한다(git이 무시)
+const GIT_BUILTINS = new Set(
+  ('add am annotate apply archive backfill bisect blame branch bugreport bundle cat-file check-attr check-ignore check-mailmap check-ref-format checkout ' +
+    'checkout-index cherry cherry-pick citool clean clone column commit commit-graph commit-tree config count-objects credential credential-cache ' +
+    'credential-store credential-wincred daemon describe diagnose diff diff-files diff-index diff-pairs diff-tree difftool fast-export fast-import fetch ' +
+    'fetch-pack filter-branch fmt-merge-msg for-each-ref for-each-repo format-patch format-rev fsck fsck-objects gc get-tar-commit-id grep gui hash-object ' +
+    'help history hook http-backend http-fetch http-push imap-send index-pack init init-db interpret-trailers last-modified log ls-files ls-remote ls-tree ' +
+    'mailinfo mailsplit maintenance merge merge-base merge-file merge-index merge-octopus merge-one-file merge-ours merge-recursive merge-recursive-ours ' +
+    'merge-recursive-theirs merge-resolve merge-subtree merge-tree mergetool mktag mktree multi-pack-index mv name-rev notes pack-objects pack-redundant ' +
+    'pack-refs patch-id pickaxe prune prune-packed pull push quiltimport range-diff read-tree rebase receive-pack reflog refs remote remote-ext remote-fd ' +
+    'remote-ftp remote-ftps remote-http remote-https repack replace replay repo request-pull rerere reset restore rev-list rev-parse revert rm send-email ' +
+    'send-pack shortlog show show-branch show-index show-ref sparse-checkout stage stash status stripspace submodule subtree survey switch symbolic-ref ' +
+    'tag unpack-file unpack-objects update-index update-ref update-server-info upload-archive upload-pack url-parse var verify-commit verify-pack ' +
+    'verify-tag version whatchanged worktree write-tree').split(' '),
+);
+// 프로그램 앞에 붙어 그 프로그램을 실행하는 것(env git commit, & git commit, nohup·timeout·nice …). 붙은 옵션·숫자 인자도 뗀다
+const RUNNERS = new Set(['env', 'exec', 'sudo', 'time', 'command', 'builtin', 'nohup', 'nice', 'timeout', 'stdbuf', 'xargs', '&', 'start-process', 'saps', 'start', 'call']);
+const ARG_RUNNERS = new Set(['xargs', 'start-process', 'saps', 'start']);
+function stripRunners(t, verbatimOnly = false) {
+  for (;;) {
+    while (t.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0])) t = t.slice(1); // 앞의 VAR=값
+    const p = progName(t);
+    if (!RUNNERS.has(p) || (verbatimOnly && ARG_RUNNERS.has(p)) || (p === 'command' && /^-[vV]$/.test(t[1] || ''))) return t; // command -v는 찾기만 한다
+    t = t.slice(1);
+    while (t.length && (/^-|^\/[A-Za-z]+$/.test(t[0]) || /^\d+(?:\.\d+)?[smhd]?$/.test(t[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]))) {
+      // env -S '명령 문자열'은 그 문자열을 나눠 실행한다
+      if (p === 'env' && /^(?:-S|--split-string)$/.test(t[0])) t = [...tokens(t[1] || ''), ...t.slice(2)];
+      else if (p === 'env' && /^(?:-S.|--split-string=)/.test(t[0])) t = [...tokens(t[0].replace(/^-S|^--split-string=/, '')), ...t.slice(1)];
+      else t = t.slice((RUNNER_VALUE_OPTS[p] || []).includes(t[0]) ? 2 : 1);
+    }
+  }
+}
+// 실행기 옵션 중 값을 따로 받는 것(xargs -I {}, env -u X, timeout -k 5 …). 실행기마다 다르다(sudo -E는 값 없음, xargs -E는 값)
+const RUNNER_VALUE_OPTS = {
+  env: ['-u', '-C', '--unset', '--chdir'],
+  sudo: ['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-U', '-R', '-T', '--user', '--group', '--chdir', '--host', '--prompt', '--role', '--type', '--other-user', '--chroot', '--command-timeout'],
+  xargs: ['-I', '-n', '-L', '-P', '-d', '-E', '-s', '-a', '--arg-file', '--delimiter', '--max-args', '--max-procs', '--max-chars', '--max-lines', '--process-slot-var'],
+  timeout: ['-k', '-s', '--signal', '--kill-after'],
+  nice: ['-n', '--adjustment'],
+  stdbuf: ['-i', '-o', '-e'],
+};
+// 셸·PowerShell·cmd가 실행할 명령 문자열(bash -c '…', cmd /c …, powershell [-Command] …, -EncodedCommand, iex '…'). 없으면 null(스크립트 파일 등)
+const PS_VALUE_OPTS = ['ep', 'wd', 'executionpolicy', 'windowstyle', 'version', 'inputformat', 'outputformat', 'configurationname', 'psconsolefile', 'workingdirectory', 'settingsfile'];
+function shellCode(t) {
+  const p = progName(t);
+  const rest = t.slice(1);
+  if (['bash', 'sh', 'zsh', 'dash', 'ksh'].includes(p)) {
+    const i = rest.findIndex((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
+    return i >= 0 && rest[i + 1] !== undefined ? rest[i + 1] : null;
+  }
+  if (p === 'cmd') {
+    const i = rest.findIndex((a) => /^\/[ck]$/i.test(a));
+    return i >= 0 ? rest.slice(i + 1).join(' ') : null;
+  }
+  if (p === 'iex' || p === 'invoke-expression') return rest.filter((a) => !/^-command$/i.test(a)).join(' ') || null;
+  if (p !== 'powershell' && p !== 'pwsh') return null;
+  for (let i = 0; i < rest.length; i++) {
+    const f = /^[-/]([A-Za-z]+)(?::.*)?$/.exec(rest[i]);
+    if (!f) return rest.slice(i).join(' '); // 위치 인자는 -Command의 값
+    const n = f[1].toLowerCase();
+    if ('command'.startsWith(n)) return rest.slice(i + 1).join(' ');
+    if (n === 'e' || (n.length >= 2 && 'encodedcommand'.startsWith(n))) return Buffer.from(rest[i + 1] || '', 'base64').toString('utf16le');
+    if ('file'.startsWith(n)) return null;
+    if (PS_VALUE_OPTS.some((o) => o.startsWith(n)) && !rest[i].includes(':')) i++;
+  }
+  return null;
+}
+
+// 한 조각이 잠금 대상이면 종류를, 아니면 null. 셸 문자열 안(bash -c 'git commit')도 본다
+function classify(segment, depth = 0) {
+  const raw = tokens(segment);
+  const t = stripRunners(raw);
   if (!t.length) return null;
-  const prog = path.basename(t[0]).toLowerCase().replace(/\.exe$/, '');
+  const inner = shellCode(t);
+  if (inner) {
+    if (depth >= 6) return 'unknown'; // 너무 깊이 감싼 문자열은 판단하지 않고 막는다
+    // 승인은 종류 하나에 하나라, 문자열 안에 잠금 명령이 여럿(sh -c 'git commit …; git push')이면 판단하지 않고 막는다
+    const kinds = allSegments(inner).map((s) => classify(s, depth + 1)).filter(Boolean);
+    return kinds.length > 1 ? 'unknown' : kinds[0] || null;
+  }
+  const prog = progName(t);
   if (prog === 'gh') return t[1] === 'pr' && t[2] === 'merge' ? 'merge' : null;
   if (prog !== 'git') return null;
   let i = 1;
+  // -c 이름=값. 환경 변수 GIT_CONFIG_KEY_n·VALUE_n·PARAMETERS로 준 설정도 넣는다
+  const env = Object.fromEntries(raw.map((a) => /^(GIT_CONFIG_\w+)=(.*)$/.exec(a)).filter(Boolean).map((m) => [m[1], m[2]]));
+  const config = Object.keys(env).filter((k) => /^GIT_CONFIG_KEY_\d+$/.test(k)).map((k) => `${env[k]}=${env[k.replace('KEY', 'VALUE')] || ''}`);
+  if (env.GIT_CONFIG_PARAMETERS) config.push(...env.GIT_CONFIG_PARAMETERS.split(/'\s+'/).map((c) => c.replace(/'/g, '')));
   while (i < t.length && t[i].startsWith('-')) {
-    i += GIT_OPTS_WITH_VALUE.has(t[i]) ? 2 : 1;
+    if (t[i] === '-c') config.push(t[i + 1] || '');
+    else if (t[i].startsWith('--config-env')) config.push(t[i].replace(/^--config-env=?/, '') || t[i + 1] || '');
+    i += GIT_OPTS_WITH_VALUE.has(t[i]) || t[i] === '--config-env' ? 2 : 1;
   }
   const sub = t[i];
+  // 하위 명령을 입력으로 받는 것(echo push | xargs git)은 무엇을 할지 모른다
+  if (sub === undefined) return raw.some((a) => /^xargs$/i.test(a)) ? 'unknown' : null;
+  // 하위 명령과 인자를 한 문자열로 준 것(Start-Process git 'push origin main')은 펼쳐서 본다
+  if (/\s/.test(sub)) return depth >= 6 ? 'unknown' : classify(['git', ...t.slice(1, i), sub, ...t.slice(i + 1)].join(' '), depth + 1);
+  // 별칭 이름은 영문·숫자·- 뿐이다. 그 밖(fp4.js, 따옴표가 깨져 끼어든 낱말)은 명령이 아니라 보지 않는다
+  if (!GIT_BUILTINS.has(sub)) return /^[A-Za-z0-9-]+$/.test(sub) ? 'unknown' : null;
   const rest = t.slice(i + 1);
   const has = (...flags) => rest.some((a) => flags.includes(a) || flags.some((f) => f.endsWith('=') && a.startsWith(f)));
   const positional = rest.filter((a) => !a.startsWith('-'));
@@ -148,22 +241,53 @@ function classify(segment) {
     case 'tag':
       return has('-d', '--delete') ? 'tag-delete' : null;
     // S4 WT-05: 안에서 merge·rebase를 하는 pull, 커밋을 만드는 cherry-pick·revert·commit-tree, 가지를 직접 옮기는 update-ref·symbolic-ref
-    case 'pull':
-      return has('-r', '--rebase', '--rebase=') && !has('--rebase=false', '--no-rebase') ? 'rebase' : 'merge';
+    case 'pull': {
+      // 마지막 --rebase/--no-rebase가 이긴다. 없으면 -c pull.rebase(값 모름은 rebase로 본다). 설정 파일의 pull.rebase는 모른다(merge로 표시)
+      const NO = /^(?:false|no|off|0)$/i;
+      const last = rest.filter((a) => /^(?:-r|--rebase(?:=.*)?|--no-rebase)$/.test(a)).pop();
+      if (last) return last === '--no-rebase' || NO.test(last.replace(/^--rebase=?/, '') || 'true') ? 'merge' : 'rebase';
+      const cfg = config.filter((c) => /^pull\.rebase(?:=|$)/i.test(c)).pop();
+      return cfg !== undefined && !NO.test(cfg.replace(/^pull\.rebase=?/i, '') || 'true') ? 'rebase' : 'merge';
+    }
     case 'cherry-pick':
     case 'revert':
-      return has('--abort', '--quit') ? null : 'commit';
+    case 'am':
+      return has('--abort', '--quit', '--show-current-patch', '--show-current-patch=') ? null : 'commit';
     case 'commit-tree':
+    case 'quiltimport':
       return 'commit';
+    // 원격으로 올리는 저수준 명령
+    case 'send-pack':
+    case 'http-push':
+      return 'push';
+    // 커밋을 다시 쓰는 명령
+    case 'filter-branch':
+    case 'history':
+    case 'replay':
+      return 'rebase';
+    // subtree add·merge·pull은 커밋을 만들고, push는 올린다. split은 --rejoin·-b일 때만 쓴다
+    case 'subtree': {
+      // 옵션이 동작 앞에 올 수 있다(git subtree -P x push …)
+      const act = rest.find((a, j) => !a.startsWith('-') && !['-P', '--prefix', '-m', '--message', '-b', '--branch', '--onto', '--annotate'].includes(rest[j - 1]));
+      if (act === 'push') return 'push';
+      if (act === 'split') return has('--rejoin', '-b', '--branch', '--branch=') ? 'commit' : null;
+      return ['add', 'merge', 'pull'].includes(act) ? 'commit' : null;
+    }
+    // fetch의 refspec 대상(x:main, +a:b)은 로컬 가지를 옮긴다. --stdin은 refspec을 안 보이게 받는다. 첫 위치 인자는 원격(URL에 : 가 든다)
+    case 'fast-import':
+      return 'branch';
+    case 'fetch':
+      if (has('--stdin') || rest.some((a, j) => /^--refmap=.*:/.test(a) || (a === '--refmap' && /:/.test(rest[j + 1] || ''))) || config.some((c) => /^remote\..*\.(?:fetch|mirror)(?:=|$)/i.test(c))) return 'branch';
+      return !has('--multiple') && positional.slice(1).some((a) => /:./.test(a)) ? 'branch' : null;
     case 'update-ref':
       return has('-d') ? 'delete-branch' : 'branch';
     case 'symbolic-ref':
       if (has('-d', '--delete')) return 'delete-branch';
       return positional.length >= 2 ? 'branch' : null; // 인자 하나는 읽기
-    // worktree add·remove·prune·move·unlock: 다른 경로에 가드 없는 트리를 만들거나 다른 역할 트리를 지운다. list·lock은 그대로
+    // worktree add·remove·prune·move·unlock·repair: 다른 경로에 가드 없는 트리를 만들거나 다른 역할 트리를 지우거나 다시 잇는다. list·lock은 그대로
     case 'worktree':
       if (rest[0] === 'add') return has('-b', '-B', '--orphan') ? 'branch' : 'worktree';
-      return ['remove', 'prune', 'move', 'unlock'].includes(rest[0]) ? 'worktree' : null;
+      return ['remove', 'prune', 'move', 'unlock', 'repair'].includes(rest[0]) ? 'worktree' : null;
     default:
       return null;
   }
@@ -184,10 +308,22 @@ const HIDDEN_CHDIR = new Set(['popd', 'pop-location']);
 function leadingTokens(seg) {
   let t = tokens(seg);
   for (;;) {
-    if (t.length && (LEADING_KEYWORDS.has(t[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]) || /^\$\w+\s*=/.test(t[0]))) t = t.slice(1);
+    // 붙여 쓴 대입($x=Remove-Item …): 오른쪽이 값이 아니면 프로그램으로 본다
+    if (t.length && /^\$[\w:]+=[^"'@\d$=]/.test(t[0])) t = [t[0].replace(/^\$[\w:]+=/, ''), ...t.slice(1)];
+    else if (t.length && (LEADING_KEYWORDS.has(t[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(t[0]) || /^\$\w+\s*=/.test(t[0]))) t = t.slice(1);
+    // PowerShell 대입($x = …, = 이 따로 떨어진 토큰)과 앞의 형 변환([void] [IO.File]::…, [void][IO.File]::…)
+    // 오른쪽이 값(문자열·숫자·변수·배열)이면 프로그램이 아니므로 떼지 않는다($i = "…\install.ps1")
+    else if (t.length > 1 && /^\$[\w:]+$/.test(t[0]) && t[1] === '=' && !/\s=\s*["'@\d$]/.test(seg)) t = t.slice(2);
+    else if (t.length && /^\[[\w.]+\](?:$|(?=\[))/.test(t[0])) t = [t[0].replace(/^\[[\w.]+\]/, ''), ...t.slice(1)].filter((a, j) => j || a);
     // 하위 셸 ( 에 붙은 프로그램((node <<'EOF' …)): ( 를 떼고 프로그램으로 본다(D-35)
     else if (t.length && /^\([^(]/.test(t[0])) t = [t[0].slice(1).replace(/^["']|["']$/g, ''), ...t.slice(1)];
-    else return t;
+    else {
+      // 실행기(env·sudo·nohup·timeout·xargs·& …)와 그 옵션도 뗀다. 쓰기 판정·git 판정이 같은 규칙을 쓴다
+      // xargs·Start-Process는 대상이 입력·인자 목록에서 오므로 여기서는 떼지 않는다(그 자체를 모르는 프로그램으로 본다)
+      const r = stripRunners(t, true);
+      if (r === t) return t;
+      t = r;
+    }
   }
 }
 // 조각 첫 토큰의 프로그램 이름(소문자, 확장자 뺌)
@@ -899,6 +1035,12 @@ function codeWritesProtected(code, cwd, strict = true) {
         found++;
         target(pos[0] !== undefined ? pos[0] : kw.file);
       }
+      // 경로 객체의 open(Path(p).open('w')): 첫 인자가 쓰기 모드 글자이면 대상은 받는 식
+      const pathMode = m[1] && !MODULE_RECV.test(recv) && (String(pos[0] !== undefined ? pos[0] : kw.mode || '').match(/^(['"])([rwaxbtU+]{1,4})\1$/) || [])[2];
+      if (pathMode && /[wax+]/.test(pathMode)) {
+        found++;
+        target(code.slice(start, m.index));
+      }
     } else if (moduleCall && (ONE_TARGET.has(name) || TWO_TARGETS.has(name))) {
       if (name === 'replace' && recv !== 'os') continue; // 문자열 replace
       found++;
@@ -927,8 +1069,9 @@ const FILTERS = new Set([...READERS, 'convertfrom-json', 'select-object', 'selec
 //  - 리다이렉트·쓰기 프로그램은 대상이 보호 경로이거나 알 수 없는 값(변수 등)일 때 막는다.
 //    다른 파일에 쓰는 것은 통과(커밋 메시지 본문에 보호 파일 이름이 들어 있는 경우 등)
 //  - 인터프리터는 코드가 읽기 API만 쓸 때만 통과시키고, 판단할 수 없으면 막는다
-function writesApprovalFiles(command, cwd) {
-  decisionMemo.clear(); // 판단 사이에 파일 상태가 바뀔 수 있다
+function writesApprovalFiles(command, cwd, depth = 0) {
+  if (depth > 6) return true; // 셸 문자열이 너무 깊게 묶이면 판단하지 않고 막는다
+  if (!depth) decisionMemo.clear(); // 판단 사이에 파일 상태가 바뀔 수 있다(한 판단 안의 셸 문자열 재귀는 그대로 쓴다)
   command = dataHereStrings(neutralizeReadOnlyCli(foldConcat(resolveVars(command))));
   // 보호 폴더로 cd 등을 했으면 그 뒤의 모든 쓰기(상대 경로)를 보호 경로 쓰기로 본다
   const moved = movesIntoProtected(command, cwd);
@@ -954,6 +1097,11 @@ function writesApprovalFiles(command, cwd) {
   const top = segments(shell);
   const segs = [...top, ...innerSegments(shell)];
   const progs = segs.map((s) => leadingTokens(s)[0]).filter(Boolean).map((p) => path.basename(p).toLowerCase().replace(/\.exe$/, ''));
+  // 셸·PowerShell·cmd·iex가 실행할 명령 문자열(bash -c '…; rm …', -EncodedCommand)은 그 문자열을 한 명령으로 다시 판정한다
+  if (segs.some((s) => {
+    const inner = shellCode(stripRunners(leadingTokens(s)));
+    return inner && writesApprovalFiles(inner, cwd, depth + 1);
+  })) return true;
   const runsOther = progs.some((p) => !CODE_INTERPRETERS.has(p) && !HEREDOC_SAFE.has(p));
   const runsCode = progs.some((p) => CODE_INTERPRETERS.has(p));
   if (data.some((b) => SOFT_NAMES.test(b.replace(/\\/g, '/').toLowerCase()) && (runsOther || (runsCode && codeWritesProtected(b, cwd, false))))) return true;
@@ -978,10 +1126,17 @@ function writesApprovalFiles(command, cwd) {
     const w = m && /\b(ln|mklink)\b/i.exec(m[2] ?? m[3]);
     return w ? w[1] + s.slice(m[0].length) : s;
   };
-  const linkSegs = [...segments(shell), ...innerSegments(shell)].map(viaSub).filter((s) => LINK.test(notText(s))).map(linkCmd);
+  // 경로·따옴표·실행기로 부른 링크 프로그램(/usr/bin/ln, "ln", env ln)도 링크로 본다
+  const linkProg = (s) => ['ln', 'mklink'].includes(progName(stripRunners(leadingTokens(s))));
+  // 값 모르는 프로그램에 링크 옵션(-s, /J)을 준 것($L -s …): 보호 이름이 나올 때만 링크로 친다
+  const unknownLink = () => segs.some((s) => {
+    const t = stripRunners(leadingTokens(s));
+    return UNKNOWN_TARGET.test(t[0] || '') && t.slice(1).some((a) => /^-[bfnrvTLP]*s[bfnrvTLP]*$|^--symbolic$|^\/[jdh]$/i.test(a));
+  });
+  const linkSegs = [...segments(shell), ...innerSegments(shell)].map(viaSub).filter((s) => LINK.test(notText(s)) || linkProg(s)).map(linkCmd);
   if (linkSegs.some((s) => /\.claude\b|\.wy-tools/i.test(s.replace(/["'`\\^]/g, '')) || /[*?[$%{(`]/.test(s))) return true;
   // 같은 명령에서 링크를 만들고 보호 이름이 나오면(ln -s ~/proj /tmp/h && cp e /tmp/h/.claude/wy-ops.json) 임시 사본 예외를 믿을 수 없다
-  if ((linkSegs.length || /symlink|\blink(?:Sync)?\s*\(|hardlink_to|CreateSymbolicLink|CreateHardLink/i.test(code + shell)) && (SOFT_NAMES.test(command.replace(/\\/g, '/').toLowerCase()) || mentionedAll)) return true;
+  if ((linkSegs.length || unknownLink() || /symlink|\blink(?:Sync)?\s*\(|hardlink_to|CreateSymbolicLink|CreateHardLink/i.test(code + shell)) && (SOFT_NAMES.test(command.replace(/\\/g, '/').toLowerCase()) || mentionedAll)) return true;
   // 보호 폴더·파일 이름만 나와도(경로가 변수·명령 치환으로 쪼개진 경우: D=$(echo …/wy-approvals/ns); rm $D/decisions/a)
   // 아래 리다이렉트·쓰기 프로그램 검사는 한다. 그 검사는 대상이 보호 경로이거나 알 수 없는 값일 때만 막는다
   // .claude 아래 경로에 모르는 값($ ` %)이 든 토큰도 이름이 나온 것으로 본다(cp x ~/.claude/$f, KI-08)
@@ -1046,15 +1201,21 @@ function writesApprovalFiles(command, cwd) {
     const mine = unitParts.filter((ps) => ps.includes(seg)).map((ps) => ps.slice(0, ps.indexOf(seg) + 1).join(' | '));
     const own = () => ownIn(body ? `${seg}\n${body}` : seg) || mine.some(ownIn);
     const ownNamed = () => namedIn(body ? `${seg}\n${body}` : seg) || mine.some(namedIn);
-    if (/^\[[\w.]+\]::/.test(t[0])) {
-      // [IO.File]::ReadAllText 같은 읽기만 통과
+    if (/^(?:\[[\w.]+\]|\$[\w:]+)::/.test(t[0])) {
+      // [IO.File]::ReadAllText 같은 읽기만 통과. 형을 변수에 담아 부르는 것($f=[IO.File]; $f::WriteAllText)도 같다
       // 이름이 흐를 수 있으면(flow·moved) 값 모르는 인자나 쓰기 호출(대상이 식일 수 있다: WriteAllText((Get-Content l), …))을 본다
       const sensitive = movedKnown || own() || ownNamed() || ((flow || moved) && (UNKNOWN_TARGET.test(seg.replace(PS_CONST, '')) || WRITE_API.test(seg)));
-      if (!sensitive || (/^\[[\w.]+\]::(?:ReadAll|Exists)/i.test(t[0]) && !WRITE_API.test(seg))) continue;
+      // 앞에 형 변환([void]·[X][Y]::…)·$x = 가 붙은 호출(전에는 보지 않던 형태)은 읽기 메서드(Get…·Parse…·Combine 등)도 통과시킨다.
+      // 그 밖(맨 호출, ( ! & 뒤)은 전처럼 ReadAll·Exists만. 리플렉션(GetType(…).GetMethod(…).Invoke)은 읽기 이름으로 쓰기를 부를 수 있어 넓히지 않는다
+      const castOrSet = /^\s*\(?\s*(?:\[[\w.]+\]\s*(?=\[)|\$[\w:]+\s*=)/.test(seg) && !/\b(?:Invoke\w*|GetMethods?|CreateInstance|Activator)\b/i.test(seg);
+      const reads = !castOrSet ? /^(?:\[[\w.]+\]|\$[\w:]+)::(?:ReadAll|Exists)/i : /^(?:\[[\w.]+\]|\$[\w:]+)::(?:ReadAll|Exists|Get|Combine|Enumerate|Parse|Join|Is|Has)/i;
+      if (!sensitive || (reads.test(t[0]) && !WRITE_API.test(seg))) continue;
       return true;
     }
     const prog = progName(t);
     const rest = t.slice(1);
+    // .NET 객체로 쓰기: (New-Object IO.StreamWriter 경로), (Get-Item 경로).Delete()·.MoveTo(…)
+    if ((own() || ownNamed()) && (prog === 'new-object' || PS_WRITE_METHOD.test(seg.trim().replace(/^(?:\$[\w:]+\s*=\s*|\[[\w.]+\]\s*)+/, '')))) return true;
     // 쓰기 프로그램은 인자가 보호 경로로 갈 수 있을 때만 막는다(직접 언급·알 수 없는 값·와일드카드 펼친 결과)
     // PowerShell 내용 쓰기는 내용(데이터)을 빼고 대상 인자만 본다
     // 남은 here-string(내용 자리가 아니라 dataHereStrings가 그대로 둔 것)은 토큰으로 나눌 수 없으니 조각 전체로 본다
@@ -1086,7 +1247,8 @@ function writesApprovalFiles(command, cwd) {
       // 셸·PowerShell·cmd는 이름이 명령 어디든 나오면 본다(-c 문자열 안 와일드카드·\로 쪼갠 이름, 표준 입력·스크립트 파일 실행은 대상을 풀 수 없다)
       const code = rest.join(' ');
       // cmd /c dir(폴더 목록)는 읽기다. 뒤에 이어 붙인 명령·리다이렉트(& | ^& < >)가 있으면 아니다
-      if (WRITE_API.test(code) || OBFUSCATION.test(code) || !(READ_API.test(code) || (prog === 'cmd' && /^\/[ck]\s+["']?dir\b[^&|<>^]*$/i.test(code)))) return true;
+      // dir.bat·dir.cmd(같은 이름의 스크립트)와 %변수%는 읽기가 아니다
+      if (WRITE_API.test(code) || OBFUSCATION.test(code) || !(READ_API.test(code) || (prog === 'cmd' && /^\/[ck]\s+["']?dir(?=\s|["']?$)[^&|<>^%]*$/i.test(code)))) return true;
     }
   }
   return false;
@@ -1154,6 +1316,32 @@ function ownWorktreeMerge(input, command) {
   }
 }
 
+// 커밋 메시지를 here-doc으로 받는 git commit·merge(-F - <<'EOF')의 본문을 뺀 명령. 본문은 git이 메시지로 읽을 뿐 셸이 실행하지 않는다.
+// 여는 << 는 따옴표 밖(여러 줄에 걸친 따옴표 포함)에 있을 때만 here-doc으로 본다(따옴표 안 "<<EOF"로 다음 줄을 숨기지 못하게)
+function withoutGitHeredocs(command) {
+  const lines = command.split('\n');
+  const out = [];
+  let quote = '';
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    out.push(line);
+    let at = -1;
+    for (let k = 0; k < line.length; k++) {
+      const ch = line[k];
+      if (ch === '\\' && quote !== "'") k++;
+      else if (quote) quote = ch === quote ? '' : quote;
+      else if (ch === '"' || ch === "'") quote = ch;
+      else if (at < 0 && ch === '<' && line[k + 1] === '<') at = k;
+    }
+    const m = at >= 0 && !quote && line.slice(at).match(/^<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
+    const seg = m ? segments(line.slice(0, at)).pop() || '' : '';
+    if (!m || progName(stripRunners(leadingTokens(seg))) !== 'git' || !['commit', 'merge'].includes(classify(seg))) continue;
+    const end = lines.findIndex((l, j) => j > i && (m[1] ? l.replace(/^\t+/, '') : l) === m[3]);
+    if (end > i) i = end - 1;
+  }
+  return out.join('\n');
+}
+
 // rootOverride는 테스트용. 보통은 훅 입력의 cwd로 프로젝트 승인 폴더를 정한다
 function evaluate(input, rootOverride) {
   const command = String((input.tool_input && input.tool_input.command) || '');
@@ -1165,7 +1353,12 @@ function evaluate(input, rootOverride) {
     };
   }
   const root = rootOverride || store.rootFor(input.cwd || process.cwd());
-  const guarded = allSegments(command).map((s) => ({ segment: s, kind: classify(s) })).filter((g) => g.kind);
+  // git 명령에 붙은 here-doc 본문(git commit -F - <<'EOF' … 커밋 메시지)의 'git 낱말' 줄은 별칭 판정에서 뺀다
+  const unknown = allSegments(withoutGitHeredocs(command)).find((s) => classify(s) === 'unknown');
+  if (unknown) {
+    return { decision: 'deny', reason: `git 별칭·외부 명령, 또는 한 셸 문자열 안의 잠금 명령 여럿은 판단할 수 없어 막습니다: "${store.normalize(unknown)}". 정식 하위 명령(git commit·git status …)을 하나씩 따로 쓰세요.` };
+  }
+  const guarded = allSegments(command).map((s) => ({ segment: s, kind: classify(s) })).filter((g) => g.kind && g.kind !== 'unknown');
   if (!guarded.length) return null;
   if (ownWorktreeMerge(input, command)) return null; // 평소 권한 흐름대로
   const ops = loadOpsConfig(input.cwd || process.cwd());
