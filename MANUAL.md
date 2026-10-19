@@ -122,7 +122,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 | `roles` | worktree를 쓸 역할 목록(예: qa처럼 기준 가지에서 돌 역할을 빼려고) | pm·commit을 뺀 모든 역할 |
 | `deps` | 역할별로 `npm ci --prefer-offline`을 돌릴 폴더. 예: `{ "AB-frontend1": ["frontend"] }` | 설치하지 않음 |
 
-값을 바꾼 뒤에는 `<설치> gen`(역할 파일·CLAUDE.md 절·pm-ops 스킬의 작업 폴더 규칙 문구가 바뀜) → `CLAUDE.md`의 워킹트리·커밋 줄은 자동으로 바뀌지 않으므로 이 절의 흐름에 맞춰 손으로 고침 → 떠 있는 역할 세션을 `rotate`합니다.
+값을 바꾼 뒤에는 `<설치> gen`(역할 파일·pm-ops 스킬의 작업 폴더 규칙 문구가 바뀜) → `CLAUDE.md`의 워킹트리 줄(세션 역할 절 첫 줄)과 커밋 절을 손으로 고침 → 떠 있는 역할 세션을 `rotate`합니다. gen은 `CLAUDE.md`도 `.claude/ops/CLAUDE.part.md`도 쓰지 않습니다(`CLAUDE.part.md`는 `init`만 씀). 켤 때 넣을 문구는 worktree를 켠 이 패키지 저장소의 `CLAUDE.md`에서 얻습니다: 세션 역할 절 첫 줄('같은 저장소에서 작업한다(개발 역할은 각자 worktree)'), 커밋 절 '작업 세션'의 첫 줄(worktree에서 일하기·지우는 명령 금지·커밋 요청에 worktree 이름·충돌 때 `git merge <기준 가지>`), '`OPS-commit`' 절의 둘째 줄(그 worktree에서 요청 파일만 커밋하고 기준 가지에 `git merge --no-ff wt/<역할>`, 충돌하면 `--abort`하고 `[되돌림]`). 역할 이름만 내 프로젝트 것으로 바꿉니다. 끌 때는 '같은 워킹트리에서 작업한다'로 되돌리고, 작업 세션 첫 줄을 '워킹트리는 모든 세션이 함께 쓴다·파일을 바꾸는 git 명령 금지·일부 파일 검증은 `git archive` 사본'으로 바꾸고, `OPS-commit` 절의 worktree 줄을 지웁니다.
 
 **띄울 때마다 하는 일**(`session.ps1`의 `start`·`rotate`·`prep`·`adopt`):
 1. worktree가 없으면 만들고(가지 `wt/<역할>`이 남아 있으면 그 가지로), 있으면 다시 씁니다.
