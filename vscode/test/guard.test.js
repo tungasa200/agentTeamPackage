@@ -312,6 +312,41 @@ const deny = [
   "x=1 && ( 'mv' + '.claude/wy-ops.json' )",
   "Write-Output ('a\"' + \"'b\"); Remove-Item .claude/wy-ops.json",
   "echo ('a\"' + \"'b\") ; rm .claude/wy-ops.json",
+  // D-35: 이름은 다른 조각에 있어도 값 모르는 인자·파이프로 흘러오면, 따옴표·^로 쪼갠 이름이 하위 셸 문자열에 있으면 막는다
+  `cat .claude/wy-ops.json; node -e "require('fs').writeFileSync(process.argv[1],'x')" $P`,
+  `Get-Content .claude/wy-ops.json | node -e "require('fs').writeFileSync('.cl'+'aude/wy-ops.json','y')"`,
+  `ls ~/.wy-tools; bash -c 'cd ~/.wy-to""ols && rm -rf x'`,
+  `ls .claude; bash -c 'rm -f .cl""aude/wy-o""ps.json'`,
+  W`ls .claude; cmd /c "del .cl^aude\wy-o^ps.json"`,
+  "cd $D; bash -c 'rm a'",
+  // D-35 리뷰: 보호 이름을 담은 스크립트·목록 파일을 다른 조각에서 만들고 실행, 대상이 식인 .NET 쓰기, bash 변수 true, 따옴표 경로 링크 프로그램
+  `echo "require('fs').writeFileSync('.claude/wy-ops.json','{}')" > /tmp/a.js; node /tmp/a.js`,
+  `printf '%s' "open('.claude/wy-ops.json','w').write('x')" > /tmp/a.py; python /tmp/a.py`,
+  "Set-Content -Path C:/tmp/a.ps1 -Value 'Set-Content .claude/wy-ops.json x'; powershell -File C:/tmp/a.ps1",
+  "echo .claude/wy-ops.json > /tmp/l; [IO.File]::WriteAllText((Get-Content /tmp/l), 'x')",
+  'true=$(cat /tmp/l); rm "$true"; echo .claude/wy-ops.json',
+  '"C:/Sys Tools/junction.exe" /tmp/h ~/proj; cp e /tmp/h/.claude/wy-ops.json',
+  // 셸 인터프리터는 이름이 다른 조각에만 있어도 본다(-c 안 와일드카드, 표준 입력·스크립트 파일), 따옴표 문자열 안 $(…)의 링크
+  "cat .claude/wy-ops.json; bash -c 'rm -f .cl[a]ude/wy-o[p]s.json'",
+  'cat .claude/wy-ops.json; cat /tmp/p | bash',
+  'cat .claude/wy-ops.json; bash /tmp/evil.sh',
+  W`"a b $(New-Item -ItemType Junction -Path C:\tmp\j -Target .claude) c"; Copy-Item C:\tmp\x C:\tmp\j\wy-ops.json`,
+  // TOK-6 리뷰: cmd /c dir 뒤에 이어 붙인 명령, 펼칠 수 없는 와일드카드 경로(-c 문자열 안), 명령 치환으로 부른 링크 프로그램
+  W`ls ~\.claude\wy-approvals\my-project\decisions; cmd /c dir ^& x.bat`,
+  'ls ~/.claude/wy-approvals/my-project/decisions; cmd /c "dir | x.bat"',
+  "bash -c 'cp e.json ~/.cl?ude/wy-a*/my-project/decisions/new.json'",
+  'pwsh -c "Copy-Item e.json C:/Users/x/.cl?ude/wy-a*/my-project/decisions/"',
+  '"$(command -v ln)" -s ~/.claude/wy-approvals/my-project /tmp/h',
+  // D-35 code-review: 값 모르는 cd 대상의 보호 이름, 코드가 안 보이는 플래그(-E·-p·-r)·load로 부른 파일, 대입·Set-Variable로 담은 이름
+  'cd "$(dirname ~/.claude/wy-ops.json)"; python w.py',
+  'cd $(echo ~/.cl""aude); python w.py',
+  `cd "$(dirname ~/.claude/wy-ops.json)"; node -e "require('fs').writeFileSync('wy-ops.json','x')"`,
+  `echo "open('.claude/wy-ops.json','w').write('x')" > /tmp/a.py; python -E /tmp/a.py`,
+  `echo "File.write('.claude/wy-ops.json','x')" > /tmp/a.rb; ruby -p /tmp/a.rb`,
+  `echo "require('fs').writeFileSync('.claude/wy-ops.json','x')" > /tmp/a.js; node -r /tmp/a.js -e 1`,
+  `echo "File.write('.claude/wy-ops.json','x')" > /tmp/a.rb; ruby -e 'load "/tmp/a.rb"'`,
+  `$f = '.claude/wy-ops.json'; perl -e 'do "/tmp/x.pl"'`,
+  'Get-Content .claude/wy-ops.json | Set-Variable p; python /tmp/w.py',
 ];
 const allow = [
   // 읽기
@@ -445,6 +480,20 @@ const allow = [
   "Set-Content ('docs/' + 'a.md') 1",
   "Copy-Item x (Join-Path $dir 'out.txt')",
   "Get-Content ('~/.cl' + 'aude/wy-ops.json')",
+  // D-35 실사용 오탐: 보호 이름은 다른 조각에서 읽기만 함, 임시 사본에서 시험 실행, 값 모르는 [ ]·*>, 출력 문자열 안 링크 글자, PowerShell 상수
+  'node fp3.js; ls ~/.wy-tools/wy-ops/current/vscode/hooks/ 2>&1 | head -3; grep -n "wy-approval-guard" ~/.claude/settings.json | head',
+  W`$d = (cygpath -w /tmp/tmp.abc 2>$null); if (-not $d) { $d = Join-Path $env:TEMP 'tmp.abc' }; Set-Location $d; $n=0; Get-ChildItem test,vscode/test -Filter *.test.js | ForEach-Object { node $_.FullName *> $null; if ($LASTEXITCODE) { throw $_.Name }; $n++ }; node gen-agents.test.js *> $null; "pass $n"`,
+  'F="a.js b.js" && D=$(mktemp -d) && git archive HEAD | tar -x -C "$D" && for f in $F; do cp "$f" "$D/$f"; done && cd "$D" && for f in test/*.test.js; do node "$f" >/dev/null || echo "FAIL $f"; done; cd /; rm -rf "$D"',
+  W`$base="$env:TEMP\s2"; foreach($w in 'w1','w2'){ Copy-Item C:\projects\other\package.json "$base\$w\" }; foreach($w in 'w1','w2'){ $t=Measure-Command { npm ci --prefix "$base\$w" *> "$base\$w.log" }; "$w secs=$([int]$t.TotalSeconds)" }`,
+  W`$t=Measure-Command { cmd /c mklink /J C:\tmp\w2\nm C:\tmp\w1\nm | Out-Null }; "junction secs=$([math]::Round($t.TotalSeconds,2))"; Set-Location C:\tmp\w2; node -e "console.log(require.resolve('vite'))"`,
+  W`Set-Location C:\projects\other; cmd /c dir /a /b .claude\worktrees\t2\.claude; $a=Get-FileHash .claude\settings.local.json; $b=Get-FileHash .claude\worktrees\t2\.claude\settings.local.json -ErrorAction SilentlyContinue; "same=$($a.Hash -eq $b.Hash)"`,
+  "Select-String -Path .claude/wy-ops.json -Pattern 'dev3' ; Test-Path .claude/agents/X-dev3.md; Remove-Item .claude/ops/roles/X-dev3.md -Confirm:$false; git diff --stat -- .claude/ops/roles",
+  // 보호 이름을 읽기만 하는 조각 옆의 스크립트 실행
+  'node a.test.js; cat .claude/wy-ops.json | jq .verify',
+  'node a.js | cat .claude/wy-ops.json',
+  // 다른 조각의 문자열 안에 같은 글자가 있어도 그 조각의 일로 치지 않음, 펼칠 수 없는 와일드카드를 읽기만
+  'echo ".claude/wy-ops.json node w.js"; node w.js',
+  "bash -c 'cat ~/.cl?ude/wy-a*/my-project/decisions/a.json'",
 ];
 // 저장소 링크 쓰기: 저장소가 임시 폴더 밖이면 거부, 저장소 자체가 임시 사본(git archive 등)이면 임시 사본 예외로 통과
 const repoRel = path.relative(fs.realpathSync.native(os.tmpdir()), fs.realpathSync.native(path.resolve(__dirname, '..', '..')));
