@@ -47,7 +47,7 @@
 
 | 역할 | 하는 일 | 기본 수 |
 |---|---|---|
-| pm | 개발 총괄. 지시하고, 보고를 모으고, 중요 결정을 사람에게 올림. 사람이 직접 여는 창이라 역할 파일이 없음 | 1(고정) |
+| pm | 개발 총괄. 지시하고, 보고를 모으고, 중요 결정을 사람에게 올림. 백그라운드로 돌고 사람은 세션 현황 pm 줄에서 붙음(역할 파일 `.claude/agents/<pm>.md`) | 1(고정) |
 | commit | 커밋·푸시·PR·병합 전담. 승인 카드를 받은 뒤에만 실행 | 1(고정) |
 | planner | 기획·아키텍처 결정, 요구사항·결정기록 | 1 |
 | backend | 서버·공통 모듈·빌드 | 2 |
@@ -75,7 +75,7 @@
    - `[결정 요청]` 배경, 선택지와 대가, 추천안, 막히는 작업
    - `[차단]` 멈춘 이유, 필요한 것
 5. **결정은 사람에게 카드로.** pm은 사람이 정할 일을 결정 요청 카드로 올립니다. 사람이 승인 센터에서 고르면 pm이 세션에 전합니다.
-6. **커밋을 요청합니다.** 작업 세션은 git 명령을 직접 쓰지 않습니다. 커밋 역할에 파일 목록·커밋 메시지·브랜치를 보냅니다.
+6. **커밋을 요청합니다.** 작업 세션은 git 명령을 직접 쓰지 않습니다. 커밋 역할에 파일 목록·커밋 메시지·브랜치를 보냅니다(역할 worktree를 쓰면 worktree 이름도, 2-6).
 7. **승인 카드.** 커밋 역할이 git 카드를 올리고, 사람이 승인하면 그 명령을 그대로 실행합니다. 푸시·PR·병합도 각각 카드를 거칩니다.
 8. **쉬는 세션을 멈춥니다.** 곧 쓸 세션은 대기로 두고, 1시간 넘게 안 쓸 세션은 pm이 `session.ps1 stop AB-qa`. 메모리를 돌려받고, 대화는 남습니다. 다음 작업 때 교체 기준(`rotation.contextTokens`) 이상이면 `rotate`, 미만이면 `start`로 이어 갑니다.
 
@@ -109,6 +109,45 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 
 다른 PC로 이어 갈 내용은 문서와 커밋으로 넘깁니다.
 
+### 2-6. 역할 worktree(역할마다 작업 폴더)
+
+역할 세션이 한 폴더를 함께 고치면 서로의 미커밋 파일이 섞입니다. 그래서 pm·commit을 뺀 역할 세션은 각자 `.claude/worktrees/<역할>`(git worktree, 가지 `wt/<역할>`)에서 일합니다. pm·commit은 본 저장소(기준 가지)에 남습니다. worktree 하나에 디스크가 약 300MB 듭니다.
+
+**켜고 끄기.** `.claude/wy-ops.json`의 `worktree` 키로 정합니다. 키가 없으면 켬입니다. `init`·`quickstart`의 `--no-worktree`, 마법사 고급 설정의 '역할마다 작업 폴더 따로 쓰기'를 끄면 `"enabled": false`를 적습니다(이미 값이 있으면 덮지 않음).
+
+| 키 | 뜻 | 없으면 |
+|---|---|---|
+| `enabled` | `false`면 모두 본 저장소 한 폴더를 함께 씀 | 켬 |
+| `base` | 기준 가지 | 본 저장소의 지금 가지 |
+| `roles` | worktree를 쓸 역할 목록(예: qa처럼 기준 가지에서 돌 역할을 빼려고) | pm·commit을 뺀 모든 역할 |
+| `deps` | 역할별로 `npm ci --prefer-offline`을 돌릴 폴더. 예: `{ "AB-frontend1": ["frontend"] }` | 설치하지 않음 |
+
+값을 바꾼 뒤에는 `<설치> gen`(역할 파일·CLAUDE.md 절·pm-ops 스킬의 작업 폴더 규칙 문구가 바뀜) → `CLAUDE.md`의 워킹트리·커밋 줄은 자동으로 바뀌지 않으므로 이 절의 흐름에 맞춰 손으로 고침 → 떠 있는 역할 세션을 `rotate`합니다.
+
+**띄울 때마다 하는 일**(`session.ps1`의 `start`·`rotate`·`prep`·`adopt`):
+1. worktree가 없으면 만들고(가지 `wt/<역할>`이 남아 있으면 그 가지로), 있으면 다시 씁니다.
+2. 기준 가지로 빨리감기(`git merge --ff-only <기준>`)합니다. 병합 전 커밋이 있어 안 되면 경고만 하고 그대로 띄웁니다.
+3. 본 저장소의 `.claude/settings.local.json`·`wy-ops.local.json`을 worktree로 복사합니다(git에 없는 파일이라 worktree에 따라오지 않음). 복사하지 못했거나 복사본에 승인 가드 훅이 없으면 **띄우지 않습니다**(가드 없이 도는 세션을 만들지 않음).
+4. `deps`의 폴더에 `node_modules`가 없거나 `package-lock.json`이 더 새로우면 `npm ci --prefer-offline`. 실패하면 띄우지 않습니다.
+
+`session.ps1` 안의 git(worktree 목록·만들기·지우기, ff-only, 상태 조회)은 정해진 명령뿐이고 승인 카드를 거치지 않습니다.
+
+**커밋 흐름:**
+1. 역할 세션은 커밋 요청에 worktree 이름(자기 역할 이름)을 함께 적습니다. 파일 경로는 worktree 기준입니다.
+2. 커밋 역할이 그 worktree에서 요청 파일만 stage·commit하고(git 카드), 본 저장소 기준 가지에서 `git merge --no-ff wt/<역할>`로 합칩니다(git 카드).
+3. 충돌하면 커밋 역할이 `git merge --abort`로 되돌리고 요청 세션에 `[되돌림]`(충돌 파일·기준 커밋)을 보냅니다. 요청 세션은 자기 worktree에서 `git merge <기준 가지>`로 충돌을 풀고 다시 요청합니다. 이 명령만 커밋 역할이 아닌 세션에 승인 없이 허용됩니다(자기 worktree에서, 대상이 기준 가지일 때). 이 병합에서도 충돌이 나면 파일을 고친 뒤 마무리 커밋(`git commit`·`merge --continue`)은 하지 않고, 고친 파일을 커밋 역할에 요청합니다. 커밋 역할의 그 커밋이 병합 커밋이 됩니다.
+4. 다음에 띄울 때 2번의 빨리감기가 `wt/<역할>`을 기준 가지에 맞춥니다. 따로 reset하지 않습니다.
+
+역할 세션은 자기 worktree 안에서 검증을 바로 돌립니다(`git archive` 사본 불필요). 본 저장소에서 도는 세션(pm·commit)은 지금처럼 사본을 씁니다. 다른 역할이 고친 파일은 기준 가지에 병합되고 다음에 띄울 때까지 보이지 않습니다.
+
+**처음 켤 때.** 역할 worktree는 기준 가지의 커밋에서 만들어지므로, 본 워킹트리의 미커밋 변경은 따라가지 않습니다. 역할 세션을 처음 띄우기 전에 커밋하거나 정리합니다(doctor '역할 worktree' 줄이 알림). `.gitignore`에 `.claude/worktrees/` 줄이 있어야 합니다(`init`이 넣고, 없으면 doctor가 주의).
+
+**지우기.** 평소에는 지우지 않습니다(역할마다 고정). 역할을 없애거나 worktree를 끌 때, 트리가 망가졌을 때만 pm이 `session.ps1 wt-clean <역할>`. 세션이 실행 중이거나, 미커밋 변경이나 기준 가지에 병합되지 않은 커밋이 있으면 지우지 않고 알립니다. 가지 `wt/<역할>`은 남기므로 지우려면 커밋 역할에 `git branch -d wt/<역할>`을 요청합니다.
+
+- Claude Code의 `claude -w`(자체 worktree)는 쓰지 않습니다. doctor가 남은 흔적(역할이 아닌 worktree, 잠긴 worktree, `worktree-*` 가지)을 알립니다.
+- `.claude/settings.json`의 `worktree.bgIsolation: "none"`은 켜도 그대로 둡니다. Claude Code가 따로 격리하면 worktree 안에 worktree가 생깁니다.
+- 세션 현황의 토큰·멈춤 감지와 활동 탭은 worktree 세션의 대화 기록(`~/.claude/projects/<저장소 키>--claude-worktrees-<역할>/`)도 읽습니다.
+
 ---
 
 ## 3. 설치
@@ -120,7 +159,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 | 단계 | 하는 일 | 사람이 할 것 |
 |---|---|---|
 | 1 시작 | 무엇을 하는지·걸리는 시간 안내 | 다음 |
-| 2 프로젝트 폴더 | 폴더와 이름(폴더 이름에서 자동). 고급(접힘): 역할 이름 앞글자, 프로젝트 종류, 역할 수. 이미 설정이 있는 폴더면 그 값을 읽어 옵니다 | 폴더 고르기 |
+| 2 프로젝트 폴더 | 폴더와 이름(폴더 이름에서 자동). 고급(접힘): 역할 이름 앞글자, 프로젝트 종류, 역할 수, '역할마다 작업 폴더 따로 쓰기'(기본 켬, 2-6). 이미 설정이 있는 폴더면 그 값을 읽어 옵니다 | 폴더 고르기 |
 | 3 설치 | `install.ps1 quickstart --yes --progress --no-finish`를 창 없이 돌리고 줄마다 진행을 보여 줍니다. 실패하면 그 줄에 쉬운 말 원인과 [다시 시도]·[로그 저장…] | "변경을 허용할까요?" 창에서 [예] |
 | 4 Claude 로그인 | `claude auth login`이 브라우저를 열고, 마법사가 2초마다 로그인 여부를 확인합니다. 건너뛸 수 없음 | 브라우저에서 로그인 |
 | 5 GitHub 로그인 | 확인 코드를 크게 보여 주고 github.com/login/device를 엽니다. 로그인되면 `gh auth setup-git`. [나중에 하기] 가능(마침 화면 노랑 + 할 일 카드) | 코드 입력 |
@@ -157,7 +196,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 | 5/6 | Claude Code 로그인, GitHub 로그인, 폴더 신뢰. 이미 된 것은 건너뜁니다. 안 된 것은 할 일을 한 줄로 알리고 Enter를 누르면 같은 창에서 엽니다(`s` = 나중에) | 브라우저 로그인, 신뢰 Yes → `/exit` |
 | 6/6 | 점검(doctor)을 "됐음 / 이것만 남음"으로 요약하고 VS Code로 프로젝트를 엽니다. 남은 손일은 승인 센터 할 일 카드로도 올라옵니다 | 남은 것만 처리 |
 
-설정이 이미 있는 프로젝트에서 다시 돌려도 됩니다. 있는 설정·`CLAUDE.md`·사람이 고친 파일은 그대로 두고 빠진 것만 채웁니다. 묻지 않고 돌리려면 `--yes --project <폴더> [--name <이름>]`(이때 로그인·신뢰는 건너뛰고 나중에 할 명령만 알립니다).
+설정이 이미 있는 프로젝트에서 다시 돌려도 됩니다. 있는 설정·`CLAUDE.md`·사람이 고친 파일은 그대로 두고 빠진 것만 채웁니다. 묻지 않고 돌리려면 `--yes --project <폴더> [--name <이름>]`(이때 로그인·신뢰는 건너뛰고 나중에 할 명령만 알립니다). 역할 worktree(2-6)는 묻지 않고 켬입니다. 끄려면 `--no-worktree`.
 
 역할 수·담당 영역을 직접 고르거나 스택을 덮어쓰고 싶을 때는 아래 3-1·3-2처럼 `global` → `init`을 씁니다.
 
@@ -186,7 +225,8 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
    - 이미 `wy-ops.json`이 있으면 `verify` 키가 아예 없을 때만 `detected`·`verify`·`tools`·`stackNotes`를 채웁니다(`wy-ops.json.bak-<시각>`을 남김). `verify`가 있으면 손대지 않습니다. 이때 `--verify-*` 값이나 입력값도 쓰지 않고 "기존 verify를 유지해 --verify-* 값은 쓰지 않았습니다(.claude/wy-ops.json에서 고치세요)"를 한 줄 알립니다. 코드가 생긴 뒤 다시 알아내려면 `<설치> detect --apply`를 씁니다.
    - 역할별 수, 여러 개로 나눈 역할의 담당 영역을 묻습니다. 묻지 않고 정하려면 `--roles`, `--count backend=2,frontend=1`, `--area "AB-backend1=server/;AB-backend2=tools/"`를 씁니다.
    - 끌 수 있는 함께 까는 도구를 고릅니다(고른 역할에 필수인 것은 못 끔).
-   - 만드는 것: `.claude/wy-ops.json`, 역할 원본(`.claude/ops/`)·역할 파일(`.claude/agents/`), pm-ops 스킬, `.gitignore` 줄, `settings.local.json`, `.claude/settings.json`의 `worktree.bgIsolation: "none"`(값이 없을 때만, 백그라운드 역할 세션이 공용 워킹트리를 고치려면 필요).
+   - 역할 worktree(2-6)를 쓸지 묻습니다(`[Y/n]`, 설정에 값이 있으면 묻지 않음). 묻지 않고 정하려면 `--worktree`·`--no-worktree`. 고른 값은 `worktree.enabled`가 없을 때만 적습니다.
+   - 만드는 것: `.claude/wy-ops.json`, 역할 원본(`.claude/ops/`)·역할 파일(`.claude/agents/`), pm-ops 스킬, `.gitignore` 줄(`.claude/worktrees/` 포함), `settings.local.json`, `.claude/settings.json`의 `worktree.bgIsolation: "none"`(값이 없을 때만, 백그라운드 역할 세션이 Claude Code의 따로 격리 없이 정해진 폴더를 고치려면 필요).
    - doctor '공용 워킹트리' 줄이 이 값을 봅니다. 없으면 주의로 알리고, `init`을 다시 실행하거나(있는 파일·값은 덮지 않고 이 값만 더함. 검증 명령(verify)이 없는 설정이면 그것도 더함) `.claude/settings.json`에 `"worktree": { "bgIsolation": "none" }`을 손으로 넣으라고 안내합니다. `update`도 이 값이 비어 있으면 채웁니다(있는 값은 그대로).
    - 이미 있는 파일은 덮지 않습니다. 예외: `verify`가 없는 `wy-ops.json`에는 검증 부분만 더하고 `.bak-<시각>`을 남깁니다.
 2. 출력 끝의 **CLAUDE.md에 넣을 절**을 복사해 그 프로젝트 `CLAUDE.md`에 붙입니다(자동으로 고치지 않습니다). '작업 원칙' 절을 빼려면 `init`에 `--no-principles`.
@@ -401,6 +441,9 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | `adopt` | 닫은 VS Code 세션의 대화를 백그라운드 역할 세션으로 옮기기 | `… session.ps1 adopt AB-qa <세션ID>` |
 | `pin` / `unpin` | 실행 중인 세션을 메모리 부족 정리에서 빼기 / 되돌리기 | `… session.ps1 pin AB-commit` |
 | `attach` | 실행 중인 역할 세션(pm 포함)에 붙기. 원격 터미널에서 쓰고, 빠져나와도 세션은 계속 돎 | `… session.ps1 attach AB-pm` |
+| `wt-clean` | 역할 worktree 지우기(2-6). 실행 중·미커밋·미병합이면 멈춤, 가지는 남김 | `… session.ps1 wt-clean AB-qa` |
+
+역할 worktree를 켠 프로젝트에서 `start`·`rotate`·`prep`·`adopt`는 역할 세션을 그 역할의 worktree에서 띄웁니다(2-6).
 
 ---
 
@@ -425,6 +468,13 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | 카드를 처리했는데 세션이 깨지 않음 | 세션이 꺼져 있음, 0.7.2 설치(`setup`) 전에 뜬 뒤 턴이 없었음, 요청의 `session`이 세션 이름과 다름 | `doctor`로 훅 확인. 꺼진 세션은 pm이 `session.ps1 start`로 전함. 그 세션에 아무 메시지나 보내 한 턴을 돌리면 다음부터 깨어남 |
 | `start`에 지시를 붙였더니 같은 이름 세션이 둘 | 옛 세션이 아직 살아 있을 때 대화를 이어 띄워 사본이 생김 | `session.ps1 list`로 확인하고 하나를 `stop`. 지시는 붙이지 말고 '시작' 회신을 받은 뒤 `SendMessage`로 보냄 |
 | 설치 명령이 승인 가드에 막힘 | 명령에 `~/.wy-tools` 경로가 들어 있어 가드가 설치본 쓰기로 봄 | 패키지 clone 폴더에서 `node lib/install.js <명령> --project <프로젝트 폴더>`로 실행 |
+| `start`가 '승인 가드 훅이 없어 띄우지 않습니다' | 본 저장소 `settings.local.json`에 승인 가드 훅이 없거나 worktree로 복사하지 못함(2-6) | 프로젝트 폴더에서 `<설치> setup` → 다시 `start` |
+| `start`가 'worktree 폴더가 있는데 git worktree 목록에 없습니다' | 지운 흔적 폴더가 남음 | 그 폴더 안 파일을 확인해 옮기거나 지우고 `git worktree prune`(사용자) → 다시 `start` |
+| `start`가 '기준 가지를 알 수 없습니다' | 본 워킹트리가 가지에 있지 않음(detached) | 본 워킹트리를 가지로 돌리거나 `wy-ops.json`에 `worktree.base`를 적음(사용자) |
+| `start`가 '빨리감지 못했습니다' 경고 | 그 역할 가지에 아직 병합되지 않은 커밋이 있음 | 세션은 그대로 뜸. 커밋 역할이 병합하면 다음에 띄울 때 맞춰짐 |
+| `start`가 '의존성 설치 실패' | `deps` 폴더의 `npm ci` 실패 | 그 worktree 폴더에서 `npm ci`를 돌려 원인을 봄 |
+| doctor '역할 worktree' 주의 | 흔적 폴더·역할이 아닌 worktree·잠긴 worktree·폴더 없는 등록·`worktree-*` 가지, 처음 만들기 전 미커밋 변경, 프로젝트 `agent.md`에 `{{treeRules}}` 없음 | 그 줄의 '고치기'를 따름 |
+| 역할 세션이 다른 세션이 고친 파일을 못 봄 | 역할 worktree는 기준 가지에 병합된 것만 받음 | 그 파일을 커밋·병합한 뒤 세션을 다시 띄움(2-6) |
 | 재부팅 뒤 세션 현황이 모두 '종료됨' | 백그라운드 세션은 PC를 끄면 함께 꺼짐 | 정상. 필요한 세션만 `start`. 컨텍스트가 크면 `rotate` |
 
 ---
@@ -451,6 +501,7 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | 모든 역할에 들어가는 공통 문구 | `.claude/ops/agent.md`. 없으면 패키지 기본 틀(`templates/agent.md`)을 씁니다. 바꾸려면 그 파일을 이 경로로 복사해 고칩니다 |
 | pm 운영 절차의 이 프로젝트 부록 | `.claude/ops/pm-ops.project.md` |
 | 역할 이름·수·요약, 검증 명령, 문서 경로 | `.claude/wy-ops.json`(`roles`·`verify`·`docs`). 세션은 고치지 못하게 막혀 있어 사람이 고칩니다 |
+| 역할 worktree 켜고 끄기·대상 역할·의존성 설치 폴더 | `.claude/wy-ops.json`의 `worktree`(2-6) |
 | 원격 접속 때 호스트에서 열 프로젝트 폴더(선택) | `.claude/wy-ops.json`의 `remote.hostFolder`(예: `"remote": { "hostFolder": "C:\\work\\myproject" }`). `connect`에 `--folder`가 없으면 이 값을 씁니다 |
 
 고친 뒤:
@@ -463,7 +514,7 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 2. `.claude/ops/roles/AB-qa2.md`를 만듭니다. 같은 역할의 원본을 복사하거나, 패키지 `templates/roles/<짧은 이름>.md`에서 시작합니다.
 3. `<설치> gen` → `CLAUDE.md` 역할 표에 한 줄 → `session.ps1 start AB-qa2`.
 
-역할 빼기: `roles`에서 지우고 `gen`. `gen`은 옛 파일을 지우지 않으므로 `.claude/agents/<역할>.md`와 `.claude/ops/roles/<역할>.md`를 직접 지웁니다. 떠 있던 세션은 `stop`합니다.
+역할 빼기: `roles`에서 지우고 `gen`. `gen`은 옛 파일을 지우지 않으므로 `.claude/agents/<역할>.md`와 `.claude/ops/roles/<역할>.md`를 직접 지웁니다. 떠 있던 세션은 `stop`합니다. 역할 worktree가 있었으면 `session.ps1 wt-clean <역할>`로 지웁니다.
 
 담당 영역 바꾸기: 여러 개로 나눈 역할의 영역은 역할 원본 끝 '담당 영역' 절에 글로 들어 있습니다. 그 절과 `description:` 줄, `wy-ops.json`의 `area`·`summary`를 함께 고치고 `gen`합니다. 같은 역할의 다른 세션 원본에도 상대 영역이 적혀 있으니 같이 고칩니다.
 
@@ -488,6 +539,7 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
    .claude/agents/, skills/     생성물 (gen이 만듦)
    .claude/wy-ops.lock.json     생성물 해시
    .claude/settings.local.json  훅 6종 연결 (setup이 넣음)
+   .claude/worktrees/<역할>/    역할 worktree(가지 wt/<역할>, git에 넣지 않음, 2-6)
    │  카드 요청·결정
    ▼
 승인 폴더 ~/.claude/wy-approvals/<namespace>/

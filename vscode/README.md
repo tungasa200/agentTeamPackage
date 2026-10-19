@@ -29,6 +29,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 - 끊긴 SSH 접속 묶음(0.11.0, `orphanCleaner.js`): `install.ps1 host`를 한 PC(`HKLM\SOFTWARE\OpenSSH` DefaultShell이 Windows PowerShell)에서만 판정한다. 관리자 창(SSH 원격 창)이면 줄 옆 [정리]가 보이고(`ssh-orphans.ps1 -Stop -Json`, 결과 `stoppedChains` 한 줄), 후보를 보면 10분에 한 번까지 저절로 끈다(자동 정리용 판정은 사이드바가 떠 있는 동안 10분마다, 프로세스 블록을 접어도 돈다). 판정 규칙(30분·지금 서버·살아 있는 접속·에이전트 호스트 관리는 남김, 끄기 직전 다시 판정)은 스크립트 한 곳에 있다. 일반 권한 창은 줄만 보이고 자동 정리하지 않는다.
 - 세션은 갱신 때마다 작업 중 → 대기(대기·입력 대기·승인 대기) → 멈춤 → 오류 → 없음 순으로 다시 정렬한다. 같은 그룹 안은 `.claude/wy-ops.json`의 역할 순서다. 실행하지 않은 역할은 '없음'으로 보여 준다. 워크스페이스 루트가 저장소여야 한다.
 - 입력 대기는 할 일을 마치고 다음 지시를 기다리는 상태, 승인 대기는 권한·샌드박스·선택 대화상자 응답을 기다리는 상태다(`claude agents`의 `waitingFor`로 구분). 상태 위에 마우스를 올리면 기다리는 이유가 보인다.
+- 대화 기록 위치(S4 WT-06): Claude Code는 세션 실행 폴더 경로의 영문·숫자 외 문자를 `-`로 바꾼 이름으로 `~/.claude/projects/<키>/`에 기록한다. 역할 worktree(`<저장소>/.claude/worktrees/<역할>`)에서 뜬 세션은 키가 `<저장소 키>--claude-worktrees-<역할>`이다. 세션 표의 토큰·멈춤 감지는 `claude agents`의 `cwd` 키에서 먼저 찾고 없으면 저장소 키를 본다(`contextSize.transcriptFile`). 활동 탭은 저장소 키와 `<저장소 키>--claude-worktrees-*` 폴더를 함께 읽는다(`sessionActivity.transcriptDirs`, 접두를 정확히 맞춰 `my-app2` 같은 다른 저장소는 섞지 않음).
 - 여유 메모리가 1GB 미만이면 막대와 문구가 경고색으로 바뀐다. 막대 위의 세로선이 1GB 기준이다.
 
 ### pm 줄
@@ -50,7 +51,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 
 백그라운드 역할 세션이 도구 한 번(셸 명령 등)에 오래 묶여 있으면 그 세션 줄 아래에 '멈춤 의심 n분 · <명령 앞부분>'이 경고색으로 보인다. 묶인 동안 세션은 다른 세션의 메시지를 받지 못한다(예: 결정 파일을 포그라운드 until 루프로 기다리는데 카드가 형식 오류라 끝나지 않음).
 
-- 근거: 대화 기록(`~/.claude/projects/<저장소>/<sessionId>.jsonl`) 끝에서 결과가 아직 없는 마지막 도구 호출과 그 시각. 살아 있고 일하는 중(권한 대기·입력 대기 아님)인 백그라운드 세션만 본다. 대화형 세션은 사람이 보고 있으니 보지 않는다.
+- 근거: 대화 기록(`~/.claude/projects/<저장소>/<sessionId>.jsonl`, worktree 세션은 위 '대화 기록 위치') 끝에서 결과가 아직 없는 마지막 도구 호출과 그 시각. 살아 있고 일하는 중(권한 대기·입력 대기 아님)인 백그라운드 세션만 본다. 대화형 세션은 사람이 보고 있으니 보지 않는다.
 - 기준: `.claude/wy-ops.json`의 `stuck.minutes`(기본 10분). 원래 오래 걸리는 것(빌드·테스트·설치·컨테이너: gradle·mvn·npm test/ci/install/run build·vitest·jest·playwright·pytest·cargo·go·dotnet·docker build/compose·make 등, 하위 에이전트 Agent·Task·Workflow)은 `stuck.longMinutes`(기본 30분)를 넘어야 보인다. 예: `"stuck": { "minutes": 10, "longMinutes": 30 }`.
 - pm 역할에 한 번 알린다: 승인 폴더의 결정 로그에 한 줄을 붙인다(pm 역할이 이미 감시하는 곳, 아래 '결정을 받는 방법'). 같은 도구 호출로는 한 번만이다. 결정이 아니라 알림이다.
   `{"id":"stuck-<세션 앞 8자>-<호출 뒤 8자>","kind":"stuck","session":"AB-commit","relatedSessions":["AB-pm"],"decision":"stuck","minutes":12,"tool":"Bash","command":"until [ -f …","since":"…","notice":"AB-commit 세션이 도구 한 번(Bash until [ -f …)에 12분째 묶여 있습니다(멈춤 의심). …","decidedAt":"…"}`
@@ -116,7 +117,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 | `onClick` | 예 | 누르면 무슨 일: 승인·거부(또는 고른 뒤·완료 뒤)에 세션이 하는 일 |
 | `cost` | 아니오 | 대가(시간·위험·되돌리기 어려움). choice는 카드가 아니라 선택지마다 쓴다(아래) |
 
-git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` `merge` `reset` `rebase` `tag-delete`):
+git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` `merge` `reset` `rebase` `tag-delete` `worktree`):
 
 ```json
 {
