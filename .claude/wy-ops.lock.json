@@ -9,13 +9,14 @@
     ".claude/ops/roles/OPS-review.md": "55119e58b027a21d9773a4b4b8d3b378d110f0445eb025524b1d0f3b6b403be8",
     ".claude/ops/pm-ops.project.md": "e46bef4d5fd043d5792b2c29de427cd10959a303bb355d1744a68f1c1d05ab34",
     ".claude/ops/CLAUDE.part.md": "103d45906b2f9573faf9c3a88c13848413ccd93522d498118ee6d06baefe14c0",
-    ".claude/agents/OPS-commit.md": "62ec7f99f0787f64c277f380a2aa72076d1f9dafccce6a1d1bfb410e32133be0",
-    ".claude/agents/OPS-dev1.md": "f7daff30a41089917b7e14c20515ac87e3489fb031c489dddd45d13638f8d95b",
-    ".claude/agents/OPS-dev2.md": "17dc8326d22d730c87333031738c5d92f795d61b58f0a4d729bdaec0e862f9fd",
-    ".claude/agents/OPS-review.md": "c5811ccc388ebd5a739638f5a6eee61764ea69a7366e2ceec57c7dce32958af8",
-    ".claude/skills/pm-ops/SKILL.md": "33161aa2b438dfdb6a2bf565eaedb6e79e3e3ea7a201e0bab595682c958c1c49",
-    ".claude/skills/pm-ops/scripts/session.ps1": "0b7db1bd638c227a73f7c8737eabee4c4c60ccc1238c563a81ec7740e9c3a122",
+    ".claude/agents/OPS-commit.md": "ed6912a536eb447eb4f579160d9bddf33a2303006e00256873df3a55ab970270",
+    ".claude/agents/OPS-dev1.md": "a96e9cc4ca9c6764ecc413cbe3ed9aa6e1e28c868c093cbbd0a738bd62f75c6e",
+    ".claude/agents/OPS-dev2.md": "feb1f242d89778ee45f01a86f705aa80e7dd7ea232b4ef5390b8e5b74dcb4eef",
+    ".claude/agents/OPS-review.md": "d17a64f4c4e933cd267c763d413f38ef6baa953277d1928704329864fec23ba1",
+    ".claude/skills/pm-ops/SKILL.md": "1cf82ab3cdb539470317544f2872501bf5e7fd4f25dc9a7674712991d97bb1b2",
+    ".claude/skills/pm-ops/scripts/session.ps1": "42676a9dcbe8f55a4348d8d73e9bfe83cbfeda7b24de959b87c97b8e3bc9c798",
     ".claude/skills/wy-resume-session/SKILL.md": "6355af151cf2809556404f4a23796a6fd06c33ff630bb6d7743d534018b2f761",
-    ".claude/skills/wy-save-session/SKILL.md": "fc42063fb2fcfdc521c9e30cf624cb151b11f6dcb66f6cbbebf9356b0c295d5c"
+    ".claude/skills/wy-save-session/SKILL.md": "fc42063fb2fcfdc521c9e30cf624cb151b11f6dcb66f6cbbebf9356b0c295d5c",
+    ".claude/agents/OPS-pm.md": "74ac282304d111c66f4800d2ef286a845b0911b4b6875f3dd8afb38803c28a80"
   }
 }

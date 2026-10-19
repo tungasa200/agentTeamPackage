@@ -12,9 +12,15 @@
 #   session.ps1 unpin <역할>            고정 목록에서 뺀다. pin·unpin 모두 멈춘·없는 세션의 id를 목록에서 정리한다
 #                                       start·rotate는 고정하지 않는다. 허용 규칙 한 줄로 이 명령만 열기 위해 pm이 따로 부른다
 #   session.ps1 attach <역할>           실행 중인 그 역할 백그라운드 세션에 붙는다(claude attach <id>, 원격 접속용). pm 역할도 된다
-#   session.ps1 start-pm [경로|latest]  pm 역할을 백그라운드 세션으로 띄운다(역할 파일 없음: pm-ops 스킬·인수인계 경로·ListAgents 확인을 시작 지시로).
+#   session.ps1 start-pm [경로|latest]  pm 역할을 역할 파일(--agent)로 백그라운드 세션으로 띄운다. 시작 규칙은 역할 파일에 있고 시작 지시는 인수인계 경로 한 줄(D-36).
+#                                       pm은 start·rotate·prep 대신 이 명령을 쓴다.
 #                                       latest는 가장 최근 pm 인수인계 파일(없으면 인수인계 없이). 이미 백그라운드 pm이 실행 중이면 거부한다. pm 세션 교체 중이면 -Force(새 pm을 띄운 뒤 이전 pm을 멈추라고 알려 줌)
-param([Parameter(Mandatory)][ValidateSet('list','health','start','stop','prep','rotate','adopt','pm-cmd','pin','unpin','attach','start-pm')][string]$Cmd, [string]$Role, [string]$Prompt, [switch]$Force)
+#   session.ps1 wt-clean <역할>         그 역할의 worktree를 지운다(커밋하지 않은 변경·병합 안 된 커밋이 있거나 세션이 실행 중이면 멈춤). 가지는 남긴다
+# worktree(WT-01, S4): wy-ops.json의 worktree.enabled가 켜져 있으면 역할 세션(pm·commit 제외, worktree.roles로 고름)은
+#   .claude/worktrees/<역할>(가지 wt/<역할>)에서 돈다. 띄울 때마다 기준 가지로 빨리감기(--ff-only)·settings.local.json·wy-ops.local.json 복사·
+#   worktree.deps의 폴더에 npm ci --prefer-offline(node_modules가 없거나 lock이 더 새로울 때). 이 스크립트가 쓰는 git은 worktree list·add·merge --ff-only·
+#   status·rev-list·show-ref·branch --show-current·worktree remove(wt-clean)뿐이다(고정 목록, 승인 가드 밖)
+param([Parameter(Mandatory)][ValidateSet('list','health','start','stop','prep','rotate','adopt','pm-cmd','pin','unpin','attach','start-pm','wt-clean')][string]$Cmd, [string]$Role, [string]$Prompt, [switch]$Force)
 
 # claude.exe가 stderr로 진행 문구를 내면 PowerShell 5.1이 'Stop'에서 오류로 끊어 버려 백그라운드 시작이 실패한다
 $ErrorActionPreference = 'Continue'
@@ -59,7 +65,9 @@ if ($Ops) {
 }
 if (-not $Roles.Count -or -not $PmRole) { throw "프로젝트 설정 $Repo\.claude\wy-ops.json에 roles·pmRole이 없습니다(install.ps1 init으로 만듭니다)" }
 # Claude Code는 대화 기록 폴더 이름을 저장소 경로의 영문·숫자 외 문자를 '-'로 바꿔 만든다(Windows는 대소문자 무시)
-$Transcripts = "$env:USERPROFILE\.claude\projects\" + ($Repo -replace '[^A-Za-z0-9]', '-')
+function Get-TranscriptDir($dir) { "$env:USERPROFILE\.claude\projects\" + (([string]$dir).TrimEnd('\', '/') -replace '[^A-Za-z0-9]', '-') }
+$Transcripts = Get-TranscriptDir $Repo
+if ($Cmd -in 'start','rotate','prep' -and $Role -eq $PmRole) { throw "$PmRole 은 start-pm을 쓰세요(세션 교체: pm-cmd)" }
 if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -and -not ($Cmd -in 'attach','stop' -and $Role -eq $PmRole)) { throw "역할 이름이 아닙니다: $Role (예: $($Roles[-1]))" }
 
 # PowerShell 5.1의 ConvertFrom-Json은 JSON 배열을 한 덩어리로 넘기므로 괄호로 풀어서 넘긴다
@@ -82,7 +90,14 @@ function Get-Bg($name) {
 # 살아 있는 세션(프로세스가 있는 것)에만 pid·status가 붙는다. state로 보지 않는다: 턴을 마치고 쉬는 백그라운드 세션도 state=done을 낸다
 function Test-Running($s) { $null -ne $s.pid }
 function Get-State($s) { if (Test-Running $s) { $s.status } else { $s.state } }
-function Get-Transcript($s) { if ($s) { Get-Item "$Transcripts\$($s.sessionId).jsonl" -ErrorAction SilentlyContinue } }
+# 대화 기록 폴더는 세션 작업 폴더(cwd) 기준이다: worktree 세션은 worktree 경로 키 아래에 있다. 못 찾으면 저장소 키
+function Get-Transcript($s) {
+  if (-not $s) { return }
+  foreach ($d in @($(if ($s.cwd) { Get-TranscriptDir $s.cwd }), $Transcripts) | Where-Object { $_ }) {
+    $f = Get-Item "$d\$($s.sessionId).jsonl" -ErrorAction SilentlyContinue
+    if ($f) { return $f }
+  }
+}
 # 현재 대화 토큰: 기록 끝 1MB에서 마지막 assistant 응답의 usage를 더한다(대시보드·대화 크기 훅과 같은 기준). 못 읽으면 $null
 function Get-ContextTokens($t) {
   if (-not $t) { return $null }
@@ -142,17 +157,78 @@ function Test-Daemon {
       "옮기기: 세션을 모두 멈춰도 되는 때 claude daemon stop --any → Start-ScheduledTask $DaemonTask → 역할 세션 다시 띄우기(MANUAL 3-5)")
   }
 }
-# claude가 0이 아닌 코드로 끝나면 throw(성공 문구를 내지 않게)
-function Start-Bg([string[]]$argv) {
+# worktree(WT-01·D-31): 켜져 있고 대상 역할이면 .claude/worktrees/<역할>, 아니면 저장소. 키가 없으면 $WtDefault
+$WtDefault = $true   # D-32
+$Wt = $Ops.worktree
+$WtOn = if ($Wt -and $null -ne $Wt.enabled) { $Wt.enabled -eq $true } else { $WtDefault }
+function Test-WtRole($name) {
+  if (-not $WtOn) { return $false }
+  if ($Wt.roles) { return $name -in @($Wt.roles) }
+  $name -notin @($PmRole, $Ops.commitRole)
+}
+function Get-WtDir($name) { Join-Path $Repo ".claude\worktrees\$name" }
+function Test-WtListed($dir) {
+  $k = Norm-Path $dir
+  @(git -C $Repo worktree list --porcelain 2>$null | Where-Object { $_ -like 'worktree *' } | ForEach-Object { Norm-Path $_.Substring(9) }) -contains $k
+}
+function Get-WtBase { if ($Wt.base) { $Wt.base } else { git -C $Repo branch --show-current 2>$null } }
+# git을 부르고 실패하면 출력과 함께 throw. 성공 출력은 버린다(함수 반환값에 섞이지 않게)
+function Invoke-Git([string[]]$argv, $what) {
+  $o = git @argv 2>&1 | ForEach-Object { "$_" }
+  if ($LASTEXITCODE) { throw "$what 실패: git $($argv -join ' ')`n$($o -join "`n")" }
+}
+# 역할 세션을 띄울 폴더. worktree면 만들거나 재사용하고, 기준 가지로 빨리감기·설정 복사·의존성 설치를 한다
+function Enter-WorkDir($name) {
+  if (-not (Test-WtRole $name)) { return $Repo }
+  $dir = Get-WtDir $name
+  $base = Get-WtBase
+  if (-not $base) { throw "$name worktree의 기준 가지를 알 수 없습니다(본 워킹트리가 가지에 있지 않음). 본 워킹트리를 가지로 돌리거나 wy-ops.json worktree.base를 적으세요." }
+  if (-not (Test-WtListed $dir)) {
+    if (Test-Path $dir) { throw "worktree 폴더가 있는데 git worktree 목록에 없습니다: $dir. 안의 파일을 확인해 옮기거나 지운 뒤 다시 띄우세요(git worktree prune으로 목록도 정리)." }
+    # 가지가 남아 있으면(wt-clean 뒤) 그 가지로, 없으면 기준 가지에서 새로
+    git -C $Repo show-ref --verify --quiet "refs/heads/wt/$name"
+    $branch = if ($LASTEXITCODE -eq 0) { , "wt/$name" } else { '-b', "wt/$name", $base }
+    Invoke-Git (@('-C', $Repo, 'worktree', 'add', $dir) + $branch) 'worktree 만들기'
+  }
+  # 병합된 뒤 기준 가지로 맞추기(D-31). 새 커밋을 만들지 않고 작성 중인 파일을 지우지 않는다. 못 하면(병합 전 커밋·같은 파일 수정 중) 그대로 띄운다
+  $o = git -C $dir merge --ff-only $base 2>&1 | ForEach-Object { "$_" }
+  if ($LASTEXITCODE) { Write-Warning "$name worktree를 기준 가지($base)로 빨리감지 못했습니다(병합 전 커밋이 있거나 같은 파일을 고치는 중일 때가 많음). 그대로 띄웁니다. git: $(($o | Select-Object -First 3) -join ' / ')" }
+  # gitignore 대상이라 worktree에 없다. 훅·승인 가드가 빠지지 않게 띄울 때마다 복사한다(S2: -w 복사는 한 번뿐이라 낡음).
+  # 복사하지 못했거나 복사본에 승인 가드 훅이 없으면 띄우지 않는다(D-32: 가드 없이 도는 worktree를 만들지 않음)
+  foreach ($f in 'settings.local.json', 'wy-ops.local.json') {
+    if (-not (Test-Path "$Repo\.claude\$f")) { continue }
+    try { Copy-Item "$Repo\.claude\$f" "$dir\.claude\$f" -Force -ErrorAction Stop }
+    catch { throw "$name worktree에 $f 를 복사하지 못해 띄우지 않습니다: $($_.Exception.Message)" }
+  }
+  # 훅의 command·args에서 찾는다(setup은 command 'node' + args [경로], 예전 형식은 "node 경로" 한 줄).
+  # 빈 결과에 -notmatch를 걸면 빈 배열(거짓)이 되므로 문자열로 바꿔 비교
+  $h = (Read-OpsJson "$dir\.claude\settings.local.json").hooks.PreToolUse.hooks
+  $guard = "$($h.command) $($h.args)"
+  if ($guard -notmatch 'wy-approval-guard') { throw "$name worktree의 .claude/settings.local.json에 승인 가드 훅(PreToolUse wy-approval-guard)이 없어 띄우지 않습니다. 저장소에서 install.ps1 setup으로 훅을 넣은 뒤 다시 띄우세요." }
+  # 의존성(D-31): 지정한 폴더만. node_modules가 없거나 package-lock.json이 마지막 설치보다 새로우면 npm ci
+  foreach ($d in @($Wt.deps.$name) | Where-Object { $_ }) {
+    $p = Join-Path $dir $d
+    $lock = Get-Item "$p\package-lock.json" -ErrorAction SilentlyContinue
+    $done = Get-Item "$p\node_modules\.package-lock.json" -ErrorAction SilentlyContinue
+    if ($lock -and $done -and $done.LastWriteTime -ge $lock.LastWriteTime) { continue }
+    Write-Host "$name worktree 의존성 설치: $d (npm ci --prefer-offline)"
+    # npm.ps1은 기본 실행 정책에서 막히므로 npm.cmd
+    Push-Location $p; try { npm.cmd ci --prefer-offline | Out-Host; $code = $LASTEXITCODE } finally { Pop-Location }
+    if ($code) { throw "$name worktree 의존성 설치 실패($d, 종료 코드 $code). 설치되지 않은 트리에서는 띄우지 않습니다." }
+  }
+  $dir
+}
+# claude가 0이 아닌 코드로 끝나면 throw(성공 문구를 내지 않게). $dir: 세션 작업 폴더(기본 저장소)
+function Start-Bg([string[]]$argv, $dir = $Repo) {
   Test-Daemon
-  Push-Location $Repo; try { claude @argv; $code = $LASTEXITCODE } finally { Pop-Location }
+  Push-Location $dir; try { claude @argv; $code = $LASTEXITCODE } finally { Pop-Location }
   if ($code -ne 0) { throw "claude 백그라운드 시작 실패(종료 코드 $code). 위 출력을 확인하세요." }
 }
 # 새 세션: 역할 파일(.claude/agents/<역할>.md)을 --agent로 싣는다. 인수인계 경로가 있으면 그것부터 불러온다
-function Start-New($name, $handoff) {
+function Start-New($name, $handoff, $dir) {
   $first = if ($handoff) { "/wy-resume-session $($handoff -replace '\\','/')" }
            else { "[$PmRole] 새 세션입니다. 역할 파일 지시대로 CLAUDE.md와 $($ProgressDoc)(역할별 다음 할 일의 내 줄)를 읽고, $($PmRole)에 SendMessage로 '$name 시작, 다음 할 일: …' 한 줄을 보낸 뒤 지시를 기다리세요." }
-  Start-Bg @('--bg', '--agent', $name, '--name', $name, $first)
+  Start-Bg @('--bg', '--agent', $name, '--name', $name, $first) $dir
 }
 
 switch ($Cmd) {
@@ -182,14 +258,15 @@ switch ($Cmd) {
     $s = Get-Bg $Role
     if ($s -and (Test-Running $s)) { "$Role 은 이미 실행 중입니다($($s.id))."; break }
     # 대화 기록이 없는 항목은 이어 띄울 수 없다("source session not found"). 역할 파일로 새로 띄운다
-    if (-not $s -or -not (Get-Transcript $s)) {
+    $t = Get-Transcript $s
+    if (-not $t) {
       if ($s) { claude rm $s.id | Out-Null }
-      Start-New $Role (Get-Handoff $Role).FullName
+      Start-New $Role (Get-Handoff $Role).FullName (Enter-WorkDir $Role)
       if ($Prompt) { "새 세션으로 띄웠습니다. 지시는 '시작' 회신을 받은 뒤 SendMessage로 보내세요." }
       break
     }
     # 멈춘 큰 세션을 이어 띄우면 캐시가 만료돼 대화 전체를 다시 쓴다(새로 띄우는 것보다 비쌈). 기준 이상이면 rotate를 권한다
-    $t = Get-Transcript $s; $tok = Get-ContextTokens $t
+    $tok = Get-ContextTokens $t
     if (-not $Force -and (Test-Rotate $tok ([math]::Round($t.Length / 1MB, 1)))) {
       $size = if ($tok) { "$([math]::Round($tok / 1000))k 토큰" } else { "$([math]::Round($t.Length / 1MB, 1))MB" }
       "$Role 의 멈춘 세션 컨텍스트가 세션 교체 기준 이상입니다($size). 재시작하지 않았습니다."
@@ -200,7 +277,7 @@ switch ($Cmd) {
     # 지시를 넘겨 이어 띄운다. 지시 없이 띄우면 빈 사본이 생겨 다음에 실패한다
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $Prompt = $Prompt -replace '"', "'"
-    Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $Prompt)
+    Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $Prompt) (Enter-WorkDir $Role)
     $n = Get-Bg $Role
     if ($n -and $n.sessionId -ne $s.sessionId) { claude rm $s.id | Out-Null }
   }
@@ -220,14 +297,16 @@ switch ($Cmd) {
     $s = Get-Bg $Role
     if ($s -and (Test-Running $s)) { "실행 중인 세션입니다. 이 문구를 SendMessage로 보내세요:"; $msg; break }
     if (-not $s) { "$Role 세션이 없습니다. 세션 교체 없이 start 하세요."; break }
-    Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $msg)
+    Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $msg) (Enter-WorkDir $Role)
   }
   'rotate' {
+    # 작업 폴더(worktree 준비)를 먼저: 실패하면 이전 세션을 멈추지 않고 끝난다
+    $dir = Enter-WorkDir $Role
     $s = Get-Bg $Role
     if ($s -and (Test-Running $s)) { claude stop $s.id | Out-Null }
     if ($s) { claude rm $s.id | Out-Null }   # 작업 항목만 지운다. 대화 기록 파일은 남는다
     $h = if ($Prompt -and $Prompt -ne 'none') { $Prompt } else { $null }
-    try { Start-New $Role $h }
+    try { Start-New $Role $h $dir }
     catch {
       $back = if ($s) { " 이전 $Role 세션은 이미 멈추고 목록에서 지웠습니다(대화 기록은 남음). 이어 띄우기: claude --bg --resume $($s.sessionId) --name $Role '<지시>'" } else { '' }
       throw "$($_.Exception.Message) 새 세션을 띄우지 못했습니다.$back"
@@ -238,7 +317,7 @@ switch ($Cmd) {
     if (-not $Prompt) { throw '세션ID가 필요합니다.' }
     # 지시 없이 이어 띄우면 빈 사본이 생기므로 한 줄 지시를 넘긴다. 끝나면 stop
     $hello = "[$PmRole] 이 세션을 $Role 이름의 백그라운드 세션으로 옮겼습니다. 답은 '옮김 확인' 한 줄만 하고 다른 작업은 하지 마세요."
-    Start-Bg @('--bg', '--resume', $Prompt, '--name', $Role, $hello)
+    Start-Bg @('--bg', '--resume', $Prompt, '--name', $Role, $hello) (Enter-WorkDir $Role)
     "옮겼습니다. 답을 마치면 session.ps1 stop $Role 로 멈추세요."
   }
   'pm-cmd' {
@@ -250,11 +329,8 @@ switch ($Cmd) {
     "pm 세션 교체(원격 운용: pm은 호스트의 백그라운드 세션, 노트북을 닫아도 계속 돎):"
     "  1. 인수인계 저장(끝남): $hp"
     "  2. 새 pm 띄우기: & '$PSCommandPath' start-pm '$hp' -Force"
-    "  3. 이전 pm 종료: 2가 알려 주는 대로(백그라운드면 claude stop <id>, 대화형 창이면 창 닫기). 이전 pm이 2를 실행했다면 3이 마지막 동작"
+    "  3. 이전 pm 종료: 2가 알려 주는 claude stop <id>. 이전 pm이 2를 실행했다면 3이 마지막 동작"
     "  4. 붙기: & '$PSCommandPath' attach $PmRole"
-    "호스트 앞에서 대화형으로 이어 갈 때(예전 방식): 새 터미널에서 아래 한 줄, 이전 pm 창은 닫기"
-    # 기본 실행 정책에서는 npm의 claude.ps1이 막히므로 claude.cmd로 부른다
-    "  cd $Repo; claude.cmd --name $PmRole `"/wy-resume-session $hp`""
   }
   'start-pm' {
     # 경로는 두 번째 자리($Role)로 들어온다. 'none'이나 빈 값이면 인수인계 없이 시작
@@ -265,19 +341,33 @@ switch ($Cmd) {
     $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
     $bg = @($live | Where-Object { $_.kind -eq 'background' })
     if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force"; break }
-    $load = if ($h) { "다음으로 /wy-resume-session $($h -replace '\\','/') 로 인수인계를 불러오고, " } else { "다음으로 CLAUDE.md와 $($ProgressDoc)를 읽고, " }
-    # pm은 역할 파일이 없어 이 문장이 지침의 전부다. '따르세요'만으로는 스킬을 부르지 않으므로(KI-05) 호출을 첫 동작으로 못 박는다
-    $first = "[$PmRole 시작] 이 세션은 호스트에서 백그라운드로 도는 $PmRole(개발 총괄)입니다. 사용자는 session.ps1 attach $PmRole 로 붙어 대화합니다. " +
-             "가장 먼저 Skill 도구로 pm-ops 스킬을 불러오세요(스킬 본문을 읽기 전에는 다른 일을 하지 않습니다). 이후 pm-ops 스킬을 따릅니다. " +
-             $load + "ListAgents로 실행 중인 역할 세션을 확인한 뒤 이어서 일하세요. " +
-             "ListAgents에 자기 말고 같은 $PmRole 이름이 보이면 교체 직후 남은 항목입니다. 중복 $PmRole 여부는 session.ps1 list의 실행 중(pid 있음) 항목으로만 판단하고, 실행 중 $PmRole 이 하나면 경고하지 않습니다. $PmRole 이름으로 SendMessage를 보내지 마세요."
+    # 시작 규칙(pm-ops 먼저·인수인계·중복 pm 판단)은 역할 파일에 있다(D-36). 시작 지시는 인수인계 경로만 넘긴다
+    if (-not (Test-Path "$Repo\.claude\agents\$PmRole.md")) { throw "$PmRole 역할 파일(.claude/agents/$PmRole.md)이 없습니다. install.ps1 gen 먼저 실행하세요." }
+    $first = if ($h) { "[$PmRole 시작] 인수인계: $($h -replace '\\','/')" } else { "[$PmRole 시작] 인수인계 없음" }
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $first = $first -replace '"', "'"
-    Start-Bg @('--bg', '--name', $PmRole, $first)
+    Start-Bg @('--bg', '--agent', $PmRole, '--name', $PmRole, $first)
     "백그라운드 $PmRole 을 띄웠습니다. 붙기: session.ps1 attach $PmRole"
-    foreach ($o in $live) {
-      if ($o.kind -eq 'background') { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" } else { "이전 $PmRole 대화형 세션($($o.id))의 창을 닫으세요" }
+    foreach ($o in $live) { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" }
+  }
+  'wt-clean' {
+    # 고정 worktree는 평소 지우지 않는다(D-31). 역할을 없애거나 worktree를 끌 때·트리가 망가졌을 때만. --force 없이 지우고 가지는 남긴다
+    $dir = Get-WtDir $Role
+    if (-not (Test-WtListed $dir)) { "$Role worktree가 git worktree 목록에 없습니다$(if (Test-Path $dir) { "(폴더만 남음: $dir — 안의 파일을 확인하고 손으로 지우세요)" })."; break }
+    $s = Get-Bg $Role
+    if ($s -and (Test-Running $s)) { "$Role 세션이 실행 중입니다. 먼저 session.ps1 stop $Role"; break }
+    $dirty = @(git -C $dir status --porcelain 2>$null)
+    $base = Get-WtBase
+    # 가지가 아니라 worktree의 HEAD를 본다(다른 가지·detached에서 만든 커밋도 잃지 않게). 확인 못 하면 지우지 않는다
+    $ahead = @(git -C $dir rev-list "$base..HEAD" 2>$null)
+    if ($LASTEXITCODE) { "지우지 않았습니다: $Role worktree의 커밋이 기준 가지($base)에 병합됐는지 확인하지 못했습니다."; break }
+    if ($dirty.Count -or $ahead.Count) {
+      "지우지 않았습니다: 커밋하지 않은 변경 $($dirty.Count)개, $base 에 병합 안 된 커밋 $($ahead.Count)개."
+      $dirty | Select-Object -First 20
+      break
     }
+    Invoke-Git @('-C', $Repo, 'worktree', 'remove', $dir) 'worktree 지우기'
+    "$Role worktree를 지웠습니다. 가지 wt/$Role 은 남겼습니다(지우려면 $($Ops.commitRole)에 git branch -d wt/$Role 요청)."
   }
   { $_ -in 'pin','unpin' } {
     $pinFile = "$env:USERPROFILE\.claude\jobs\pins.json"
