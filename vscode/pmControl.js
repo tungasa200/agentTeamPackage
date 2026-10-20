@@ -9,7 +9,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { isAlive } = require('./agentsReader');
+const { isAlive, mainRepoKey, inRepo } = require('./agentsReader');
 const { transcriptFile, thresholds } = require('./contextSize');
 
 const SESSION_PS1 = path.join('.claude', 'skills', 'pm-ops', 'scripts', 'session.ps1');
@@ -48,6 +48,27 @@ const STEPS = ['하던 일 저장', '새 pm 시작', '이전 pm 멈춤', '새 �
 function psArgs(ps1, ...args) {
   const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
   return ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8; & ${q(ps1)} ${args.join(' ')}`];
+}
+
+// 인수인계 파일의 **Worktree:** 머리말이 repo(본 저장소 또는 그 아래 worktree)인가. 머리말 없는 옛 파일·저장소를 모르면 받는다
+function handoffHere(file, repo) {
+  if (!repo) return true;
+  // 머리말은 파일 앞부분에 있다: 교체 중 3초마다 부르므로 앞 2KB만 읽는다
+  let text;
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(2048);
+      text = buf.toString('utf8', 0, fs.readSync(fd, buf, 0, buf.length, 0));
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+  const m = /^\*\*Worktree:\*\*[ \t]*(.+?)[ \t]*$/m.exec(text);
+  if (!m) return true;
+  return inRepo(mainRepoKey(repo), m[1].replace(/^[`"' ]+|[`"' ]+$/g, ''));
 }
 
 class PmControl {
@@ -107,12 +128,14 @@ class PmControl {
     return this.agents.filter(isAlive).sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
   }
 
-  // 교체 1단계 완료 근거: 교체를 누른 뒤 생긴 pm 인수인계 파일(<날짜>-<pm>[-n]-session.tmp)
+  // 교체 1단계 완료 근거: 교체를 누른 뒤 생긴 pm 인수인계 파일(<날짜>-<pm>[-n]-session.tmp).
+  // 다른 프로젝트가 같은 pm 이름을 써도 집지 않게 **Worktree:** 머리말이 이 저장소(그 아래 worktree 포함)인 것만(MP-02, session.ps1 Test-HandoffHere와 같은 기준)
   handoffSince(at) {
     const dir = path.join(this.d.home, '.claude', 'session-data');
     const re = new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${this.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(-\\d+)?-session\\.tmp$`);
+    const repo = () => (this.d.ops() || {}).root || this.d.folder(); // 이름·시각이 맞는 파일이 있을 때만 설정을 읽는다
     try {
-      return fs.readdirSync(dir).some((f) => re.test(f) && fs.statSync(path.join(dir, f)).mtimeMs >= at);
+      return fs.readdirSync(dir).some((f) => re.test(f) && fs.statSync(path.join(dir, f)).mtimeMs >= at && handoffHere(path.join(dir, f), repo()));
     } catch {
       return false;
     }

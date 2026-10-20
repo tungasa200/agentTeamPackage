@@ -28,6 +28,20 @@ assert.strictEqual(check(list, 'main'), null, 'main은 통과');
 assert.strictEqual(check([], 'WY-qa'), null, '빈 목록은 통과');
 assert.strictEqual(check(null, ''), null, '대상 없음은 통과');
 
+// MP-03: 설정(ops)을 주면 이 프로젝트 세션만 본다(worktree에서 보내도 본 저장소 기준)
+{
+  const ops = { rolePrefix: 'WY-', pmRole: 'WY-pm', root: String.raw`C:\p\tool\.claude\worktrees\WY-dev1` };
+  const mixed = [
+    { name: 'WY-qa', kind: 'background', state: 'done', cwd: String.raw`C:\p\tool`, startedAt: 1, sessionId: 'mine' },
+    { name: 'WY-qa', kind: 'background', state: 'working', status: 'busy', pid: 7, cwd: String.raw`C:\p\erp`, startedAt: 2, sessionId: 'theirs' },
+    { name: 'WY-only', kind: 'background', state: 'done', cwd: String.raw`C:\p\erp`, startedAt: 1 },
+  ];
+  assert.strictEqual(check(mixed, 'WY-qa'), null, '설정 없음: 다른 프로젝트의 살아 있는 같은 이름으로 통과(이전 동작)');
+  const r = check(mixed, 'WY-qa', 'WY-pm', ops);
+  assert.ok(r && r.toSessionId === 'mine', '이 프로젝트 쪽이 꺼져 있으면 거부');
+  assert.strictEqual(check(mixed, 'WY-only', 'WY-pm', ops), null, '다른 프로젝트에만 있는 이름은 목록에 없는 이름처럼 통과');
+}
+
 // 거부 기록(message-blocks.log): 본문 없이 시각·보낸 세션·대상, 크기를 넘으면 앞 절반을 버린다
 const fs = require('fs');
 const os = require('os');

@@ -165,6 +165,34 @@ const row = (extra = {}) => ({ name: 'AB-pm', alive: true, view: 'input', contex
     t.pm.close();
     assert.strictEqual(t.pm.view().mode, 'running', '[닫기]');
 
+    // 저장 감지는 이 저장소 인수인계만(MP-02): **Worktree:** 머리말이 다른 프로젝트면 건너뛰고, 그 아래 worktree·머리말 없는 옛 파일은 받는다
+    {
+      const sd = path.join(home, '.claude', 'session-data');
+      for (const f of fs.readdirSync(sd)) fs.utimesSync(path.join(sd, f), new Date(0), new Date(0)); // 앞 시험의 파일은 교체 전 것으로
+      const save = (name, body) => {
+        fs.writeFileSync(path.join(sd, name), body);
+        fs.utimesSync(path.join(sd, name), new Date(t.now() + 1000), new Date(t.now() + 1000));
+      };
+      t = setup();
+      t.pm.observe([bg('bbbb2222', 's2', 10)], row());
+      t.pm.rotate();
+      save('2026-10-12-AB-pm-2-session.tmp', `# Session\n\n**Project:** erp\n**Worktree:** ${folder}2\n`);
+      t.pm.observe([bg('bbbb2222', 's2', 10)], row());
+      assert.strictEqual(t.pm.view().step, 0, '다른 프로젝트(이름이 앞부분만 같은 폴더) 인수인계는 저장 근거가 아님');
+      save('2026-10-12-AB-pm-3-session.tmp', `# Session\r\n**Worktree:** \`${path.join(folder, '.claude', 'worktrees', 'AB-dev1').replace(/\\/g, '/').toUpperCase()}\`\r\n`);
+      t.pm.observe([bg('bbbb2222', 's2', 10)], row());
+      assert.strictEqual(t.pm.view().step, 1, '이 저장소 아래 worktree 경로(대소문자·슬래시·따옴표 무시)');
+      t.pm.close();
+      t = setup();
+      t.pm.observe([bg('bbbb2222', 's2', 10)], row());
+      t.pm.rotate();
+      for (const f of fs.readdirSync(sd)) fs.utimesSync(path.join(sd, f), new Date(0), new Date(0));
+      save('2026-10-12-AB-pm-4-session.tmp', '# Session\n머리말 없음\n');
+      t.pm.observe([bg('bbbb2222', 's2', 10)], row());
+      assert.strictEqual(t.pm.view().step, 1, '머리말 없는 옛 파일은 받음');
+      t.pm.close();
+    }
+
     // 메모리가 막는 선 아래면 교체하지 않는다
     t = setup({ free: 400 * 1024 ** 2 });
     t.pm.observe([bg('bbbb2222', 's2', 10)], row());

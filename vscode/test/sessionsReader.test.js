@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { buildStatus, isReachable, readMessageBlocks, splitByProject, treeMB, MESSAGE_BLOCKS } = require('../agentsReader');
+const { buildStatus, isReachable, readMessageBlocks, projectFilter, splitByProject, treeMB, MESSAGE_BLOCKS } = require('../agentsReader');
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 const bg = (name, extra) => ({ name, kind: 'background', id: name.slice(-8), sessionId: `${name}-sid`, startedAt: 1, ...extra });
@@ -142,12 +142,18 @@ assert.deepStrictEqual(buildStatus([null, 3, { kind: 'background', state: 'weird
     live('AB-pm', { cwd: String.raw`C:\projects\other-app` }),
     live('AB-qa', { cwd: 'C:/projects/other-app/' }),
     bg('AB-old', { state: 'done', cwd: String.raw`C:\projects\other-app` }), // 꺼진 세션은 세지 않음
-    { kind: 'interactive', cwd: String.raw`C:\projects\tool` }, // 이름 없는 세션은 요약 쪽
+    { kind: 'interactive', cwd: String.raw`C:\projects\tool` }, // 이 폴더의 이름 없는 세션은 따로(D-18)
+    { kind: 'background', pid: 100, status: 'busy', cwd: String.raw`C:\projects\tool\.claude\worktrees\b` }, // 그 아래 worktree도 이 폴더
+    { kind: 'background', pid: 100, status: 'busy', cwd: String.raw`C:\projects\tool2` }, // 앞부분만 같은 폴더는 다른 프로젝트
     live('ops-x', { cwd: undefined }),
   ];
   const { mine, others } = splitByProject(list, ops);
   assert.deepStrictEqual(mine.map((s) => s.name), ['OPS-pm', 'OPS-dev1', 'OPS-review'], '이 프로젝트 세션');
-  assert.deepStrictEqual(others, [{ project: 'other-app', count: 2, pids: [100, 100] }, { project: '폴더 모름', count: 1, pids: [100] }, { project: 'tool', count: 1, pids: [] }, { project: 'tool2', count: 1, pids: [100] }], '다른 프로젝트 요약(pid는 메모리 합산용)');
+  assert.deepStrictEqual(others, [{ project: '이 폴더(이름 없음)', count: 2, pids: [100], here: true }, { project: 'other-app', count: 2, pids: [100, 100] }, { project: 'tool2', count: 2, pids: [100, 100] }, { project: '폴더 모름', count: 1, pids: [100] }], '이 폴더(이름 없음)가 먼저, 다른 프로젝트 요약(pid는 메모리 합산용)');
+  // worktree에서 연 창·훅(ops.root가 worktree)도 본 저장소 기준
+  const wtOps = { ...ops, root: String.raw`C:\projects\tool\.claude\worktrees\a` };
+  assert.deepStrictEqual(splitByProject(list, wtOps).mine.map((s) => s.name), ['OPS-pm', 'OPS-dev1', 'OPS-review'], 'worktree root → 본 저장소 세션');
+  assert.strictEqual(projectFilter(wtOps)(live('OPS-pm', { cwd: String.raw`C:\projects\tool` })), true, 'projectFilter도 본 저장소 기준');
   // 접두사가 없으면 pm 역할 이름으로
   assert.deepStrictEqual(splitByProject(list, { pmRole: 'OPS-pm', root: 'C:/projects/tool' }).mine.map((s) => s.name), ['OPS-pm'], 'pm 이름으로');
   // 설정이 없으면 이전처럼 모두
@@ -172,4 +178,24 @@ assert.deepStrictEqual(buildStatus([null, 3, { kind: 'background', state: 'weird
   assert.strictEqual(treeMB(procs, [0]), 0, '자기 부모 순환');
 }
 
-console.log('sessionsReader 검사 통과');
+// 10. 승인 센터·활동 탭(list 없이 부름)은 이 프로젝트 세션만(MP-03). 다른 프로젝트의 같은 이름 세션은 줄이 되지 않는다
+(async () => {
+  const cp = require('child_process');
+  const orig = cp.execFile;
+  const agents = [live('OPS-commit', { cwd: String.raw`C:\projects\tool`, sessionId: 'here' }), live('OPS-commit', { cwd: String.raw`C:\projects\erp`, sessionId: 'there', startedAt: 9 }), bg('OPS-qa', { state: 'done', cwd: String.raw`C:\projects\erp` })];
+  cp.execFile = (file, args, opts, cb) => cb(null, JSON.stringify(agents));
+  try {
+    delete require.cache[require.resolve('../agentsReader')];
+    const { readSessionStatus } = require('../agentsReader');
+    const rows = await readSessionStatus({ root: path.join(os.tmpdir(), 'wy-none'), ops: { rolePrefix: 'OPS-', root: 'C:/projects/tool' }, home: os.tmpdir() });
+    assert.deepStrictEqual(rows.map((r) => [r.name, r.sessionId]), [['OPS-commit', 'here']], '이 프로젝트 세션만');
+    const all = await readSessionStatus({ root: path.join(os.tmpdir(), 'wy-none'), ops: null, home: os.tmpdir() });
+    assert.strictEqual(all.length, 2, '설정이 없으면 이전처럼 모두(이름별 한 줄)');
+  } finally {
+    cp.execFile = orig;
+  }
+  console.log('sessionsReader 검사 통과');
+})().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

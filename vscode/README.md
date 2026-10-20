@@ -23,7 +23,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 | 끊긴 SSH 접속 묶음(SSH 원격 호스트만) | 설치본 `templates/connect/ssh-orphans.ps1 -Json` | 60초 |
 
 - 패널이 보이지 않으면 폴링을 멈춘다. 위 오른쪽 새로고침 버튼으로 바로 갱신할 수 있다.
-- 세션 표는 이 창 프로젝트의 세션만 보인다(D-15, `agentsReader.splitByProject`): 이름이 `rolePrefix`(없으면 `pmRole`)로 시작하고 cwd가 저장소(`.claude/wy-ops.json`이 있는 폴더)이거나 그 아래인 세션. 다른 프로젝트의 살아 있는 세션은 표 아래 한 줄로 폴더 이름별 세션 수·메모리(세션 pid와 자식 프로세스의 WorkingSet 합, `Win32_Process` 한 번 조회, 실패하면 수만)를 보인다. 설정이 없으면 모두 보인다.
+- 세션 표는 이 창 프로젝트의 세션만 보인다(D-15, `agentsReader.splitByProject`): 이름이 `rolePrefix`(없으면 `pmRole`)로 시작하고 cwd가 저장소(`.claude/wy-ops.json`이 있는 폴더)이거나 그 아래인 세션. 다른 프로젝트의 살아 있는 세션은 표 아래 한 줄로 폴더 이름별 세션 수·메모리(세션 pid와 자식 프로세스의 WorkingSet 합, `Win32_Process` 한 번 조회, 실패하면 수만)를 보인다. 이 폴더(그 아래 worktree 포함)의 이름 없는 세션은 '다른 프로젝트' 앞에 '이 폴더(이름 없음) N개'로 따로 보인다(D-18). 저장소는 본 저장소다: worktree 폴더로 연 창도 `.claude\worktrees\` 앞부분으로 본다. 승인 센터(커밋 세션 역할 누락·세션 끝남)·활동 탭 칩·메시지 가드 훅도 같은 기준으로 이 프로젝트 세션만 본다(MP-03). 설정이 없으면 모두 보인다.
 - pm(`.claude/wy-ops.json`의 `pmRole`)은 세션 표에 넣지 않고 세션 표 바로 위 pm 줄에 따로 보인다(0.10.0, `pmControl.js`, 목업 `design/pm-control/`). 아래 'pm 줄'.
 - 프로세스 블록은 제목을 눌러 접을 수 있다. 접어 두면 `tasklist`를 실행하지 않고, 접힘 상태는 패널을 다시 열어도 유지된다.
 - 끊긴 SSH 접속 묶음(0.11.0, `orphanCleaner.js`): `install.ps1 host`를 한 PC(`HKLM\SOFTWARE\OpenSSH` DefaultShell이 Windows PowerShell)에서만 판정한다. 관리자 창(SSH 원격 창)이면 줄 옆 [정리]가 보이고(`ssh-orphans.ps1 -Stop -Json`, 결과 `stoppedChains` 한 줄), 후보를 보면 10분에 한 번까지 저절로 끈다(자동 정리용 판정은 사이드바가 떠 있는 동안 10분마다, 프로세스 블록을 접어도 돈다). 판정 규칙(30분·지금 서버·살아 있는 접속·에이전트 호스트 관리는 남김, 끄기 직전 다시 판정)은 스크립트 한 곳에 있다. 일반 권한 창은 줄만 보이고 자동 정리하지 않는다.
@@ -38,7 +38,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 |---|---|
 | [pm 시작] | `session.ps1 start-pm latest`(가장 최근 pm 인수인계). 60초 안에 백그라운드 pm이 안 뜨면 오류와 [다시 시도]·[기록 보기] |
 | [붙기] / [붙어서 답하기] | 통합 터미널 `<pm> 붙기`에서 `session.ps1 attach <pm>`(살아 있으면 그 터미널을 다시 보여 줌). 누를 때마다 `pm-control.log`에 '붙기: <pm> <폴더>' |
-| [pm 교체] | 붙기 터미널에 교체 문구(`pmControl.ROTATE_TEXT`, 새로 연 터미널이면 5초 뒤)를 넣고 네 단계를 지켜본다: 하던 일 저장(그 뒤 생긴 `~/.claude/session-data/<날짜>-<pm>[-n]-session.tmp` 또는 새 pm, 10분) → 새 pm 시작(다른 sessionId의 살아 있는 pm, 60초) → 이전 pm 멈춤(60초) → 새 터미널로 붙기. 진행은 workspaceState(`wyOps.pmRotation`)에 두어 창을 닫았다 열어도 이어서 보고, 그동안 세션을 3초마다 읽는다. 여유 메모리가 `memory.blockFreeMB` 미만이면 시작하지 않는다. [다시 시도]는 실패한 단계부터(저장: 문구 다시, 새 pm: `start-pm latest -Force`, 이전 pm 멈춤: `claude stop <id>`) |
+| [pm 교체] | 붙기 터미널에 교체 문구(`pmControl.ROTATE_TEXT`, 새로 연 터미널이면 5초 뒤)를 넣고 네 단계를 지켜본다: 하던 일 저장(그 뒤 생긴 `~/.claude/session-data/<날짜>-<pm>[-n]-session.tmp` 중 `**Worktree:**` 머리말이 이 저장소나 그 아래인 것(머리말 없는 옛 파일은 받음, MP-02) 또는 새 pm, 10분) → 새 pm 시작(다른 sessionId의 살아 있는 pm, 60초) → 이전 pm 멈춤(60초) → 새 터미널로 붙기. 진행은 workspaceState(`wyOps.pmRotation`)에 두어 창을 닫았다 열어도 이어서 보고, 그동안 세션을 3초마다 읽는다. 여유 메모리가 `memory.blockFreeMB` 미만이면 시작하지 않는다. [다시 시도]는 실패한 단계부터(저장: 문구 다시, 새 pm: `start-pm latest -Force`, 이전 pm 멈춤: `claude stop <id>`) |
 | [멈춤] | 확인 창(취소가 기본: Enter·Esc는 아무것도 안 함) 뒤 `session.ps1 stop <pm>` |
 | [이전 pm 멈춤] | pm이 둘 살아 있을 때 오래된 쪽을 `claude stop <id>` |
 

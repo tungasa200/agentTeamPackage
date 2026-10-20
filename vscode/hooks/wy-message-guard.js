@@ -8,7 +8,7 @@
 //   세션 현황의 '꺼진 뒤 메시지 옴' 경고가 읽는다(agentsReader). 메시지 본문은 남기지 않는다. 1MB를 넘으면 앞 절반을 버린다.
 const fs = require('fs');
 const path = require('path');
-const { readAgents, isReachable } = require('../agentsReader');
+const { readAgents, isReachable, projectFilter } = require('../agentsReader');
 
 const LOG_NAME = 'message-blocks.log';
 const LOG_MAX_BYTES = 1024 * 1024;
@@ -16,9 +16,13 @@ const LOG_MAX_BYTES = 1024 * 1024;
 // "XX-qa [3fa9c1]" → "XX-qa"
 const nameOf = (to) => String(to || '').replace(/\s*\[[^\]]*\]\s*$/, '').trim();
 
-function check(list, to, pmRole = null) {
+// ops(프로젝트 설정)를 주면 이 프로젝트 세션만 본다(MP-03, agentsReader.projectFilter): 다른 프로젝트의 같은 이름 세션이
+// 살아 있어도 이 프로젝트 쪽이 꺼져 있으면 거부하고, 다른 프로젝트에만 있는 이름은 목록에 없는 이름처럼 통과
+function check(list, to, pmRole = null, ops = null) {
   const name = nameOf(to);
   if (!name || name === 'main') return null;
+  const mine = projectFilter(ops);
+  if (mine) list = (list || []).filter(mine);
   const same = (list || []).filter((s) => s && s.name === name);
   if (!same.length || isReachable(list, name)) return null;
   const latest = same.reduce((a, b) => ((b.startedAt || 0) > (a.startedAt || 0) ? b : a));
@@ -64,14 +68,13 @@ if (require.main === module) {
     try {
       const input = JSON.parse(raw);
       const list = await readAgents();
-      let pmRole = null;
+      let ops = null;
       try {
-        const ops = require('../opsConfig').loadOpsConfig(input.cwd || process.cwd());
-        pmRole = ops && ops.pmRole;
+        ops = require('../opsConfig').loadOpsConfig(input.cwd || process.cwd());
       } catch {
-        // 설정을 못 읽으면 일반 문구
+        // 설정을 못 읽으면 일반 문구, 프로젝트를 가리지 않는다
       }
-      const result = check(list, input.tool_input && input.tool_input.to, pmRole);
+      const result = check(list, input.tool_input && input.tool_input.to, (ops && ops.pmRole) || null, ops);
       if (result) {
         try {
           const store = require('../approvalStore');
