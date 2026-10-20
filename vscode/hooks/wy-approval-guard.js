@@ -233,7 +233,7 @@ const PLAIN_WORD = /^[A-Za-z0-9._-]+$/;
 // git을 다른 이름에 거는 명령(X1)
 const ALIASERS = new Set(['alias', 'set-alias', 'sal', 'new-alias', 'nal', 'doskey']);
 // git 낱말이 인자로 나와도 실행하지 않는 프로그램(X4에서 뺀다): 출력·찾기·읽기·이동
-const NON_EXEC = new Set([...'echo printf write-host write-output grep rg findstr select-string sls which where get-command gcm type man help ls dir cat head tail wc test test-path get-item gi get-childitem gci get-content gc cd set-location sl pushd code winget choco scoop mkdir rm rmdir cp mv touch'.split(' ')]);
+const NON_EXEC = new Set([...'echo printf write-host write-output grep rg findstr select-string sls which where get-command gcm type man help ls dir cat head tail wc test test-path get-item gi get-childitem gci get-content gc cd set-location sl pushd code winget choco scoop mkdir rm rmdir cp mv touch get-process gps ps pgrep pkill pidof stop-process spps kill taskkill tasklist'.split(' ')]);
 // PowerShell 비교·문자열 연산자($x -match 'git'는 실행이 아니다)
 const PS_OP = /^-(?:c|i)?(?:eq|ne|gt|ge|lt|le|like|notlike|match|notmatch|contains|notcontains|in|notin|replace|split|join|is|isnot|as|and|or|xor|not|band|bor|f)$/i;
 
@@ -906,10 +906,45 @@ const CODE_INTERPRETERS = new Set(['node', 'python', 'python3', 'py', 'perl', 'r
 // 데이터 본문을 쓴 파일을 실행할 수 없는 프로그램(KI-02: 본문에 보호 이름이 있어도 통과)
 const HEREDOC_SAFE = new Set(['cat', 'tee', 'mkdir', 'ls', 'echo', 'cd', 'grep', 'rg', 'head', 'tail', 'wc', 'diff', 'test', 'true', 'rm', 'mv', 'cp', 'chmod', 'touch']);
 
+// 이 줄에서 here-doc을 여는 연산자 <<를 찾는다(S3 관문). 따옴표 안(여러 줄에 걸친 것 포함)·<<<·# 주석 뒤는 아니다.
+// "$(…)" 안은 따옴표 밖으로 본다. 줄 끝에 따옴표가 열려 있으면 본문이 어디서 시작할지 몰라 here-doc으로 보지 않는다.
+// stack은 줄 사이에 이어 쓰는 따옴표·괄호 상태(' " ( )다. 돌려줌: { at, m }(m은 <<(-?)(['"]?)(구분자)) 또는 null
+function heredocStart(line, stack) {
+  let found = null;
+  for (let k = 0; k < line.length; k++) {
+    const ch = line[k];
+    const top = stack[stack.length - 1];
+    if (top === "'") {
+      if (ch === "'") stack.pop();
+    } else if (top === '"') {
+      if (ch === '\\' || ch === '`') k++;
+      else if (ch === '"') stack.pop();
+      else if (ch === '$' && line[k + 1] === '(') stack.push('('), k++;
+    } else if (ch === '\\' || ch === '`') k++;
+    else if (ch === "'" || ch === '"') stack.push(ch);
+    else if (ch === '(') stack.push('(');
+    else if (ch === ')') {
+      if (top === '(') stack.pop();
+    } else if (ch === '#' && (k === 0 || /[\s;&|(]/.test(line[k - 1]))) break;
+    else if (ch === '<' && line[k + 1] === '<') {
+      if (line[k + 2] === '<') k += 2;
+      else {
+        const m = !found && line.slice(k).match(/^<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
+        if (m) found = { at: k, m };
+        k++;
+      }
+    }
+  }
+  const top = stack[stack.length - 1];
+  return top === "'" || top === '"' ? null : found;
+}
+
 // here-doc 본문을 떼어 낸다. 셸(bash 등)이나 모르는 프로그램의 본문은 명령이므로 그대로 둔다.
 //   돌려줌 { command: 본문을 뺀 명령, bodies: here-doc 머리 순서대로 본문(그대로 둔 것은 null),
 //           code: 데이터 본문(cat·tee)만 뺀 명령 — 실행되지 않는 데이터의 ?·[·*를 와일드카드로 보지 않게(2026-10-10 pm 오탐) }
-function splitHeredocs(command) {
+//   gitMsg: 커밋 메시지를 here-doc으로 받는 git commit·merge(-F - <<'EOF')의 본문도 뗀다(evaluate의 잠금 판정용). 본문은 git이 메시지로 읽을 뿐 셸이 실행하지 않는다
+//   dataToo: false면 cat·tee·인터프리터 본문은 떼지 않는다(그 본문을 실행할 수 있는 명령일 때)
+function splitHeredocs(command, gitMsg = false, dataToo = true) {
   const lines = command.split('\n');
   const out = [];
   const code = [];
@@ -917,36 +952,46 @@ function splitHeredocs(command) {
   const data = [];
   const codeBodies = [];
   const codeProgs = [];
-  let expands = false;
+  const stack = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     out.push(line);
     code.push(line);
-    const m = line.match(/<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
-    if (!m) continue;
-    const before = segments(line.slice(0, m.index)).pop() || '';
+    const h = heredocStart(line, stack);
+    if (!h) continue;
+    const { at, m } = h;
+    const before = segments(line.slice(0, at)).pop() || '';
     const t = leadingTokens(before);
     const prog = t.length ? path.basename(t[0]).toLowerCase().replace(/\.exe$/, '') : '';
     const end = lines.findIndex((l, j) => j > i && (m[1] ? l.replace(/^\t+/, '') : l) === m[3]);
     // cat <<EOF | bash처럼 데이터 본문을 넘겨받는 프로그램이 안전 목록 밖이면 실행될 수 있어 명령으로 둔다
     //   앞에 낱말을 붙여 나눈다: 머리 뒤 남은 글(> 파일)이 첫 조각, 파이프 뒤 프로그램이 다음 조각(' | sed e'의 빈 첫 조각이 버려지지 않게)
-    const piped = segments('x' + line.slice(m.index + m[0].length)).slice(1).some((sg) => !HEREDOC_SAFE.has(path.basename(leadingTokens(sg)[0] || '').toLowerCase().replace(/\.exe$/, '')));
-    if (end < 0 || !(HEREDOC_DATA.has(prog) || CODE_INTERPRETERS.has(prog)) || (HEREDOC_DATA.has(prog) && piped)) {
+    const piped = segments('x' + line.slice(at + m[0].length)).slice(1).some((sg) => !HEREDOC_SAFE.has(path.basename(leadingTokens(sg)[0] || '').toLowerCase().replace(/\.exe$/, '')));
+    const isData = dataToo && ((HEREDOC_DATA.has(prog) && !piped) || CODE_INTERPRETERS.has(prog));
+    const isMsg = gitMsg && progName(stripRunners(t)) === 'git' && ['commit', 'merge'].includes(classify(before));
+    // 따옴표 없는 구분자(<<EOF)의 본문은 셸이 $(…)·백틱을 먼저 실행하므로 명령으로 둔다
+    if (end < 0 || !(isData || isMsg) || expandsBody(m, lines.slice(i + 1, end))) {
       bodies.push(null);
+      // 남긴 본문은 명령으로 판정하되 따옴표 상태는 따라가지 않는다(본문의 ' 하나가 뒤 줄의 상태를 바꾸지 않게)
+      if (end > i) {
+        out.push(...lines.slice(i + 1, end + 1));
+        code.push(...lines.slice(i + 1, end + 1));
+        i = end;
+      }
       continue;
     }
     bodies.push(lines.slice(i + 1, end).join('\n'));
-    // 따옴표 없는 구분자(<<EOF)의 본문은 셸이 $(…)·백틱을 먼저 실행한다
-    if (!m[2] && /\$\(|`/.test(bodies[bodies.length - 1])) expands = true;
-    if (CODE_INTERPRETERS.has(prog)) {
+    if (!isData) code.push(...lines.slice(i + 1, end));
+    else if (CODE_INTERPRETERS.has(prog)) {
       code.push(...lines.slice(i + 1, end));
       codeBodies.push(bodies[bodies.length - 1]);
       codeProgs.push(prog);
     } else data.push(bodies[bodies.length - 1]);
     i = end;
   }
-  return { command: out.join('\n'), bodies, code: code.join('\n'), data, codeBodies, codeProgs, expands };
+  return { command: out.join('\n'), bodies, code: code.join('\n'), data, codeBodies, codeProgs };
 }
+const expandsBody = (m, body) => !m[2] && body.some((l) => /\$\(|`/.test(l));
 
 // ── 오탐 수정(2026-10-10 pm): 설치본 CLI의 읽기 전용 하위 명령, PowerShell 내용 쓰기의 데이터 ──────────
 // 설치본 경로가 명령에 있어도 읽기 전용 하위 명령(doctor·도움말)은 통과. deploy·gen·host·connect 등 나머지는 그대로 본다(허용 목록).
@@ -1431,7 +1476,9 @@ function writesApprovalFiles(command, cwd, depth = 0) {
         }
       } else {
         const a = sp.args.join(' ');
-        if (moved || mentionsProtected(a) || namedIn(a) || sp.args.some((x) => GLOB.test(x))) return true;
+        // 상대 경로 인자는 cwd 기준으로 풀어 본다(쓰기 프로그램으로 보던 e01ca5d 전과 같게, S3 관문 #4)
+        const resolved = (x) => !x.startsWith('~') && mentionsProtected(path.resolve(cwd || process.cwd(), x));
+        if (moved || mentionsProtected(a) || namedIn(a) || sp.args.some((x) => GLOB.test(x) || resolved(x))) return true;
         continue;
       }
     }
@@ -1538,32 +1585,6 @@ function ownWorktreeMerge(input, command) {
   }
 }
 
-// 커밋 메시지를 here-doc으로 받는 git commit·merge(-F - <<'EOF')의 본문을 뺀 명령. 본문은 git이 메시지로 읽을 뿐 셸이 실행하지 않는다.
-// 여는 << 는 따옴표 밖(여러 줄에 걸친 따옴표 포함)에 있을 때만 here-doc으로 본다(따옴표 안 "<<EOF"로 다음 줄을 숨기지 못하게)
-function withoutGitHeredocs(command) {
-  const lines = command.split('\n');
-  const out = [];
-  let quote = '';
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    out.push(line);
-    let at = -1;
-    for (let k = 0; k < line.length; k++) {
-      const ch = line[k];
-      if (ch === '\\' && quote !== "'") k++;
-      else if (quote) quote = ch === quote ? '' : quote;
-      else if (ch === '"' || ch === "'") quote = ch;
-      else if (at < 0 && ch === '<' && line[k + 1] === '<') at = k;
-    }
-    const m = at >= 0 && !quote && line.slice(at).match(/^<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
-    const seg = m ? segments(line.slice(0, at)).pop() || '' : '';
-    if (!m || progName(stripRunners(leadingTokens(seg))) !== 'git' || !['commit', 'merge'].includes(classify(seg))) continue;
-    const end = lines.findIndex((l, j) => j > i && (m[1] ? l.replace(/^\t+/, '') : l) === m[3]);
-    if (end > i) i = end - 1;
-  }
-  return out.join('\n');
-}
-
 // rootOverride는 테스트용. 보통은 훅 입력의 cwd로 프로젝트 승인 폴더를 정한다
 function evaluate(input, rootOverride) {
   const command = String((input.tool_input && input.tool_input.command) || '');
@@ -1587,8 +1608,9 @@ function evaluate(input, rootOverride) {
   //   git은 커밋 메시지 파일(cat > .git/MSG <<'EOF' … git commit -F)이 흔해 훅 폴더에 쓸 때만 본다
   const gitHook = runs.includes('git') && /hooks/i.test(heredocs.command);
   const execsData = heredocs.data.length && (interpExec || gitHook || runs.some((p) => !HEREDOC_SAFE.has(p) && !FILTERS.has(p) && !CODE_INTERPRETERS.has(p) && !['git', 'sort', 'uniq', 'tr', 'printf'].includes(p)));
-  // 따옴표 없는 구분자 본문의 $(…)·백틱은 셸이 실행하므로 본문을 명령으로 둔다(전처럼)
-  const shell = withoutGitHeredocs(execsData || heredocs.expands ? command : heredocs.command);
+  // 따옴표 없는 구분자 본문의 $(…)·백틱은 셸이 실행하므로 splitHeredocs가 그 본문을 명령으로 남긴다
+  // git commit·merge의 메시지 본문도 뗀다(본문 줄의 'git 낱말'을 별칭으로 보지 않게)
+  const shell = splitHeredocs(command, true, !execsData).command;
   const codes = [...heredocs.codeBodies.map((b, j) => [heredocs.codeProgs[j], b]), ...(runs.some((p) => CODE_INTERPRETERS.has(p)) ? heredocs.data.map((b) => ['', b]) : [])];
   const judged = allSegments(shell).map((s) => ({ segment: s, kind: classify(s, 0, shell) }));
   const unknown = (judged.find((g) => g.kind === 'unknown') || {}).segment || (codes.find(([p, b]) => execCode(p, b) && gitWord(b)) || [])[1];

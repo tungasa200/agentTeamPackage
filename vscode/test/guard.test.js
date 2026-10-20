@@ -694,17 +694,37 @@ ok(ev('git push').decision === 'deny', 'non-commit session git push denied');
   for (const c of [`cat <<EOF${NL}$(git push origin main)${NL}EOF`, `cat <<EOF >/dev/null${NL}\`git push\`${NL}EOF`, `python3 <<EOF${NL}$(git commit -am x)${NL}EOF`])
     ok((ev(c) || {}).decision === 'deny', '따옴표 없는 here-doc 본문의 명령 치환: ' + JSON.stringify(c));
   ok(ev(`cat <<EOF${NL}git push 안내${NL}EOF`) === null, '따옴표 없는 본문도 치환이 없으면 데이터');
+  // here-doc 시작 판정 하나로(S3 관문): 정상 형태는 그대로 데이터·커밋 메시지로 본다
+  for (const c of [
+    `cat <<-'EOF'${NL}\tgit push 안내${NL}\tEOF`,
+    `cat > "a b.md" <<"EOF"${NL}git merge 설명${NL}EOF`,
+    `echo "x" && cat <<'EOF' >> notes.md${NL}git rebase 안내${NL}EOF`,
+    `printf '%s' "it's" && cat <<'EOF'${NL}git push 안내${NL}EOF`,
+    `echo "$(cat <<'EOF'${NL}git push 안내${NL}EOF${NL})"`,
+    `cat <<'EOF'${NL}it's git push 안내${NL}EOF${NL}echo done`,
+  ]) ok(ev(c) === null, 'here-doc 정상 형태 통과: ' + JSON.stringify(c) + ' → ' + JSON.stringify(ev(c)));
+  // 커밋 메시지 here-doc: 따옴표 구분자·"$(cat <<'EOF' …)" 형태는 본문을 떼고 승인 흐름으로 간다(본문 줄을 별칭으로 보지 않는다)
+  for (const c of [`git commit -F - <<'EOF'${NL}fix: 정리${NL}git hooks 설명${NL}EOF`, `git commit -m "$(cat <<'EOF'${NL}fix: 정리${NL}git hooks 설명${NL}EOF${NL})"`, `git commit -F - <<EOF${NL}fix: 치환 없는 본문${NL}git hooks 설명${NL}EOF`,
+    `cat > a.md <<'EOF'${NL}메모${NL}EOF${NL}git commit -F - <<'EOF'${NL}fix: 정리${NL}git hooks 설명${NL}EOF`]) {
+    const e = evaluate({ tool_name: 'Bash', tool_input: { command: c }, agent_type: 'AB-commit', cwd: proj, session_id: 's' });
+    ok(e && e.decision === 'deny' && e.reason.includes('승인이 없습니다'), '커밋 메시지 here-doc은 승인 흐름: ' + JSON.stringify(c) + ' → ' + JSON.stringify(e));
+  }
   // 본문을 실행할 수 있는 것(code-review): sed e, git 훅, 다른 프로세스를 부르는 인터프리터 코드, 파이프 받는 쪽
   for (const c of [`cat > x ${hd('git push')}${NL}sed -n e x`, `cat > .git/hooks/pre-commit ${hd('git push --force origin main')}${NL}git commit -m x`, `cat > x.sh ${hd('git push')}${NL}python -c "import os; os.system('sh x.sh')"`, `cat <<'EOF' | sed e${NL}git push${NL}EOF`])
     ok((ev(c) || {}).decision === 'deny', '본문을 실행할 수 있는 것: ' + JSON.stringify(c));
   // 문자열 안 모듈 이름·괄호 없는 perl/ruby 실행
   for (const c of ["node -e \"const {execSync:x}=require('child_process'); x('git push')\"", "python -c \"__import__('subprocess').run(['git','push'])\"", "perl -e 'system \"git push\"'", "ruby -e 'system \"git\", \"push\"'"])
     ok(classify(c) === 'unknown', 'X3 우회: ' + c);
-  ok(ev('mkdir git') === null && ev('rm -rf git') === null, 'X4: 파일 명령의 git 폴더 이름은 통과');  // 'g'+'it'·'g''it'처럼 여러 조각인 대입 값은 모른다
+  ok(ev('mkdir git') === null && ev('rm -rf git') === null, 'X4: 파일 명령의 git 폴더 이름은 통과');
+  // X4 오탐(S3 관문): git 프로세스를 이름으로 보거나 끄는 명령은 git을 실행하지 않는다
+  for (const c of ['Get-Process git', 'gps git -ErrorAction SilentlyContinue', 'pgrep git', 'pkill git', 'pidof git', 'Stop-Process -Name git -Force', 'taskkill /IM git.exe /F', 'tasklist /FI "IMAGENAME eq git.exe"'])
+    ok(ev(c) === null, 'X4 프로세스 명령 통과: ' + c + ' → ' + JSON.stringify(ev(c)));
+  ok((ev('pgrep git; git push origin main') || {}).decision === 'deny' && (ev('Get-Process git | Stop-Process; git commit -m x') || {}).decision === 'deny', 'X4 프로세스 명령 뒤의 잠긴 git은 그대로 거부');  // 'g'+'it'·'g''it'처럼 여러 조각인 대입 값은 모른다
   ok((ev("$x='g'+'it'; & $x push origin main") || {}).decision === 'deny' && (ev("x='g''it'; $x push; echo git") || {}).decision === 'deny', '조각낸 대입 값의 변수 프로그램');
   // 결함 2: Start-Process로 브라우저 실행은 통과, 보호 경로로 리다이렉트·셸 인자는 막는다
   const sp = (c) => evaluate({ tool_name: 'PowerShell', tool_input: { command: c }, agent_type: 'WY-backend2', cwd: proj, session_id: 's' });
   ok(sp(W`$p = Start-Process -FilePath 'C:\e\msedge.exe' -ArgumentList @('C:\Temp\claude') -PassThru`) === null, '결함 2: msedge Start-Process 통과');
+  ok(sp(W`Start-Process code -ArgumentList 'src\a.log','docs/x.md'`) === null && sp('Start-Process notepad ./h1.txt') === null, '#4: 보호 폴더 밖 상대 경로 인자는 통과');
   ok((sp(W`Start-Process notepad -RedirectStandardOutput "$HOME\.claude\wy-ops.json"`) || {}).decision === 'deny', '결함 2: 보호 경로 리다이렉트 막음');
   ok((sp(W`Start-Process cmd -ArgumentList '/c','del',"$HOME\.claude\wy-ops.json"`) || {}).decision === 'deny', '결함 2: 셸 인자 다시 판정');
   ok((sp(W`Start-Process "$HOME\.wy-tools\wy-ops\current\install.ps1" -ArgumentList 'deploy'`) || {}).decision === 'deny', '결함 2: 보호 경로 프로그램은 풀지 않고 막음');
