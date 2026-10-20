@@ -191,6 +191,15 @@ const row = (extra = {}) => ({ name: 'AB-pm', alive: true, view: 'input', contex
       t.pm.observe([bg('bbbb2222', 's2', 10)], row());
       assert.strictEqual(t.pm.view().step, 1, '머리말 없는 옛 파일은 받음');
       t.pm.close();
+      // CRLF 파일, 따옴표 없는 머리말(S3 관문 #5): 줄 끝 \r이 경로에 붙지 않는다
+      t = setup();
+      t.pm.observe([bg('bbbb2222', 's2', 10)], row());
+      t.pm.rotate();
+      for (const f of fs.readdirSync(sd)) fs.utimesSync(path.join(sd, f), new Date(0), new Date(0));
+      save('2026-10-12-AB-pm-5-session.tmp', `# Session\r\n**Project:** x\r\n**Worktree:** ${folder}\r\n**Branch:** main\r\n`);
+      t.pm.observe([bg('bbbb2222', 's2', 10)], row());
+      assert.strictEqual(t.pm.view().step, 1, 'CRLF 인수인계 파일의 이 저장소 머리말');
+      t.pm.close();
     }
 
     // 메모리가 막는 선 아래면 교체하지 않는다
