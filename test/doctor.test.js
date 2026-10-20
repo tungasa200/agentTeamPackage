@@ -702,6 +702,21 @@ try {
     r = byId(doctor.checkAll(pc.opts))['approval-devices'];
     assert.ok(r.level === 'warn' && r.detail.includes('등록 대기 1'), JSON.stringify(r));
   }
+  // D-39 ②: 이 PC의 다른 wy-ops 프로젝트(~/.claude.json projects)와 접두사·namespace가 겹치면 실패
+  {
+    const pc = makePc('prefix');
+    let r = byId(doctor.checkAll(pc.opts)).prefix;
+    assert.ok(r.level === 'ok' && r.detail.includes('다른 프로젝트 0곳'), JSON.stringify(r));
+    const other = path.join(pc.root, 'other');
+    const cj = path.join(pc.home, '.claude.json');
+    json(cj, { projects: { [pc.repo.replace(/\\/g, '/')]: {}, [path.join(pc.repo, '.claude', 'worktrees', 'X-dev')]: {}, [other]: {} } });
+    json(path.join(other, '.claude', 'wy-ops.json'), { project: 'q', rolePrefix: 'Y-', pmRole: 'Y-pm', approvals: { namespace: 'q' } });
+    r = byId(doctor.checkAll(pc.opts)).prefix;
+    assert.ok(r.level === 'ok' && r.detail.includes('접두사 X-pm') && r.detail.includes('다른 프로젝트 1곳'), `자기 저장소·worktree는 뺌: ${JSON.stringify(r)}`);
+    json(path.join(other, '.claude', 'wy-ops.json'), { project: 'q', rolePrefix: 'x-', approvals: { namespace: 'P' } });
+    r = byId(doctor.checkAll(pc.opts)).prefix;
+    assert.ok(r.level === 'fail' && r.detail.includes('역할 접두사 x-(q,') && r.detail.includes('approvals.namespace P(q,') && r.fix.includes('rolePrefix'), JSON.stringify(r));
+  }
   console.log('doctor 검사 통과');
 } finally {
   rmTree(base);

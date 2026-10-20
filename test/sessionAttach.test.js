@@ -1,6 +1,7 @@
 // session.ps1 attach <역할>·start-pm·pm-cmd: attach는 이름으로 실행 중인 백그라운드 세션 id를 찾아 claude attach(pm 역할도 됨), start-pm은 pm을 역할 파일(--agent)로 백그라운드로(D-36)
 //   node test/sessionAttach.test.js   임시 저장소·가짜 claude(PATH 앞에 둔 claude.cmd)만. 실제 세션은 건드리지 않음
 //   WY_OPS_DAEMON_LOCK·WY_OPS_DAEMON_TASK·WY_OPS_DAEMON_NAME(node.exe): daemon 점검이 실제 ~/.claude/daemon.lock·로그온 작업 대신 임시 파일·없는 작업 이름을 본다
+//   WY_OPS_FREE_MB: 메모리 관문(D-39)이 실제 여유 메모리 대신 이 값을 본다(기본 99999, 관문 시험만 낮춤)
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -40,7 +41,7 @@ try {
     const cmd = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; & '${path.join(scripts, 'session.ps1')}' ${args.join(' ')}`;
     const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], {
       encoding: 'utf8', windowsHide: true, timeout: 60000,
-      env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, WY_OPS_DAEMON_LOCK: lock, WY_OPS_DAEMON_TASK: 'wy-ops-test-no-such-task', WY_OPS_DAEMON_NAME: path.basename(process.execPath), ...env },
+      env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH, WY_OPS_DAEMON_LOCK: lock, WY_OPS_DAEMON_TASK: 'wy-ops-test-no-such-task', WY_OPS_DAEMON_NAME: path.basename(process.execPath), WY_OPS_FREE_MB: '99999', ...env },
     });
     return (r.stdout || '') + (r.stderr || '');
   };
@@ -198,6 +199,60 @@ try {
   assert.strictEqual((out.match(/AB-pm/g) || []).length, 1, `health에 pm 줄 하나\n${out}`);
   out = ps(['start', 'AB-pm']); // 막는 조건은 agent 값을 보지 않는다(rotate·prep은 위에서 확인)
   assert.ok(/AB-pm 은 start-pm을 쓰세요/.test(out) && !/BG /.test(out), `새 설치도 pm은 start 대신 start-pm\n${out}`);
+
+  // 메모리 관문(D-39): 세션을 띄우는 명령은 여유 메모리가 memory.blockFreeMB(기본 500) 미만이면 띄우지 않는다. -Force로 넘김
+  const low = { WY_OPS_FREE_MB: '120' };
+  const refused = (o) => /여유 메모리 120MB가 기준 500MB\(memory\.blockFreeMB\)보다 적어/.test(o) && /-Force\(세션 교체 기준·실행 중인 pm 확인도 함께 넘김\)/.test(o) && !/BG |STOP |RM /.test(o);
+  write([{ id: 'q8', name: 'AB-qa', kind: 'background', state: 'blocked', status: 'idle', pid: 401, startedAt: 1, sessionId: 'sid-q8' }]);
+  out = ps(['rotate', 'AB-qa', 'none'], low);
+  assert.ok(refused(out) && !/세션을 교체했습니다/.test(out), `rotate: 이전 세션을 멈추기 전에 거부\n${out}`);
+  out = ps(['adopt', 'AB-qa', 'sid-x'], low);
+  assert.ok(refused(out), `adopt\n${out}`);
+  out = ps(['start-pm'], low);
+  assert.ok(refused(out), `start-pm\n${out}`);
+  write([{ id: 'q9', name: 'AB-qa', kind: 'background', state: 'done', startedAt: 1, sessionId: 'sid-q9' }]);
+  out = ps(['prep', 'AB-qa'], low);
+  assert.ok(refused(out), `prep(멈춘 세션 이어 띄우기)\n${out}`);
+  write([]);
+  out = ps(['start', 'AB-qa'], low);
+  assert.ok(refused(out), `start\n${out}`);
+  out = ps(['start', 'AB-qa', '-Force'], low);
+  assert.ok(/BG --bg --agent AB-qa/.test(out), `-Force는 관문을 넘김\n${out}`);
+  out = ps(['list'], low);
+  assert.ok(!/여유 메모리/.test(out), `띄우지 않는 명령은 보지 않음\n${out}`);
+  const cfg = path.join(repoDir, '.claude', 'wy-ops.json');
+  fs.writeFileSync(cfg, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfg, 'utf8')), memory: { blockFreeMB: 100 } }));
+  out = ps(['start', 'AB-qa'], low);
+  assert.ok(/BG --bg --agent AB-qa/.test(out) && !/여유 메모리/.test(out), `기준은 설정값\n${out}`);
+  fs.writeFileSync(cfg, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfg, 'utf8')), memory: { blockFreeMB: 0 } }));
+  out = ps(['start', 'AB-qa'], { WY_OPS_FREE_MB: '1' });
+  assert.ok(/BG --bg --agent AB-qa/.test(out) && !/여유 메모리/.test(out), `blockFreeMB 0은 관문 끔(기본 500으로 돌아가지 않음)\n${out}`);
+
+  // MP-02: 인수인계 파일 찾기는 **Worktree:** 머리말이 이 저장소(또는 그 아래 worktree)인 것만. 머리말 없는 옛 파일은 받음
+  {
+    const h2 = path.join(tmp, 'home2');
+    const sd2 = path.join(h2, '.claude', 'session-data');
+    fs.mkdirSync(sd2, { recursive: true });
+    const note = (name, wt, day) => {
+      const f = path.join(sd2, name);
+      fs.writeFileSync(f, '# Session: x\n\n**Project:** repo\n' + (wt ? '**Worktree:** ' + wt + '\n' : '') + '**Topic:** t\n');
+      fs.utimesSync(f, new Date(2026, 9, day), new Date(2026, 9, day));
+      return f.replace(/\\/g, '/');
+    };
+    const mineWt = note('2026-10-12-AB-qa-session.tmp', path.join(repoDir, '.claude', 'worktrees', 'AB-qa').replace(/\\/g, '/').toUpperCase(), 12);
+    note('2026-10-13-AB-qa-session.tmp', repoDir + '-copy', 13); // 이름 앞부분만 같은 다른 폴더
+    note('2026-10-14-AB-qa-2-session.tmp', path.join(tmp, 'other-project'), 14);
+    write([]);
+    out = ps(['start', 'AB-qa'], { USERPROFILE: h2 });
+    assert.ok(out.includes('/wy-resume-session ' + mineWt), `다른 프로젝트 파일은 건너뛰고 이 저장소 worktree 파일\n${out}`);
+    const legacy = note('2026-10-15-AB-qa-session.tmp', null, 15);
+    out = ps(['start', 'AB-qa'], { USERPROFILE: h2 });
+    assert.ok(out.includes('/wy-resume-session ' + legacy), `머리말 없는 옛 파일은 받음\n${out}`);
+    const pmMine = note('2026-10-12-AB-pm-session.tmp', "'" + repoDir + "'", 12);
+    note('2026-10-14-AB-pm-session.tmp', path.join(tmp, 'other-project'), 14);
+    out = ps(['start-pm', 'latest'], { USERPROFILE: h2 });
+    assert.ok(out.includes('인수인계: ' + path.join(sd2, '2026-10-12-AB-pm-session.tmp')) && out.includes(pmMine), `start-pm latest도 같은 규칙(따옴표 친 경로)\n${out}`);
+  }
 } finally {
   rmTree(tmp);
 }

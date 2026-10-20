@@ -165,6 +165,17 @@ try {
     assert.ok(fs.existsSync(path.join(prepo, 'package.json')), '작업 사본은 그대로');
   }
 
+  // 8. newerSource(INS-01): 설치본 커밋보다 clone HEAD가 앞서면 { version, commit }. 짧은 해시 길이가 달라도 같은 커밋이면 null
+  {
+    const { newerSource } = require('../lib/deploy');
+    const head = g('rev-parse', 'HEAD').trim();
+    assert.strictEqual(newerSource({ commit: head.slice(0, 5) }, pkg), null, '짧은 해시 길이만 다른 같은 커밋');
+    assert.strictEqual(newerSource({ commit: head }, pkg), null);
+    const n = newerSource({ commit: g('rev-parse', 'HEAD~1').trim().slice(0, 7) }, pkg);
+    assert.deepStrictEqual(n, { version: JSON.parse(g('show', 'HEAD:tools/wy-ops/package.json')).version, commit: g('rev-parse', '--short', 'HEAD').trim() }, JSON.stringify(n));
+    assert.strictEqual(newerSource({ commit: head.slice(0, 7), dev: true }, pkg), null, '개발 연결은 비교하지 않음');
+  }
+
   // 7. assetsOf: contributes 안의 media 경로만
   assert.deepStrictEqual([...stub.assetsOf({ a: 'media/i.svg', b: ['./media/j.png', 'x.svg', 'media/../k.svg'] })].sort(), ['media/i.svg', 'media/j.png'], '..로 밖을 가리키는 경로는 뺌');
   console.log('wy-ops deploy 검사 통과');

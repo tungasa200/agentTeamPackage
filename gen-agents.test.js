@@ -147,6 +147,9 @@ try {
     for (const e of extra) {
       assert.ok(e.text.startsWith(`---\nname: ${e.name}\n`) && e.text.includes('PM') && e.text.includes('a.md') && !/\{\{|\/ecc:/.test(e.text), e.name);
     }
+    // MP-02: save가 쓰는 Worktree 머리말로 resume이 이 프로젝트 파일만 고른다(머리말 없는 옛 파일은 그대로)
+    const [resume, save] = extra.map((e) => e.text);
+    assert.ok(save.includes('**Worktree:** <저장소 절대 경로>') && /`\*\*Worktree:\*\*` 머리말이 있는 파일은 그 경로가 이 프로젝트일 때만/.test(resume) && resume.includes('머리말이 없는 옛 파일은 이름만 맞으면'), resume);
   } finally {
     fs.rmSync(r3, { recursive: true, force: true });
   }

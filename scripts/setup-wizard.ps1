@@ -1,7 +1,7 @@
 ﻿# WY Ops 설치 마법사(0.9.0, D-170·D-171). setup.cmd가 창 없이 띄운다. Windows PowerShell 5.1 + WinForms, 추가 설치 없음.
 # 화면·문구 원본: design/install-wizard/mockup.html(7단계). 설치 로직은 install.ps1·lib/install.js에 있고 여기는 명령 인자로 부르는 앞단이다:
 #   3 설치      install.ps1 quickstart --project <폴더> --name <이름> --yes --progress --no-finish [--prefix] [--count]
-#               (진행 줄 '@@tool …'·'@@step …'·'@@claudemd …'을 읽어 줄 상태를 바꾼다)
+#               (진행 줄 '@@tool …'·'@@step …'(global have: 설치본 그대로)·'@@claudemd …'을 읽어 줄 상태를 바꾼다)
 #   4 Claude    claude auth login(창 없이, 브라우저가 열림) + 2초마다 claude auth status --json
 #   5 GitHub    gh auth login --web(창 없이, 출력의 확인 코드를 보여 주고 브라우저는 마법사가 연다) + 2초마다 gh auth status, 끝나면 gh auth setup-git
 #   6 폴더 허락 node lib/install.js trust --project <폴더>(~/.claude.json에 기록) → 실패하면 Claude 창(사람이 Yes) + 2초마다 trust --check
@@ -270,7 +270,37 @@ function Get-DefaultName([string]$dir) {
   return $n
 }
 function Test-Name([string]$n) { $n -cmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' }  # lib/install.js quickstart의 이름 규칙
-function Get-PrefixFor([string]$n) { $p = ($n -replace '[^A-Za-z0-9]', ''); if ($p.Length -gt 2) { $p = $p.Substring(0, 2) }; if (-not $p) { $p = 'WY' }; return $p.ToUpper() + '-' }
+# 이 PC의 다른 wy-ops 프로젝트 접두사(install.js projects, 처음 한 번만 부름). Node.js가 아직 없거나 못 읽으면 빈 목록
+function Get-OtherPrefixes([string]$dir) {
+  # 읽기에 성공했을 때만 기억한다(Node.js 설치 전·실패면 다음에 다시 읽음)
+  $list = $script:Projects
+  if ($null -eq $list) {
+    $list = @()
+    if (-not $Demo) {
+      try {
+        $psi = New-Object Diagnostics.ProcessStartInfo 'node'
+        $psi.Arguments = (Q (Join-Path $Pkg 'lib\install.js')) + ' projects'
+        $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.CreateNoWindow = $true; $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+        $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
+        if ($p.ExitCode -eq 0 -and $out.Trim()) { $list = @(ConvertFrom-Json $out.Trim()); $script:Projects = $list }
+      } catch { Write-Log "프로젝트 목록 읽기 실패: $($_.Exception.Message)" }
+    }
+  }
+  $self = (($dir.Trim().Trim('"', "'") -split '[\\/]\.claude[\\/]worktrees')[0] -replace '\\', '/').TrimEnd('/').ToLower()
+  @($list | Where-Object { (([string]$_.dir -replace '\\', '/').TrimEnd('/').ToLower()) -ne $self } | ForEach-Object { if ($_.rolePrefix) { [string]$_.rolePrefix } elseif ($_.pmRole) { [string]$_.pmRole } })
+}
+# lib/projects.js freePrefix와 같은 규칙: 앞 2자 → 앞 3자 → 앞 2자 + 숫자. 다른 프로젝트 접두사와 같거나 한쪽이 앞부분이면 겹침(대소문자 무시)
+function Get-PrefixFor([string]$n) {
+  $s = ($n -replace '[^A-Za-z0-9]', '').ToUpper(); if (-not $s) { $s = 'WY' }
+  $two = $s.Substring(0, [Math]::Min(2, $s.Length))
+  $cands = @($two); if ($s.Length -gt 2) { $cands += $s.Substring(0, 3) }; foreach ($i in 2..9) { $cands += "$two$i" }
+  $taken = @(Get-OtherPrefixes $St.Project | ForEach-Object { $_.ToLower() })
+  foreach ($cand in $cands) {
+    $a = "$cand-".ToLower()
+    if (-not @($taken | Where-Object { $_ -and ($a.StartsWith($_) -or $_.StartsWith($a)) }).Count) { return "$cand-" }
+  }
+  return "$two-"
+}
 function Test-InsidePkg([string]$dir) {
   try { $a = [IO.Path]::GetFullPath($dir).TrimEnd('\').ToLower(); $b = [IO.Path]::GetFullPath($Pkg).TrimEnd('\').ToLower(); return ($a -eq $b -or $a.StartsWith($b + '\')) } catch { return $true }
 }
@@ -532,9 +562,10 @@ function Read-Install {
       if ($state -ne 'installing' -and $St.CancelPending) { Stop-Hidden $run; Close-Wizard; return }
     } elseif ($line -match '^@@fail nowinget') {
       $r = @($St.Rows | Where-Object { $_.State -eq 'wait' })[0]; if ($r) { $r.State = 'fail'; $St.FailMsg = Get-FailMsg $r 'nowinget' '' }
-    } elseif ($line -match '^@@step (global|folder) (start|done)') {
+    } elseif ($line -match '^@@step (global|folder) (start|done|have)') {
+      # have: 설치본이 이미 있어 다시 배포하지 않음(INS-01) → '이미 있음'
       $r = Find-Row $(if ($Matches[1] -eq 'global') { 'ops' } else { 'folder' })
-      if ($Matches[2] -eq 'start') { $r.State = 'run'; $St.RunSeg = New-Object Text.StringBuilder } else { $r.State = $(if ($r.Key -eq 'folder') { 'done' } else { 'installed' }) }
+      if ($Matches[2] -eq 'start') { $r.State = 'run'; $St.RunSeg = New-Object Text.StringBuilder } elseif ($Matches[2] -eq 'have') { $r.State = 'have' } else { $r.State = $(if ($r.Key -eq 'folder') { 'done' } else { 'installed' }) }
       Update-RowUi $r
       if ($St.CancelPending) { Stop-Hidden $run; Close-Wizard; return }
     } elseif ($line -match '^@@claudemd (\S+)') { $St.ClaudeMd = $Matches[1] }
