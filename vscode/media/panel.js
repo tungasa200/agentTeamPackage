@@ -522,11 +522,16 @@ ${s.stuck.command || ''}`;
   }
 
   // 다른 프로젝트 세션 요약 한 줄(D-15). 세션 수와 메모리(세션·자식 프로세스 합, 못 재면 수만). 버튼 없음
+  // 이 폴더의 이름 없는 세션(here)은 '다른 프로젝트' 앞에 '이 폴더(이름 없음) N개'로 따로(D-18)
   function renderOthers(others) {
     const p = $('sess-others');
     const list = others || [];
-    p.hidden = !list.length;
-    p.textContent = list.length ? '다른 프로젝트: ' + list.map((o) => `${o.project} 세션 ${o.count}개${Number.isFinite(o.mb) ? ` · 약 ${o.mb}MB` : ''}`).join(' · ') : '';
+    const mb = (o) => (Number.isFinite(o.mb) ? ` · 약 ${o.mb}MB` : '');
+    const here = list.filter((o) => o.here).map((o) => `${o.project} ${o.count}개${mb(o)}`);
+    const rest = list.filter((o) => !o.here);
+    const parts = [...here, ...(rest.length ? ['다른 프로젝트: ' + rest.map((o) => `${o.project} 세션 ${o.count}개${mb(o)}`).join(' · ')] : [])];
+    p.hidden = !parts.length;
+    p.textContent = parts.join(' / ');
   }
 
   function renderSessions(msg) {

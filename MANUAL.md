@@ -189,9 +189,9 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 |---|---|---|
 | 시작 | 필요한 프로그램 확인. 없으면 설치를 한 번 묻습니다 | `y` |
 | 시작 | 프로젝트 폴더와 이름을 묻습니다. 경로는 따옴표째 붙여도 되고 `~`도 됩니다. git 저장소 안의 하위 폴더를 주면 저장소 맨 위에 붙입니다 | 폴더·이름 입력(Enter = 기본값) |
-| 1/6 | 설치본·VS Code 확장(`global`과 같음) | — |
+| 1/6 | 설치본·VS Code 확장(`global`과 같음). 설치본이 이미 있으면 다시 배포하지 않고 그대로 씁니다. clone이 설치본보다 새로우면 `install.ps1 deploy` 뒤 다시 실행하라고 알립니다 | — |
 | 2/6 | 없는 폴더는 만들고, git 저장소가 아니면 `git init` | — |
-| 3/6 | 운영 도구 파일(`init`과 같은 결과, 묻지 않고 기본값). 스택은 루트와 바로 아래 폴더의 표지 파일로 폴더마다 알아냅니다(`package.json` → node, `build.gradle(.kts)`·`settings.gradle(.kts)`·`gradlew` → java-gradle, `pom.xml` → java-maven, `pyproject.toml`·`requirements.txt`·`setup.py`·`Pipfile` → python, `*.sln`·`*.csproj` → csharp, `CMakeLists.txt` → cpp). 루트가 Gradle·Maven·.NET 솔루션·CMake처럼 하위 모듈을 함께 빌드하는 스택이면 루트와 같은 스택인 하위 폴더는 루트 빌드의 모듈로 보고 뺍니다. Node·Python 하위 폴더는 남겨 폴더별 명령을 잡습니다. node 실행기는 잠금 파일로 고릅니다(`pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `bun.lockb`·`bun.lock` → bun, 그 밖에는 npm. Yarn Berry(`.yarnrc.yml`)는 `yarn install --immutable`). `gradlew`·`mvnw`가 없으면 `gradle`·`mvn`을 씁니다. 결과는 `wy-ops.json`의 `detected`(`[{dir, stack}]`)와 `verify`에 적습니다. `verify`는 폴더가 루트 하나면 키마다 명령 문자열, 여럿이면 키마다 `{ 폴더: 명령 }`입니다. node는 `package.json` scripts에 있는 것만 씁니다. 미리 보려면 `detect`(5장). 역할은 2-1 기본 구성, 접두사는 이름 앞 두 글자(`my-app` → `MY-`). 새 `settings.local.json`은 묻지 않고 만들고, 있는 파일을 바꿀 때는 묻습니다 | 스택 개발 도구가 없으면 설치 여부 `y` |
+| 3/6 | 운영 도구 파일(`init`과 같은 결과, 묻지 않고 기본값). 스택은 루트와 바로 아래 폴더의 표지 파일로 폴더마다 알아냅니다(`package.json` → node, `build.gradle(.kts)`·`settings.gradle(.kts)`·`gradlew` → java-gradle, `pom.xml` → java-maven, `pyproject.toml`·`requirements.txt`·`setup.py`·`Pipfile` → python, `*.sln`·`*.csproj` → csharp, `CMakeLists.txt` → cpp). 루트가 Gradle·Maven·.NET 솔루션·CMake처럼 하위 모듈을 함께 빌드하는 스택이면 루트와 같은 스택인 하위 폴더는 루트 빌드의 모듈로 보고 뺍니다. Node·Python 하위 폴더는 남겨 폴더별 명령을 잡습니다. node 실행기는 잠금 파일로 고릅니다(`pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `bun.lockb`·`bun.lock` → bun, 그 밖에는 npm. Yarn Berry(`.yarnrc.yml`)는 `yarn install --immutable`). `gradlew`·`mvnw`가 없으면 `gradle`·`mvn`을 씁니다. 결과는 `wy-ops.json`의 `detected`(`[{dir, stack}]`)와 `verify`에 적습니다. `verify`는 폴더가 루트 하나면 키마다 명령 문자열, 여럿이면 키마다 `{ 폴더: 명령 }`입니다. node는 `package.json` scripts에 있는 것만 씁니다. 미리 보려면 `detect`(5장). 역할은 2-1 기본 구성, 접두사는 이름 앞 두 글자(`my-app` → `MY-`, 이 PC의 다른 프로젝트와 겹치면 세 글자 `MYA-`나 숫자를 붙인 `MY2-`). 새 `settings.local.json`은 묻지 않고 만들고, 있는 파일을 바꿀 때는 묻습니다 | 스택 개발 도구가 없으면 설치 여부 `y` |
 | 4/6 | `CLAUDE.md`가 없으면 운영 도구 절을 넣어 만듭니다. 있으면 고치지 않고 붙일 내용을 보여 줍니다 | 있던 경우만 붙여 넣기 |
 | 5/6 | Claude Code 로그인, GitHub 로그인, 폴더 신뢰. 이미 된 것은 건너뜁니다. 안 된 것은 할 일을 한 줄로 알리고 Enter를 누르면 같은 창에서 엽니다(`s` = 나중에) | 브라우저 로그인, 신뢰 Yes → `/exit` |
 | 6/6 | 점검(doctor)을 "됐음 / 이것만 남음"으로 요약하고 VS Code로 프로젝트를 엽니다. 남은 손일은 승인 센터 할 일 카드로도 올라옵니다 | 남은 것만 처리 |
@@ -252,17 +252,18 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 
 | 층 | 언제 | 무엇 |
 |---|---|---|
-| PC 전역 | PC당 한 번(`global`, 또는 첫 `quickstart`) | 설치본 `~\.wy-tools\wy-ops\<버전>`과 `current`, VS Code 확장, 함께 까는 도구 |
+| PC 전역 | PC당 한 번(`global`, 또는 첫 `quickstart`. 설치본이 있으면 `quickstart`는 다시 배포하지 않고, clone이 더 새로우면 `install.ps1 deploy`만 안내) | 설치본 `~\.wy-tools\wy-ops\<버전>`과 `current`, VS Code 확장, 함께 까는 도구 |
 | 프로젝트별 | 프로젝트마다 한 번(`quickstart`·`init`, 다른 PC에서 이어 갈 때 `setup`) | `.claude/wy-ops.json`, `.claude/ops`·`.claude/agents`, pm-ops 스킬, `settings.local.json` 훅 |
 
 저절로 나뉘는 것:
 - **승인 카드**: 프로젝트마다 `~\.claude\wy-approvals\<namespace>` 폴더를 따로 씁니다. namespace는 `wy-ops.json`의 `approvals.namespace`이고, `init`이 프로젝트 이름으로 넣습니다. 이 값이 빠지거나 형식이 틀리면 공용 폴더(`wy-approvals` 바로 아래)를 쓰게 되고, doctor가 FAIL로 알립니다.
 - **승인 센터**: VS Code 창은 그 창에서 연 폴더(위로 올라가며 찾은 `.claude/wy-ops.json`)의 카드만 보입니다.
 - **역할 파일·CLAUDE.md·메모리**: 프로젝트 폴더 기준입니다.
-- **세션 현황**(D-15): 표에는 그 창 프로젝트의 세션만 나옵니다. 이름이 역할 접두사(없으면 pm 역할 이름)로 시작하고 작업 폴더가 저장소이거나 그 아래(worktree)인 세션입니다. 다른 프로젝트의 살아 있는 세션은 표 아래 한 줄로 폴더 이름별 세션 수와 메모리(세션과 그 자식 프로세스 합, 대략)만 보입니다. pm 줄도 이 프로젝트 pm만 봅니다. `session.ps1 list`도 같은 기준입니다.
+- **세션 현황**(D-15): 표에는 그 창 프로젝트의 세션만 나옵니다. 이름이 역할 접두사(없으면 pm 역할 이름)로 시작하고 작업 폴더가 저장소이거나 그 아래(worktree)인 세션입니다. 다른 프로젝트의 살아 있는 세션은 표 아래 한 줄로 폴더 이름별 세션 수와 메모리(세션과 그 자식 프로세스 합, 대략)만 보입니다. 이 폴더에서 연 이름 없는 세션(직접 연 대화 등)은 그 앞에 '이 폴더(이름 없음) N개'로 따로 보입니다. 승인 센터·활동 탭도 이 프로젝트 세션만 봅니다. pm 줄도 이 프로젝트 pm만 봅니다. `session.ps1 list`도 같은 기준입니다.
 
 나뉘지 않는 것(주의):
-- **세션 간 메시지**: 같은 PC면 프로젝트가 달라도 닿습니다. 메시지 가드는 이름만 봅니다. 다른 프로젝트에 같은 이름의 세션이 살아 있으면 통과시킵니다. 그래서 **역할 접두사는 프로젝트마다 다르게** 줍니다(`AB-`, `CD-`). `quickstart`의 기본 접두사(이름 앞 두 글자)가 다른 프로젝트와 겹치면 `--prefix`로 바꿉니다.
+- **세션 간 메시지**: 같은 PC면 프로젝트가 달라도 닿습니다. 메시지는 이름으로 가므로 **역할 접두사는 프로젝트마다 다르게** 줍니다(`AB-`, `CD-`). 메시지 가드는 이 프로젝트 세션(접두사 + 작업 폴더)만 보고 꺼진 대상을 막습니다. 다른 프로젝트에 같은 이름이 살아 있어도 통과시키지 않습니다. doctor는 이 PC의 다른 프로젝트와 겹치는 것(접두사가 같거나 한쪽이 다른 쪽 앞부분, 승인 폴더 이름 `approvals.namespace`가 같음)을 FAIL로 알립니다. `quickstart`·마법사는 겹치지 않는 접두사를 스스로 고릅니다. `--prefix`로 준 값이 겹치면 오류로 멈춥니다(프로젝트 이름이 다른 프로젝트의 승인 폴더 이름과 같아도 오류, `--name`으로 바꿈).
+- **인수인계 파일**: `~/.claude/session-data/`는 모든 프로젝트가 함께 씁니다. `session.ps1`(start·`start-pm latest`·pm-cmd)·`/wy-resume-session`·세션 현황 [pm 교체]는 `**Worktree:**` 머리말이 이 저장소(그 아래 worktree 포함)인 파일만 고릅니다. 머리말이 없는 옛 파일은 이름만 맞으면 고릅니다.
 - **버전**: `update`·`deploy`는 하나뿐인 `current`를 바꿉니다. 모든 프로젝트의 훅이 `current`를 쓰므로 한꺼번에 바뀝니다(확장은 창을 다시 불러온 뒤). 프로젝트마다 다른 버전을 동시에 돌릴 수는 없습니다. `wyOpsVersion`은 그 프로젝트가 맞춘 버전을 적어 둔 것입니다. 설치본과 다르면 doctor가 WARN으로 알리기만 합니다. `update`는 그 프로젝트의 생성 파일만 다시 만듭니다. 다른 프로젝트는 그 폴더에서 `update`를 따로 실행합니다.
 - **메모리(RAM)**: 모든 프로젝트의 세션이 함께 씁니다. 쉬는 프로젝트의 세션은 `session.ps1 stop`으로 멈춥니다.
 - **VS Code 창**: 프로젝트마다 창과 pm 세션을 따로 둡니다. 다중 루트 작업 영역은 권하지 않습니다. 확장은 첫 번째 폴더만 보고 나머지 폴더의 카드는 보이지 않습니다.
@@ -415,7 +416,7 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | `deploy` | 설치본만 패키지 저장소의 HEAD로 갱신. `--dev`는 작업 사본을 바로 연결(개발용) | `<설치> deploy` |
 | `rollback` | 새 버전에 문제가 있을 때 이전 버전으로. `rollback --list`로 설치본 목록(*가 지금 쓰는 것), `rollback <버전 폴더>`로 특정 버전 | `<설치> rollback` → Reload |
 | `export` / `import` / `restore` | 개인 상태 옮기기([NEW-PC.md](NEW-PC.md) 3장) | `<설치> export --out D:\move.zip` |
-| `quickstart` | 한 줄 설치: 이 PC 설치 + 프로젝트 붙이기 + 로그인·신뢰 안내 + 점검 요약(3-0b) | `C:\tools\wy-ops\install.ps1 quickstart` |
+| `quickstart` | 한 줄 설치: 이 PC 설치 + 프로젝트 붙이기 + 로그인·신뢰 안내 + 점검 요약(3-0b). 설치본이 있으면 다시 배포하지 않고, clone이 더 새로우면 `deploy` 안내만 함 | `C:\tools\wy-ops\install.ps1 quickstart` |
 | `global` / `setup` / `init` | 설치를 단계별로 직접(3-1~3-3) | — |
 | `host` | 이 PC를 원격 호스트로(관리자 PowerShell, 3-5). `--dry-run`은 목록만. `--add-key`는 접속 PC 공개키 등록 | `<설치> host`, `<설치> host --add-key 'ssh-ed25519 AAAA… 주석'` |
 | `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기·호스트 제어 창(3-5) | `<설치> connect <별칭> --host <Tailscale 이름>` |
@@ -442,6 +443,8 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | `pin` / `unpin` | 실행 중인 세션을 메모리 부족 정리에서 빼기 / 되돌리기 | `… session.ps1 pin AB-commit` |
 | `attach` | 실행 중인 역할 세션(pm 포함)에 붙기. 원격 터미널에서 쓰고, 빠져나와도 세션은 계속 돎 | `… session.ps1 attach AB-pm` |
 | `wt-clean` | 역할 worktree 지우기(2-6). 실행 중·미커밋·미병합이면 멈춤, 가지는 남김 | `… session.ps1 wt-clean AB-qa` |
+
+`start`·`rotate`·`prep`·`adopt`·`start-pm`은 여유 메모리가 `memory.blockFreeMB`(기본 500MB) 미만이면 세션을 띄우지 않습니다. `-Force`는 이 관문과 함께 세션 교체 기준(`start`)과 실행 중인 pm 확인(`start-pm`)도 넘깁니다.
 
 역할 worktree를 켠 프로젝트에서 `start`·`rotate`·`prep`·`adopt`는 역할 세션을 그 역할의 worktree에서 띄웁니다(2-6).
 

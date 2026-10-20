@@ -58,22 +58,27 @@ function isReachable(list, name) {
 
 // 이 프로젝트 세션(D-15, session.ps1 Get-Sessions와 같은 기준): 이름이 역할 접두사(rolePrefix, 없으면 pm 역할 이름)로 시작하고
 // 작업 폴더(cwd)가 저장소이거나 그 아래(worktree). 대소문자·슬래시 차이는 무시. 설정이 없으면 판단하지 않는다(null)
+// 저장소는 본 저장소다: worktree에서 연 창·훅이면 ops.root의 '.claude\worktrees\' 앞부분(session.ps1 $MainKey와 같은 기준)
 const normPath = (p) => String(p || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+const mainRepoKey = (root) => normPath(root).split(/\\\.claude\\worktrees(?:\\|$)/)[0];
+const inRepo = (repo, p) => {
+  const c = normPath(p);
+  return c === repo || c.startsWith(`${repo}\\`);
+};
 function projectFilter(ops) {
   const prefix = ops && (ops.rolePrefix || ops.pmRole);
   if (!prefix || !ops.root) return null;
-  const repo = normPath(ops.root);
-  return (s) => {
-    const c = normPath(s && s.cwd);
-    return !!(s && s.name) && String(s.name).toLowerCase().startsWith(String(prefix).toLowerCase()) && (c === repo || c.startsWith(`${repo}\\`));
-  };
+  const repo = mainRepoKey(ops.root);
+  return (s) => !!(s && s.name) && String(s.name).toLowerCase().startsWith(String(prefix).toLowerCase()) && inRepo(repo, s.cwd);
 }
 
 // 목록을 이 프로젝트 세션(mine)과 다른 프로젝트 요약(others: 살아 있는 세션을 cwd 폴더 이름별로 [{ project, count, pids }])으로 나눈다.
-// 이름 없는 세션·접두사는 맞지만 폴더가 다른 세션도 요약 쪽. 설정이 없으면 모두 mine(이전처럼)
+// 접두사는 맞지만 폴더가 다른 세션도 요약 쪽. 이 폴더(그 아래 worktree 포함)의 이름 없는 세션은 { here: true } 한 묶음(D-18).
+// 설정이 없으면 모두 mine(이전처럼)
 function splitByProject(list, ops) {
   const mine = projectFilter(ops);
   if (!mine) return { mine: list || [], others: [] };
+  const repo = mainRepoKey(ops.root);
   const groups = new Map();
   const out = [];
   for (const s of list || []) {
@@ -83,14 +88,15 @@ function splitByProject(list, ops) {
       continue;
     }
     if (!isAlive(s)) continue;
-    const project = path.win32.basename(String(s.cwd || '').replace(/[\\/]+$/, '')) || '폴더 모름';
-    const key = project.toLowerCase();
-    const g = groups.get(key) || { project, count: 0, pids: [] };
+    const here = !s.name && inRepo(repo, s.cwd);
+    const project = here ? '이 폴더(이름 없음)' : path.win32.basename(String(s.cwd || '').replace(/[\\/]+$/, '')) || '폴더 모름';
+    const key = here ? '\0here' : project.toLowerCase();
+    const g = groups.get(key) || { project, count: 0, pids: [], ...(here ? { here: true } : {}) };
     g.count += 1;
     if (Number.isInteger(s.pid) && s.pid > 0) g.pids.push(s.pid);
     groups.set(key, g);
   }
-  return { mine: out, others: [...groups.values()].sort((a, b) => b.count - a.count || a.project.localeCompare(b.project)) };
+  return { mine: out, others: [...groups.values()].sort((a, b) => !!b.here - !!a.here || b.count - a.count || a.project.localeCompare(b.project)) };
 }
 
 // pid들과 그 아래 자식 프로세스 전부의 메모리 합(MB). procs: [{ pid, ppid, bytes }](Win32_Process 한 번 조회)
@@ -260,8 +266,11 @@ function withContext(rows, ops, home, now = Date.now()) {
   });
 }
 
+// list를 주지 않으면 claude agents를 읽어 이 프로젝트 세션만 남긴다(MP-03: 승인 센터·활동 탭이 다른 프로젝트의 같은 역할 이름을 보지 않게).
+// list를 주면 부른 쪽이 이미 골랐다고 보고 그대로 쓴다(세션 현황은 splitByProject의 mine)
 async function readSessionStatus({ root, ops = null, list, home } = {}) {
-  const agents = list || (await readAgents());
+  const mine = projectFilter(ops);
+  const agents = list || (await readAgents()).filter((s) => !mine || mine(s));
   const rows = buildStatus(agents, {
     requests: safe(() => listPermissionRequests(root), []),
     registry: safe(() => readSessionRegistry(root), new Map()),
@@ -271,4 +280,4 @@ async function readSessionStatus({ root, ops = null, list, home } = {}) {
   return withContext(rows, ops, home);
 }
 
-module.exports = { readSessionStatus, readAgents, buildStatus, splitByProject, treeMB, withContext, readMessageBlocks, isReachable, isAlive, PERMISSION_WAITS, INPUT_WAITS, MESSAGE_BLOCKS };
+module.exports = { readSessionStatus, readAgents, buildStatus, projectFilter, mainRepoKey, inRepo, splitByProject, treeMB, withContext, readMessageBlocks, isReachable, isAlive, PERMISSION_WAITS, INPUT_WAITS, MESSAGE_BLOCKS };

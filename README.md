@@ -89,7 +89,7 @@ Python·pipx는 pipx로 까는 항목이 켜져 있을 때만 설치합니다. �
 
 | 명령 | 하는 일 |
 |---|---|
-| `quickstart` | 한 줄 설치: `global` + 폴더·git 준비 + `init`(기본값) + CLAUDE.md + 로그인·신뢰 안내 + 점검 요약 |
+| `quickstart` | 한 줄 설치: `global` + 폴더·git 준비 + `init`(기본값) + CLAUDE.md + 로그인·신뢰 안내 + 점검 요약. 설치본이 있으면 다시 배포하지 않고, clone이 더 새로우면 `deploy` 안내만 함 |
 | `global` | 설치본·VS Code 확장·함께 까는 도구. 어느 프로젝트도 건드리지 않음 |
 | `setup` | `global` + 이 프로젝트의 훅 설정(`settings.local.json`, 차이를 보여 주고 확인) + doctor |
 | `init` | 새 프로젝트에 설정·역할 파일·스킬 만들기 |
