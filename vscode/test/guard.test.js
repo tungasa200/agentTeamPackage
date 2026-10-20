@@ -658,6 +658,66 @@ ok(ev('git push').decision === 'deny', 'non-commit session git push denied');
   let deep = 'git push';
   for (let n = 0; n < 8; n++) deep = `powershell -enc ${Buffer.from(deep, 'utf16le').toString('base64')}`;
   ok(classify(deep) === 'unknown', '깊게 감싼 -enc는 unknown: ' + classify(deep));
+  // D-38 '해석 못 하면 거부': 항목마다 [막을 것(unknown 또는 잠금 종류), 통과할 것(null)]
+  const d38 = {
+    U1: [[W`git pu\sh`, 'git pu^sh', 'git `push`', 'git $SUB', 'git pu*h'], [W`git stash\ list`, 'git "status"', "git 'log' -1"]],
+    U2: [['g"i"t push', "gi''t commit -m x", W`g\it push`, 'g^it push', W`"C:\Program Files\Git\cmd\gi""t.exe" push`], [W`"C:\Program Files\Git\cmd\git.exe" status`, 'gi status']],
+    U3: [[W`bash -c "sh -c \"git push\""`, `bash -c "powershell -c 'sh -c git status'"`], ['bash -c "sh -c ls"']],
+    U4: [['powershell -Foo "git push"', 'powershell -File x.ps1 git'], ['powershell -NoProfile -Command "git status"', 'powershell -File x.ps1']],
+    U5: [["Start-Process git -ArgumentList 'push'", "Start-Process -FilePath git -ArgumentList @('commit','-m','x')", 'saps git push', "Start-Process -FilePath git -ArgumentList $a"], ["Start-Process notepad 'a.txt'", "Start-Process git -ArgumentList 'status'"]],
+    U6: [["git submodule foreach 'git push'", 'git bisect run ./t.sh', 'git for-each-repo --config=x gc', "git difftool -x 'sh -c x'", 'git fetch --upload-pack=x origin', 'git push --receive-pack=x origin'], ['git submodule status', 'git bisect start', 'git difftool HEAD~1']],
+    U7: [['git -c core.pager=x log', 'git -c core.sshCommand=x fetch', "git -c foo.bar='!sh' status", 'GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0=x git log', 'git --config-env=core.editor=E status'], ['git -c color.ui=never log', 'git -c core.autocrlf=false status']],
+    X1: [['alias g=git', 'Set-Alias g git', 'doskey g=git $*', 'git config alias.ci commit', 'git config --global core.pager less', 'git config -e', 'git config set core.editor vim', 'git config edit'], ['git config user.name', 'git config --get core.pager', 'git config --list', 'alias ll=ls']],
+    X2: [["& ('gi'+'t') push", '${GIT} push', 'g=git; $g push', '$x = "git"; & $x push', '$G push; echo git'], [W`$s = 'C:\x\session.ps1'; & $s stop git`, 'foreach ($f in git, b) { echo $f }', '$x += "git"', 'A="agent-browser open"; $A git', 'T=$(cygpath "$TEMP")/x; git -C "$T" status', '(cd "$W" && git status)', '& $g push']],
+    X3: [["node -e \"require('child_process').execSync('git push')\"", "python -c \"import subprocess; subprocess.run(['git','push'])\"", "perl -e '`git push`'", "ruby -e 'system(\"git push\")'"], ["node -e \"console.log('git push')\"", "python -c \"print('git')\"", "node -e \"const s='spawnSync git'; console.log(s)\""]],
+    X4: [['find . -exec git push \\;', 'ssh host git push', 'watch git push', 'parallel git ::: push', W`foo C:\bin\git.exe push`], ['echo git push', 'grep -n git a.txt', 'find . -name git', 'command -v git', W`ls "C:\Program Files\Git"`, '# git push', 'g(){ git status; }', W`$p = "C:\Program Files\Git\cmd\git.exe","C:\x"`, "node -e \"if (p !== 'git') x()\""]],
+  };
+  const d38n = {};
+  for (const [item, [bad, good]] of Object.entries(d38)) {
+    for (const c of bad) {
+      const e = ev(c);
+      ok(e && e.decision === 'deny', `D-38 ${item} 막음: ${c} → ${JSON.stringify(e)}`);
+    }
+    for (const c of good) ok(ev(c) === null, `D-38 ${item} 통과: ${c} → ${JSON.stringify(ev(c))}`);
+    d38n[item] = bad.length + good.length;
+  }
+  // 결함 4: 묶은 짧은 옵션
+  ok(classify('git push -uf origin main') === 'force-push' && classify('git push -fu origin') === 'force-push', '결함 4: -uf는 강제 푸시');
+  ok(classify('git branch -Dq x') === 'delete-branch' && classify('git push -u origin main') === 'push', '결함 4: -Dq는 삭제, -u는 푸시');
+  // 결함 3: here-doc 본문은 데이터. 셸·인터프리터 코드로 받으면 명령으로 본다
+  const hd = (b) => `<<'EOF'${NL}${b}${NL}EOF`;
+  for (const c of [`cat > a.md ${hd('git push' + NL + 'git hooks')}`, `python - ${hd("print('git merge')")}`, `gh pr create --body-file - ${hd('- git archive HEAD로 사본 시험')}`, `cat > /tmp/ed.py ${hd("s = s.replace('git push', 'x')")}${NL}python /tmp/ed.py`])
+    ok(ev(c) === null, '결함 3 통과: ' + JSON.stringify(c) + ' → ' + JSON.stringify(ev(c)));
+  for (const c of [`bash ${hd('git push')}`, `cat ${hd('git push')} | sh`, `node ${hd("require('child_process').execSync('git push')")}`, `cat > x.sh ${hd('git push')}${NL}bash x.sh`])
+    ok((ev(c) || {}).decision === 'deny', '결함 3 막음: ' + JSON.stringify(c));
+  // 따옴표 없는 구분자 본문의 $(…)·백틱은 셸이 실행한다(security-review)
+  for (const c of [`cat <<EOF${NL}$(git push origin main)${NL}EOF`, `cat <<EOF >/dev/null${NL}\`git push\`${NL}EOF`, `python3 <<EOF${NL}$(git commit -am x)${NL}EOF`])
+    ok((ev(c) || {}).decision === 'deny', '따옴표 없는 here-doc 본문의 명령 치환: ' + JSON.stringify(c));
+  ok(ev(`cat <<EOF${NL}git push 안내${NL}EOF`) === null, '따옴표 없는 본문도 치환이 없으면 데이터');
+  // 본문을 실행할 수 있는 것(code-review): sed e, git 훅, 다른 프로세스를 부르는 인터프리터 코드, 파이프 받는 쪽
+  for (const c of [`cat > x ${hd('git push')}${NL}sed -n e x`, `cat > .git/hooks/pre-commit ${hd('git push --force origin main')}${NL}git commit -m x`, `cat > x.sh ${hd('git push')}${NL}python -c "import os; os.system('sh x.sh')"`, `cat <<'EOF' | sed e${NL}git push${NL}EOF`])
+    ok((ev(c) || {}).decision === 'deny', '본문을 실행할 수 있는 것: ' + JSON.stringify(c));
+  // 문자열 안 모듈 이름·괄호 없는 perl/ruby 실행
+  for (const c of ["node -e \"const {execSync:x}=require('child_process'); x('git push')\"", "python -c \"__import__('subprocess').run(['git','push'])\"", "perl -e 'system \"git push\"'", "ruby -e 'system \"git\", \"push\"'"])
+    ok(classify(c) === 'unknown', 'X3 우회: ' + c);
+  ok(ev('mkdir git') === null && ev('rm -rf git') === null, 'X4: 파일 명령의 git 폴더 이름은 통과');  // 'g'+'it'·'g''it'처럼 여러 조각인 대입 값은 모른다
+  ok((ev("$x='g'+'it'; & $x push origin main") || {}).decision === 'deny' && (ev("x='g''it'; $x push; echo git") || {}).decision === 'deny', '조각낸 대입 값의 변수 프로그램');
+  // 결함 2: Start-Process로 브라우저 실행은 통과, 보호 경로로 리다이렉트·셸 인자는 막는다
+  const sp = (c) => evaluate({ tool_name: 'PowerShell', tool_input: { command: c }, agent_type: 'WY-backend2', cwd: proj, session_id: 's' });
+  ok(sp(W`$p = Start-Process -FilePath 'C:\e\msedge.exe' -ArgumentList @('C:\Temp\claude') -PassThru`) === null, '결함 2: msedge Start-Process 통과');
+  ok((sp(W`Start-Process notepad -RedirectStandardOutput "$HOME\.claude\wy-ops.json"`) || {}).decision === 'deny', '결함 2: 보호 경로 리다이렉트 막음');
+  ok((sp(W`Start-Process cmd -ArgumentList '/c','del',"$HOME\.claude\wy-ops.json"`) || {}).decision === 'deny', '결함 2: 셸 인자 다시 판정');
+  ok((sp(W`Start-Process "$HOME\.wy-tools\wy-ops\current\install.ps1" -ArgumentList 'deploy'`) || {}).decision === 'deny', '결함 2: 보호 경로 프로그램은 풀지 않고 막음');
+  const decDir = path.join(proj, 'h', '.claude', 'wy-approvals', 'my-project', 'decisions');
+  ok((sp(`Start-Process -FilePath xcopy -WorkingDirectory '${decDir}' -ArgumentList 'C:\\tmp\\a.json','.' -Wait`) || {}).decision === 'deny', '결함 2: -WorkingDirectory가 보호 폴더면 막음');
+  ok((sp(`Start-Process -FilePath cmd -WorkingDirectory '${decDir}' -ArgumentList '/c','copy','C:\\tmp\\a.json','.'`) || {}).decision === 'deny', '결함 2: -WorkingDirectory + 셸 인자');
+  // 이 항목들은 커밋 역할도 실행 못 한다(승인 카드로 가지 않는다)
+  const cEv = evaluate({ tool_name: 'Bash', tool_input: { command: 'g"i"t push' }, agent_type: 'AB-commit', cwd: proj, session_id: 's' });
+  ok(cEv && cEv.decision === 'deny' && cEv.reason.includes('해석할 수 없는'), 'D-38 unknown은 커밋 역할도 거부: ' + JSON.stringify(cEv));
+  const pEv = evaluate({ tool_name: 'Bash', tool_input: { command: '(cd wt && git commit -m x)' }, agent_type: 'AB-commit', cwd: proj, session_id: 's' });
+  ok(pEv && !pEv.reason.includes('해석할 수 없는'), '괄호 안 커밋은 승인 흐름으로 간다: ' + JSON.stringify(pEv));
+  ok(ev('for f in a.js b.js; do cp "$W/$f" "$T/$f"; done') === null, 'pm 결정 A: for … cp는 그대로 통과');
+  console.log('D-38 항목별 시험 ' + Object.entries(d38n).map(([k, n]) => `${k} ${n}`).join(', ') + ', 결함 2 6, 결함 3 16, 결함 4 4, 점검 반영 X2 2·X3 4·X4 2');
   const store = require('../approvalStore');
   ok(store.gitEffect({ kind: 'commit', command: 'git cherry-pick a b c' }).includes('여러 개'), 'cherry-pick 카드: 커밋 여러 개');
   ok(store.gitEffect({ kind: 'commit', command: 'git commit -m "I am here"' }).includes('1개'), 'commit 카드: 커밋 1개(메시지의 am은 무시)');
