@@ -16,6 +16,9 @@
 #                                       pm은 start·rotate·prep 대신 이 명령을 쓴다.
 #                                       latest는 가장 최근 pm 인수인계 파일(없으면 인수인계 없이). 이미 백그라운드 pm이 실행 중이면 거부한다. pm 세션 교체 중이면 -Force(새 pm을 띄운 뒤 이전 pm을 멈추라고 알려 줌)
 #   session.ps1 wt-clean <역할>         그 역할의 worktree를 지운다(커밋하지 않은 변경·병합 안 된 커밋이 있거나 세션이 실행 중이면 멈춤). 가지는 남긴다
+# 메모리 관문(D-39): start·rotate·prep·adopt·start-pm은 세션을 띄우기 전에 여유 메모리를 보고 wy-ops.json memory.blockFreeMB(기본 500) 미만이면 띄우지 않는다.
+#   -Force는 이 관문과 함께 세션 교체 기준(start)·실행 중인 pm 확인(start-pm)도 넘긴다. 무거운 작업(빌드·전체 시험) 전 확인은 역할 규칙 그대로
+# 인수인계 파일을 찾을 때(start·start-pm latest·pm-cmd) **Worktree:** 머리말이 이 저장소(또는 그 아래 worktree)가 아닌 파일은 건너뛴다. 머리말 없는 옛 파일은 받는다(MP-02)
 # worktree(WT-01, S4): wy-ops.json의 worktree.enabled가 켜져 있으면 역할 세션(pm·commit 제외, worktree.roles로 고름)은
 #   .claude/worktrees/<역할>(가지 wt/<역할>)에서 돈다. 띄울 때마다 기준 가지로 빨리감기(--ff-only)·settings.local.json·wy-ops.local.json 복사·
 #   worktree.deps의 폴더에 npm ci --prefer-offline(node_modules가 없거나 lock이 더 새로울 때). 이 스크립트가 쓰는 git은 worktree list·add·merge --ff-only·
@@ -36,6 +39,7 @@ $OldNames = @{}
 $RotateTokens = 100000
 $RotateMB = 5
 $ProgressDoc = 'docs/진행현황.md'
+$BlockFreeMB = 500
 
 # Get-Content는 PowerShell 5.1에서 BOM 없는 UTF-8을 ANSI로 읽으므로 .NET으로 읽는다
 function Read-OpsJson($path) {
@@ -62,6 +66,7 @@ if ($Ops) {
   if ($Ops.rotation.transcriptMB) { $RotateMB = $Ops.rotation.transcriptMB }
   if ($Ops.rotation.contextTokens) { $RotateTokens = $Ops.rotation.contextTokens }
   if ($Ops.docs.progress) { $ProgressDoc = $Ops.docs.progress }
+  if ($null -ne $Ops.memory.blockFreeMB) { $BlockFreeMB = $Ops.memory.blockFreeMB }
 }
 if (-not $Roles.Count -or -not $PmRole) { throw "프로젝트 설정 $Repo\.claude\wy-ops.json에 roles·pmRole이 없습니다(install.ps1 init으로 만듭니다)" }
 # Claude Code는 대화 기록 폴더 이름을 저장소 경로의 영문·숫자 외 문자를 '-'로 바꿔 만든다(Windows는 대소문자 무시)
@@ -119,10 +124,19 @@ function Get-ContextTokens($t) {
   $null
 }
 function Test-Rotate($tok, $mb) { if ($tok) { $tok -ge $RotateTokens } else { $mb -ge $RotateMB } }
+# 인수인계 파일의 **Worktree:** 머리말이 이 저장소(본 저장소 또는 그 아래 worktree)인지(MP-02). 다른 프로젝트가 같은 역할 이름을 써도 그 파일을 집지 않는다.
+# 머리말이 없는 옛 파일은 받는다. 이 스크립트가 worktree 안 사본이어도 본 저장소 기준으로 본다
+$MainKey = Norm-Path (($Repo -split '[\\/]\.claude[\\/]worktrees(?:[\\/]|$)')[0])
+function Test-HandoffHere($f) {
+  $m = Select-String -LiteralPath $f.FullName -Pattern '^\*\*Worktree:\*\*\s*(.+?)\s*$' -Encoding UTF8 -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $m) { return $true }
+  $k = Norm-Path ($m.Matches[0].Groups[1].Value.Trim('`', '"', "'", ' '))
+  $k -eq $MainKey -or $k.StartsWith("$MainKey\")
+}
 function Get-Handoff($name) {
   foreach ($n in @($name, $OldNames[$name]) | Where-Object { $_ }) {
     $f = Get-ChildItem "$env:USERPROFILE\.claude\session-data" -Filter "*-$n*-session.tmp" -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -match "^\d{4}-\d{2}-\d{2}-$n(-\d+)?-session\.tmp$" } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+      Where-Object { $_.Name -match "^\d{4}-\d{2}-\d{2}-$n(-\d+)?-session\.tmp$" } | Sort-Object LastWriteTime -Descending | Where-Object { Test-HandoffHere $_ } | Select-Object -First 1
     if ($f) { return $f }
   }
 }
@@ -218,6 +232,15 @@ function Enter-WorkDir($name) {
   }
   $dir
 }
+# 메모리 관문(D-39): 여유 메모리가 memory.blockFreeMB 미만이면 throw. -Force면 보지 않는다. WY_OPS_FREE_MB는 시험용(실제 메모리 대신)
+# 세션을 띄우는 명령마다 맨 앞에서 한 번 본다(rotate가 이전 세션을 멈춘 뒤 막혀 역할이 비지 않게)
+function Assert-Memory {
+  if ($Force) { return }
+  $free = if ($env:WY_OPS_FREE_MB) { [int]$env:WY_OPS_FREE_MB } else { try { [int]((Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).FreePhysicalMemory / 1024) } catch { $null } }
+  if ($null -ne $free -and $free -lt $BlockFreeMB) {
+    throw "여유 메모리 $($free)MB가 기준 $($BlockFreeMB)MB(memory.blockFreeMB)보다 적어 세션을 띄우지 않았습니다. 쓰지 않는 세션·프로그램을 멈춘 뒤 다시 하세요. 그래도 띄우려면 -Force(세션 교체 기준·실행 중인 pm 확인도 함께 넘김)."
+  }
+}
 # claude가 0이 아닌 코드로 끝나면 throw(성공 문구를 내지 않게). $dir: 세션 작업 폴더(기본 저장소)
 function Start-Bg([string[]]$argv, $dir = $Repo) {
   Test-Daemon
@@ -231,6 +254,7 @@ function Start-New($name, $handoff, $dir) {
   Start-Bg @('--bg', '--agent', $name, '--name', $name, $first) $dir
 }
 
+if ($Cmd -in 'start', 'prep', 'rotate', 'adopt', 'start-pm') { Assert-Memory }
 switch ($Cmd) {
   'list' {
     $all = @(Get-Sessions)
@@ -270,7 +294,7 @@ switch ($Cmd) {
     if (-not $Force -and (Test-Rotate $tok ([math]::Round($t.Length / 1MB, 1)))) {
       $size = if ($tok) { "$([math]::Round($tok / 1000))k 토큰" } else { "$([math]::Round($t.Length / 1MB, 1))MB" }
       "$Role 의 멈춘 세션 컨텍스트가 세션 교체 기준 이상입니다($size). 재시작하지 않았습니다."
-      "새로 시작하세요: session.ps1 rotate $Role none (진행 중인 일이 있으면 인수인계 경로). 그래도 재시작하려면 -Force."
+      "새로 시작하세요: session.ps1 rotate $Role none (진행 중인 일이 있으면 인수인계 경로). 그래도 재시작하려면 -Force(메모리 관문도 함께 넘김)."
       break
     }
     if (-not $Prompt) { $Prompt = "[$PmRole] 세션을 다시 띄웠습니다. CLAUDE.md·$($ProgressDoc)에서 바뀐 점을 확인하고 지시를 기다리세요." }
@@ -300,7 +324,7 @@ switch ($Cmd) {
     Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $msg) (Enter-WorkDir $Role)
   }
   'rotate' {
-    # 작업 폴더(worktree 준비)를 먼저: 실패하면 이전 세션을 멈추지 않고 끝난다
+    # 작업 폴더(worktree 준비)를 먼저(메모리 관문은 switch 앞): 실패하면 이전 세션을 멈추지 않고 끝난다
     $dir = Enter-WorkDir $Role
     $s = Get-Bg $Role
     if ($s -and (Test-Running $s)) { claude stop $s.id | Out-Null }
@@ -340,7 +364,7 @@ switch ($Cmd) {
     if ($h -and -not (Test-Path $h)) { throw "인수인계 파일이 없습니다: $h" }
     $live = @(Get-Sessions | Where-Object { $_.name -eq $PmRole -and (Test-Running $_) })
     $bg = @($live | Where-Object { $_.kind -eq 'background' })
-    if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force"; break }
+    if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force(메모리 관문도 함께 넘김)"; break }
     # 시작 규칙(pm-ops 먼저·인수인계·중복 pm 판단)은 역할 파일에 있다(D-36). 시작 지시는 인수인계 경로만 넘긴다
     if (-not (Test-Path "$Repo\.claude\agents\$PmRole.md")) { throw "$PmRole 역할 파일(.claude/agents/$PmRole.md)이 없습니다. install.ps1 gen 먼저 실행하세요." }
     $first = if ($h) { "[$PmRole 시작] 인수인계: $($h -replace '\\','/')" } else { "[$PmRole 시작] 인수인계 없음" }

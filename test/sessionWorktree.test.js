@@ -65,7 +65,7 @@ try {
     const cmd = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; & '${path.join(scripts, 'session.ps1')}' ${args.join(' ')}`;
     const r = spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], {
       encoding: 'utf8', windowsHide: true, timeout: 120000,
-      env: { ...process.env, ...gitEnv, PATH: bin + path.delimiter + process.env.PATH, USERPROFILE: home, WY_OPS_DAEMON_LOCK: lock, WY_OPS_DAEMON_TASK: 'wy-ops-test-no-such-task', WY_OPS_DAEMON_NAME: path.basename(process.execPath), ...env },
+      env: { ...process.env, ...gitEnv, PATH: bin + path.delimiter + process.env.PATH, USERPROFILE: home, WY_OPS_DAEMON_LOCK: lock, WY_OPS_DAEMON_TASK: 'wy-ops-test-no-such-task', WY_OPS_DAEMON_NAME: path.basename(process.execPath), WY_OPS_FREE_MB: '99999', ...env },
     });
     return (r.stdout || '') + (r.stderr || '');
   };

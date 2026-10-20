@@ -60,4 +60,36 @@ assert.ok(/"\$base 개발 도구"/.test(wiz) && /Get-StackToolName/.test(wiz) &&
 assert.ok(!/--stack/.test(wiz), '마법사는 --stack을 넘기지 않는다');
 assert.ok(/' detect --project '/.test(wiz), '마법사는 install.js detect로 검증 명령을 보여 준다');
 assert.ok(/cmd === 'detect'/.test(js), 'install.js에 detect 명령');
+// D-39 ③: 기본 접두사는 lib/projects.js freePrefix와 같은 규칙(다른 프로젝트 목록은 install.js projects로 한 번 읽음). 함수만 떼어 PowerShell로 돌린다(목록은 미리 넣어 node를 부르지 않음)
+assert.ok(/' projects'/.test(wiz) && /cmd === 'projects'/.test(js), '마법사는 install.js projects로 다른 프로젝트 접두사를 읽는다');
+{
+  const fnText = (name) => {
+    const m = new RegExp('^function ' + name + '\\b[\\s\\S]*?^\\}', 'm').exec(wiz);
+    assert.ok(m, name);
+    return m[0];
+  };
+  const prefixOf = (name, project) => {
+    const script = [
+      "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $Demo = $false",
+      "$script:Projects = @([pscustomobject]@{ dir = 'C:\\w\\erp'; rolePrefix = 'ER-' }, [pscustomobject]@{ dir = 'C:/w/erp2'; rolePrefix = 'erp-' }, [pscustomobject]@{ dir = 'C:\\w\\other'; rolePrefix = $null; pmRole = 'OT-pm' })",
+      fnText('Get-OtherPrefixes'), fnText('Get-PrefixFor'),
+      "$St = @{ Project = '" + project + "' }; Get-PrefixFor '" + name + "'",
+    ].join('\n');
+    const out = spawnSync(POWERSHELL, ['-NoProfile', '-Command', script], { encoding: 'utf8' });
+    assert.strictEqual(out.status, 0, out.stderr);
+    return out.stdout.trim();
+  };
+  assert.strictEqual(prefixOf('erp-new', 'C:\\w\\new'), 'ER2-', 'ER-·ERP-가 겹치면 숫자');
+  assert.strictEqual(prefixOf('my-app', 'C:\\w\\new'), 'MY-');
+  assert.strictEqual(prefixOf('other2', 'C:\\w\\new'), 'OTH-', 'pmRole 앞부분과도 겹침');
+  assert.strictEqual(prefixOf('erp', 'C:\\W\\ERP\\.claude\\worktrees\\ER-dev'), 'ER-', '자기 프로젝트(worktree 안이어도, 대소문자 무시)는 뺌');
+  assert.strictEqual(prefixOf('erp', "  \"C:\\w\\erp\\\" "), 'ER-', '따옴표·공백 친 경로도 자기 프로젝트');
+  // 목록 읽기에 실패하면(Node.js 설치 전 등) 기억하지 않아 다음에 다시 읽는다
+  const retry = spawnSync(POWERSHELL, ['-NoProfile', '-Command', [
+    "$Demo = $false; $Pkg = 'C:\\nowhere'; $script:Projects = $null; function Q($s) { $s }; function Write-Log($m) { }",
+    fnText('Get-OtherPrefixes'),
+    "$env:PATH = ''; $null = Get-OtherPrefixes 'C:\\w\\new'; if ($null -eq $script:Projects) { 'retry' } else { 'cached' }",
+  ].join('\n')], { encoding: 'utf8' });
+  assert.strictEqual(retry.stdout.trim(), 'retry', retry.stdout + retry.stderr);
+}
 console.log('설치 마법사 검사 통과');
