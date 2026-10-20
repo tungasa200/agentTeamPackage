@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // wy-ops 승인 가드(PreToolUse 훅, Bash·PowerShell). 초안 — 적용은 사용자 설정에서 한다.
 // - 잠금 대상 git 명령: commit·push·강제 푸시·브랜치 생성/삭제·merge(gh pr merge)·reset·rebase·태그 삭제·worktree 추가/삭제(pull·cherry-pick·revert·am·update-ref·fetch a:b 등 포함). 모두 승인 센터의 승인 결정이 있어야 한다.
-//   env·&·bash -c·cmd /c·powershell -c 등으로 감싼 git도 본다. git 별칭·외부 명령(내장이 아닌 하위 명령)은 아무도 실행 못 한다.
+//   env·&·bash -c·cmd /c·powershell -c·Start-Process 등으로 감싼 git도 본다. git 별칭·외부 명령(내장이 아닌 하위 명령)은 아무도 실행 못 한다.
+//   해석할 수 없는 형태(D-38: 쪼갠 이름·변수 프로그램·실행 설정·다른 프로그램이나 코드가 대신 실행하는 git)는 판단할 수 없어 막는다.
+//   here-doc 본문은 데이터로 보되, 본문을 셸·인터프리터나 모르는 프로그램이 받으면 명령·코드로 본다.
 // - 예외 하나(S4, D-32): 역할 세션이 자기 worktree(.claude/worktrees/<자기 역할>, 가지 wt/<자기 역할>)에서 `git merge <worktree.base>`만 한 명령은 승인 없이 통과.
 // - 잠금 대상은 프로젝트 설정의 커밋 역할(wy-ops.json commitRole, agent_type)만 실행한다. agent_type이 없는 세션도, 설정이 없으면 모두 거부한다.
 // - 승인 한 건은 한 번만 쓴다(used/<id>.json).
@@ -171,32 +173,197 @@ function shellCode(t) {
   if (p === 'iex' || p === 'invoke-expression') return rest.filter((a) => !/^-command$/i.test(a)).join(' ') || null;
   if (p !== 'powershell' && p !== 'pwsh') return null;
   for (let i = 0; i < rest.length; i++) {
-    const f = /^[-/]([A-Za-z]+)(?::.*)?$/.exec(rest[i]);
+    const f = /^[-/]([A-Za-z]+)(?::([\s\S]*))?$/.exec(rest[i]);
     if (!f) return rest.slice(i).join(' '); // 위치 인자는 -Command의 값
     const n = f[1].toLowerCase();
-    if ('command'.startsWith(n)) return rest.slice(i + 1).join(' ');
-    if (n === 'e' || (n.length >= 2 && 'encodedcommand'.startsWith(n))) return Buffer.from(rest[i + 1] || '', 'base64').toString('utf16le');
+    // -Command:값·-EncodedCommand:값처럼 콜론에 붙인 값도 본다(D-38). -ec는 -EncodedCommand의 별칭
+    const after = f[2] !== undefined ? [f[2], ...rest.slice(i + 1)] : rest.slice(i + 1);
+    if ('command'.startsWith(n)) return after.join(' ');
+    if (n === 'e' || n === 'ec' || (n.length >= 2 && 'encodedcommand'.startsWith(n))) return Buffer.from(after[0] || '', 'base64').toString('utf16le');
     if ('file'.startsWith(n)) return null;
     if (PS_VALUE_OPTS.some((o) => o.startsWith(n)) && !rest[i].includes(':')) i++;
   }
   return null;
 }
 
-// 한 조각이 잠금 대상이면 종류를, 아니면 null. 셸 문자열 안(bash -c 'git commit')도 본다
-function classify(segment, depth = 0) {
+// ── D-38 '해석 못 하면 거부': 풀지 못한 형태에 git이 보이면 unknown ──────────────────
+// git 낱말(따옴표·백틱·^·+로 쪼갠 것도 이어 본다). .git 폴더·github·git-lfs 같은 낱말은 아니다
+const GIT_WORD = /(?:^|[^\w.-])git(?:\.exe)?(?![\w-])/i;
+const gitWord = (s) => GIT_WORD.test(String(s).replace(/['"`^+]/g, '').replace(/\\/g, '/'));
+// 다른 프로세스를 실행하는 코드 API(인터프리터 코드 안, X3)
+const EXEC_API = /child_process|\bexec(?:File)?(?:Sync)?\s*\(|\bspawn(?:Sync)?\s*\(|\bfork\s*\(|subprocess|os\.(?:system|popen|exec\w*|spawn\w*)|\bPopen\b|\bsystem\s*\(|\bqx\b|Open3|IO\.popen|Process\.Start|Start-Process|Deno\.(?:run|Command)|Bun\.spawn/i;
+// perl·ruby는 백틱(`git push`)도 실행이다. node·python의 백틱은 글자(템플릿 문자열·문서 조각)라 보지 않는다
+// 실행 API는 코드의 문자열 글자 밖에서만 찾는다(문서·시험 코드를 고치는 스크립트의 글자 속 spawnSync·Start-Process는 실행이 아니다)
+const CODE_STRINGS = /`(?:[^`\\]|\\.)*`|"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g;
+// 모듈 이름은 대개 문자열 안에 있어(require('child_process'), __import__('subprocess')) 글자를 떼기 전 코드로 본다.
+// perl·ruby는 괄호 없는 system "…"·exec·%x{}·open(…'|')도 실행이다
+const EXEC_MOD = /child_process|subprocess|\bOpen3\b/i;
+const execCode = (prog, code) =>
+  EXEC_MOD.test(code) || EXEC_API.test(code.replace(CODE_STRINGS, '""')) || (['perl', 'ruby'].includes(prog) && (/`[^`]*\bgit\b/i.test(code) || /\b(?:system|exec|spawn|open|popen)\b|%x/.test(code)));
+// 따옴표를 남긴 채 공백으로 나눈 낱말(따옴표·here-string 안 공백은 나누지 않는다)
+const rawWords = (s) => s.match(/@'[\s\S]*?\n'@|@"[\s\S]*?\n"@|(?:'[^']*'|"(?:[^"\\]|\\.)*"|[^\s'"])+/g) || [];
+// 프로그램 자리가 변수·식인지(X2): & $g push, & ('gi'+'t') push, bash의 $G push.
+// 변수를 같은 명령에서 글자 값으로 정했고 그 값에 git이 없으면($s='…\session.ps1'; & $s stop …) 아니다. 값을 모르면(정한 곳 없음·식) 그렇다고 본다
+function varProgram(raw, t, ctx) {
+  const callOp = ['&', '.'].includes(raw.find((a) => !LEADING_KEYWORDS.has(a)));
+  const pureVar = /^\$\{?([A-Za-z_][\w:]*)\}?$|^%(\w+)%$/.exec(t[0]);
+  if (!(callOp && /^[$(%]|[+'"`]/.test(t[0]))) {
+    // foreach ($f in …)의 머리, $x += …·$i++ 같은 연산은 실행이 아니다
+    if (!pureVar || t.length < 2 || PS_OP.test(t[1]) || /^(?:in|=|[-+*/%]=|\?\?=|\+\+|--)$/i.test(t[1])) return false;
+    // 앞 낱말이 키워드·대입만일 때 진짜 첫 낱말이다(T=$(cygpath "$TEMP")/x처럼 나뉜 값의 조각은 아니다)
+    const at = raw.indexOf(t[0]);
+    if (at < 0 || raw.slice(0, at).some((a) => !LEADING_KEYWORDS.has(a) && !['&', '.'].includes(a) && !/^[A-Za-z_]\w*=[^$`(]*$/.test(a))) return false;
+  }
+  if (!pureVar) return true;
+  const n = (pureVar[1] || pureVar[2]).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const assigns = [
+    // bash 대입(NAME=값, 대소문자 구분, 붙은 따옴표 조각 'g''it'까지)과 PowerShell 대입($name = 값, ; | 줄 끝까지 오른쪽 전체)
+    ...[...ctx.matchAll(new RegExp(`(?:^|[\\s;&|({])${n}=((?:"[^"]*"|'[^']*'|[^\\s;&|)'"])*)`, 'g'))].map((m) => m[1]),
+    ...[...ctx.matchAll(new RegExp(`\\$${n}\\s*=\\s*([^;\\n|]*)`, 'gi'))].map((m) => m[1].trim()),
+  ];
+  const lists = [...ctx.matchAll(new RegExp(`\\b(?:for|foreach)\\s*\\(?\\s*\\$?${n}\\s+in\\s+([^;)\\n]*)`, 'gi'))].map((m) => m[1]);
+  // 대입 값은 글자 하나('…'·"…"·맨 낱말)일 때만 안다('g'+'it'·-join·여러 조각은 모른다)
+  const single = (v) => /^(?:'[^']*'|"[^"$`]*"|[^\s'"$`(+]*)$/.test(v);
+  return !(assigns.length + lists.length) || assigns.some((v) => gitWord(v) || !single(v)) || lists.some((v) => gitWord(v) || /[$`(]/.test(v.replace(/^'[^']*'$/, '')));
+}
+// 실행하는 설정(-c·GIT_CONFIG_*·--config-env·git config로 쓰기, U7·X1). 이 설정이 붙은 git은 무엇을 실행할지 모른다
+const EXEC_CONFIG = /^(?:core\.(?:pager|sshcommand|editor|fsmonitor|hookspath|askpass|alternaterefscommand|gitproxy)|pager\..+|credential(?:\..+)?\.helper|sequence\.editor|diff\.external|diff\..+\.(?:textconv|command)|merge\..+\.driver|filter\..+|gpg(?:\..+)?\.program|alias\..+|protocol\..+|uploadpack\.packobjectshook|sendemail\..+|remote\..+\.(?:uploadpack|receivepack)|include(?:if\..+)?\.path|interactive\.difffilter|(?:merge|diff)tool\..+|ssh\.variant|init\.templatedir)$/i;
+// 하위 명령 자리 낱말로 풀 수 있는 글자(U1). 이 밖(따옴표 섞임·\·$·백틱·^·%·@·괄호·와일드카드)은 셸이 무엇으로 바꿀지 모른다
+const PLAIN_WORD = /^[A-Za-z0-9._-]+$/;
+// git을 다른 이름에 거는 명령(X1)
+const ALIASERS = new Set(['alias', 'set-alias', 'sal', 'new-alias', 'nal', 'doskey']);
+// git 낱말이 인자로 나와도 실행하지 않는 프로그램(X4에서 뺀다): 출력·찾기·읽기·이동
+const NON_EXEC = new Set([...'echo printf write-host write-output grep rg findstr select-string sls which where get-command gcm type man help ls dir cat head tail wc test test-path get-item gi get-childitem gci get-content gc cd set-location sl pushd code winget choco scoop mkdir rm rmdir cp mv touch'.split(' ')]);
+// PowerShell 비교·문자열 연산자($x -match 'git'는 실행이 아니다)
+const PS_OP = /^-(?:c|i)?(?:eq|ne|gt|ge|lt|le|like|notlike|match|notmatch|contains|notcontains|in|notin|replace|split|join|is|isnot|as|and|or|xor|not|band|bor|f)$/i;
+
+// Start-Process(saps)의 매개변수를 푼다(U5): -FilePath·-ArgumentList(줄임·콜론형·순서 무관·쉼표 목록·@('…') 글자 목록).
+// 돌려줌 { files: FilePath 후보(변수 값에 공백이 있어 쪼개졌을 때 두 해석), args: 인자(글자로 못 풀면 null), redirects } 또는 null(풀 수 없음)
+const SP_PARAMS = { filepath: 1, path: 'filepath', pspath: 'filepath', argumentlist: 1, args: 'argumentlist', workingdirectory: 1, credential: 1, redirectstandarderror: 1, redirectstandardinput: 1, redirectstandardoutput: 1, windowstyle: 1, verb: 1, environment: 1, loaduserprofile: 0, lup: 'loaduserprofile', nonewwindow: 0, nnw: 'nonewwindow', passthru: 0, wait: 0, usenewenvironment: 0 };
+function spParam(name) {
+  const n = name.toLowerCase();
+  const canon = (k) => (typeof SP_PARAMS[k] === 'string' ? SP_PARAMS[k] : k);
+  if (n in SP_PARAMS) return canon(n);
+  const hits = [...new Set(Object.keys(SP_PARAMS).filter((k) => k.startsWith(n)).map(canon))];
+  return hits.length === 1 ? hits[0] : null;
+}
+function spLiteral(item) {
+  if (/^'[^']*'$/.test(item)) return item.slice(1, -1);
+  if (/^"[^"]*"$/.test(item)) return /[$`]/.test(item) ? null : item.slice(1, -1);
+  return /[$@(){}`'"]/.test(item) ? null : item;
+}
+function startProcess(segment) {
+  const m = /(?:^|[\s&(])(?:start-process|saps|start)(?:\.exe)?(?=\s|$)/i.exec(segment);
+  if (!m) return null;
+  const items = segment.slice(m.index + m[0].length).match(/@\((?:[^()'"]|'[^']*'|"[^"]*")*\)|,|(?:'[^']*'|"[^"]*"|[^\s,'"])+/g) || [];
+  const named = {};
+  const pos = [];
+  // 쉼표로 이은 값 목록. @('a','b')는 안을 같은 규칙으로 푼다. 글자로 못 푸는 원소는 null
+  const list = (i, first) => {
+    const out = [];
+    const take = (it) => {
+      if (/^@\(/.test(it)) {
+        const inner = it.slice(2, -1).match(/'[^']*'|"[^"]*"|[^\s,;'"]+/g) || [];
+        out.push(...inner.map(spLiteral));
+      } else out.push(spLiteral(it));
+    };
+    take(first);
+    while (items[i + 1] === ',' && items[i + 2] !== undefined) {
+      take(items[i + 2]);
+      i += 2;
+    }
+    return [out, i];
+  };
+  for (let i = 0; i < items.length; i++) {
+    const p = /^-([A-Za-z]+)(:?)([\s\S]*)$/.exec(items[i]);
+    if (p) {
+      const name = spParam(p[1]);
+      if (!name) return null;
+      if (SP_PARAMS[name] === 0) continue; // 스위치(-Wait·-PassThru, -Wait:$true)
+      let v;
+      if (p[2] && p[3]) [v, i] = list(i, p[3]);
+      else if (items[i + 1] !== undefined) [v, i] = list(i + 1, items[i + 1]);
+      else return null;
+      named[name] = v;
+      continue;
+    }
+    if (items[i] === ',') return null;
+    let v;
+    [v, i] = list(i, items[i]);
+    pos.push(v);
+  }
+  // FilePath 뒤에 떨어진 낱말: 변수 값(공백 든 경로)이 풀려 쪼개졌거나 위치 인자(ArgumentList)다. 두 해석을 모두 본다
+  const fileList = named.filepath || pos.shift();
+  if (!fileList || fileList.length !== 1 || fileList[0] === null) return null;
+  const files = [fileList[0]];
+  if (!named.argumentlist && named.filepath && pos.length && pos.every((v) => v.length === 1 && v[0] !== null)) files.push([fileList[0], ...pos.map((v) => v[0])].join(' '));
+  const argList = named.argumentlist || pos.shift();
+  if (pos.length && !(files.length > 1)) return null;
+  const args = !argList ? [] : argList.includes(null) ? null : argList;
+  const redirects = ['redirectstandarderror', 'redirectstandardinput', 'redirectstandardoutput'].flatMap((k) => named[k] || []);
+  return { files, args, redirects, wd: named.workingdirectory };
+}
+
+// 한 조각이 잠금 대상이면 종류를, 아니면 null. 셸 문자열 안(bash -c 'git commit')도 본다.
+// ctx: 명령 전체(변수에 담은 git을 다른 조각에서 부르는 경우, X2). 없으면 이 조각으로 본다
+function classify(segment, depth = 0, ctx = segment) {
   const raw = tokens(segment);
-  const t = stripRunners(raw);
+  // 셸 키워드(if·while·!·then·do …)·PowerShell 대입($x = git …)은 떼고 그 뒤 명령으로 본다(D-38)
+  const lead = leadingTokens(segment);
+  // Start-Process는 풀어서 'file args' 명령으로 다시 본다. 못 풀면 git이 보일 때 unknown(U5)
+  if (['start-process', 'saps'].includes(progName(lead)) || (progName(lead) === 'start' && lead.slice(1).some((a) => /^-[A-Za-z]+:?/.test(a) && spParam(a.replace(/^-|:.*$/g, ''))))) {
+    if (depth >= 6) return 'unknown';
+    const sp = startProcess(segment);
+    if (!sp || !sp.args || sp.files.length > 1) return gitWord(segment) ? 'unknown' : null;
+    return classify([/\s/.test(sp.files[0]) ? `"${sp.files[0]}"` : sp.files[0], ...sp.args].join(' '), depth + 1, ctx);
+  }
+  // 따옴표가 깨져 조각에 셸 연산자(| & ;)가 남았으면 그 앞까지만 이 명령이다
+  const full = stripRunners(lead);
+  const cut = full.findIndex((a, j) => j > 0 && /^[&|;]+$/.test(a));
+  const t = cut < 0 ? full : full.slice(0, cut);
   if (!t.length) return null;
+  // PowerShell 배열 식("…\git.exe","…")은 실행이 아니다
+  if (/^(["'])[^"']*\1,/.test(segment.trim())) return null;
+  // 프로그램 이름을 따옴표·\·^로 쪼갰는데 풀면 git·gh(U2)
+  //   bash는 붙은 따옴표 조각("…\gi""t.exe")을 한 낱말로 잇고 g\it의 \를 뗀다. 따옴표를 남긴 낱말로 본다.
+  //   맨 앞 &가 조각 나누기로 떨어진 PowerShell 식(('gi'+'t') push)도 이어 본다
+  const unq = (w) => w.replace(/['"`^+()]/g, '');
+  const bare = unq(rawWords(segment).find((w) => unq(w).startsWith(unq(t[0]))) || t[0]);
+  const isGit = (s) => ['git', 'gh'].includes(progName([s]));
+  if (!isGit(t[0]) && !/[,;]/.test(bare) && (isGit(bare) || isGit(bare.replace(/\\(?=[^\\/]*$)/, '')))) return 'unknown';
+  // 프로그램 자리가 변수·식(X2): & $g push, & ('gi'+'t') push, bash의 $G push. 명령에 git 낱말이 있을 때만
+  if (gitWord(ctx) && varProgram(raw, t, ctx)) return 'unknown';
+  if (ALIASERS.has(progName(t)) && gitWord(segment)) return 'unknown'; // X1: git을 다른 이름에
   const inner = shellCode(t);
   if (inner) {
-    if (depth >= 6) return 'unknown'; // 너무 깊이 감싼 문자열은 판단하지 않고 막는다
+    // 3단 이상 셸 문자열은 판단하지 않고 막는다(U3). 이스케이프한 따옴표로 정확히 못 나누는 문자열에 git이 있어도
+    if (depth >= 2) return 'unknown';
+    if (gitWord(segment) && /\\["']|""|`/.test(segment)) return 'unknown';
     // 승인은 종류 하나에 하나라, 문자열 안에 잠금 명령이 여럿(sh -c 'git commit …; git push')이면 판단하지 않고 막는다
-    const kinds = allSegments(inner).map((s) => classify(s, depth + 1)).filter(Boolean);
+    const kinds = allSegments(inner).map((s) => classify(s, depth + 1, ctx)).filter(Boolean);
     return kinds.length > 1 ? 'unknown' : kinds[0] || null;
   }
   const prog = progName(t);
+  // powershell에서 실행할 코드를 못 찾았는데(모르는 매개변수) git이 보이면(U4). -File 스크립트는 남는 위험
+  if ((prog === 'powershell' || prog === 'pwsh') && gitWord(segment) && !t.slice(1).some((a) => /^[-/]f(?:i|il|ile)?(?::|$)/i.test(a))) return 'unknown';
+  // 인터프리터 코드가 다른 프로세스를 실행하면서 git이 보이면(X3)
+  if (CODE_INTERPRETERS.has(prog) && execCode(prog, t.slice(1).join(' ')) && gitWord(segment)) return 'unknown';
   if (prog === 'gh') return t[1] === 'pr' && t[2] === 'merge' ? 'merge' : null;
-  if (prog !== 'git') return null;
+  if (prog !== 'git') {
+    // 실행기 목록 밖 프로그램의 인자에 git이 따로 서 있으면(find -exec git …, ssh h git …) 무엇을 실행할지 모른다(X4).
+    // 프로그램 자리가 글자 이름일 때만(# 주석·함수 정의·식은 아니다). command -v git은 찾기만 한다. find는 -exec 뒤만 본다
+    if (NON_EXEC.has(prog) || !/^[\w.~\\/][\w.:\\/~-]*$/.test(t[0]) || (prog === 'command' && /^-[vV]$/.test(t[1] || ''))) return null;
+    // 따옴표 안 글(here-string·메시지)의 git 낱말은 인자가 아니다. 통째로 따옴표로 감싼 'git'은 인자다
+    const all = rawWords(segment);
+    const stop = all.findIndex((w, j) => j > 0 && /^[&|;]+$/.test(w));
+    const words = stop < 0 ? all : all.slice(0, stop);
+    const at = words.findIndex((w) => w.replace(/['"]/g, '') === t[0]);
+    const from = prog === 'find' ? words.findIndex((a, j) => j > at && /^-(?:exec|execdir|ok|okdir)$/.test(a)) : at;
+    // 코드 연산자(!== === =>)가 끼면 따옴표가 깨져 남은 코드 조각이다(node -e "… p !== 'git' …")
+    if (at < 0 || from < 0 || words.some((w) => /^(?:[!=]==?|=>)$/.test(w))) return null;
+    // 경로를 붙인 것은 git(소문자)·git.exe만 프로그램으로 본다(…\Program Files\Git은 폴더)
+    return words.slice(from + 1).some((a) => /^(['"]?)(?:[Gg][Ii][Tt]|[^\s'"]*[\\/]git|(?:[^\s'"]*[\\/])?[Gg][Ii][Tt]\.[Ee][Xx][Ee])\1$/.test(a)) ? 'unknown' : null;
+  }
   let i = 1;
   // -c 이름=값. 환경 변수 GIT_CONFIG_KEY_n·VALUE_n·PARAMETERS로 준 설정도 넣는다
   const env = Object.fromEntries(raw.map((a) => /^(GIT_CONFIG_\w+)=(.*)$/.exec(a)).filter(Boolean).map((m) => [m[1], m[2]]));
@@ -207,16 +374,40 @@ function classify(segment, depth = 0) {
     else if (t[i].startsWith('--config-env')) config.push(t[i].replace(/^--config-env=?/, '') || t[i + 1] || '');
     i += GIT_OPTS_WITH_VALUE.has(t[i]) || t[i] === '--config-env' ? 2 : 1;
   }
+  // 실행하는 설정(core.pager·credential.helper …)이나 값이 !(셸 명령)인 설정이 붙으면 무엇을 실행할지 모른다(U7)
+  if (config.some((c) => EXEC_CONFIG.test(c.split('=')[0]) || /^[^=]*=\s*!/.test(c.replace(/['"]/g, '')))) return 'unknown';
   const sub = t[i];
   // 하위 명령을 입력으로 받는 것(echo push | xargs git)은 무엇을 할지 모른다
   if (sub === undefined) return raw.some((a) => /^xargs$/i.test(a)) ? 'unknown' : null;
   // 하위 명령과 인자를 한 문자열로 준 것(Start-Process git 'push origin main')은 펼쳐서 본다
-  if (/\s/.test(sub)) return depth >= 6 ? 'unknown' : classify(['git', ...t.slice(1, i), sub, ...t.slice(i + 1)].join(' '), depth + 1);
-  // 별칭 이름은 영문·숫자·- 뿐이다. 그 밖(fp4.js, 따옴표가 깨져 끼어든 낱말)은 명령이 아니라 보지 않는다
+  if (/\s/.test(sub)) return depth >= 6 ? 'unknown' : classify(['git', ...t.slice(1, i), sub, ...t.slice(i + 1)].join(' '), depth + 1, ctx);
+  // 하위 명령 자리에 따옴표·\·^·백틱이 섞이면 떼고 다시 본다: 잠금·별칭이면 unknown, 아니면(깨진 따옴표가 남긴 stash\ 등) 보지 않는다(U1).
+  // $·%·괄호·와일드카드 등은 셸이 무엇으로 바꿀지 모른다
+  if (!PLAIN_WORD.test(sub)) {
+    // (cd x && git status)의 닫는 괄호: 괄호 안 조각(innerSegments)이 따로 판정된다
+    if (PLAIN_WORD.test(sub.replace(/[)}]+$/, ''))) return null;
+    const clean = sub.replace(/['"`^\\]/g, '');
+    if (!PLAIN_WORD.test(clean) || depth >= 6) return 'unknown';
+    return classify(['git', ...t.slice(1, i), clean, ...t.slice(i + 1)].join(' '), depth + 1, ctx) ? 'unknown' : null;
+  }
+  // 별칭 이름은 영문·숫자·- 뿐이다. 그 밖(fp4.js처럼 점이 든 낱말)은 명령이 아니라 보지 않는다
   if (!GIT_BUILTINS.has(sub)) return /^[A-Za-z0-9-]+$/.test(sub) ? 'unknown' : null;
   const rest = t.slice(i + 1);
-  const has = (...flags) => rest.some((a) => flags.includes(a) || flags.some((f) => f.endsWith('=') && a.startsWith(f)));
+  // 짧은 옵션 묶음(-uf, -rd)은 낱개로 푼다(결함 4). 값을 붙인 옵션(-ofoo)이 섞이면 엄한 쪽(강제 푸시 등)으로 틀린다
+  const shorts = rest.filter((a) => /^-[A-Za-z0-9]{2,}$/.test(a)).join('');
+  const has = (...flags) => rest.some((a) => flags.includes(a) || flags.some((f) => f.endsWith('=') && a.startsWith(f))) || flags.some((f) => /^-[A-Za-z0-9]$/.test(f) && shorts.includes(f[1]));
   const positional = rest.filter((a) => !a.startsWith('-'));
+  // 다른 명령을 실행하는 하위 명령·옵션(U6): submodule foreach, bisect run, for-each-repo, difftool -x, --upload-pack 등
+  if ((sub === 'submodule' && positional.includes('foreach')) || (sub === 'bisect' && positional[0] === 'run') || sub === 'for-each-repo') return 'unknown';
+  if ((sub === 'difftool' && has('-x', '--extcmd', '--extcmd=')) || rest.some((a) => /^--(?:upload-pack|receive-pack|exec)(?:=|$)/.test(a))) return 'unknown';
+  // git config로 실행 설정을 쓰거나 설정 파일을 편집기로 여는 것(X1)
+  if (sub === 'config') {
+    if (has('-e', '--edit') || positional[0] === 'edit') return 'unknown';
+    const valueOpts = ['-f', '--file', '--blob', '--type', '--default', '--comment', '--value'];
+    const args = rest.filter((a, j) => !a.startsWith('-') && !valueOpts.includes(rest[j - 1]));
+    const kv = args[0] === 'set' ? args.slice(1) : args;
+    if (kv[0] && EXEC_CONFIG.test(kv[0]) && kv.length >= 2) return 'unknown';
+  }
   switch (sub) {
     case 'commit':
       return 'commit';
@@ -725,6 +916,8 @@ function splitHeredocs(command) {
   const bodies = [];
   const data = [];
   const codeBodies = [];
+  const codeProgs = [];
+  let expands = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     out.push(line);
@@ -735,18 +928,24 @@ function splitHeredocs(command) {
     const t = leadingTokens(before);
     const prog = t.length ? path.basename(t[0]).toLowerCase().replace(/\.exe$/, '') : '';
     const end = lines.findIndex((l, j) => j > i && (m[1] ? l.replace(/^\t+/, '') : l) === m[3]);
-    if (end < 0 || !(HEREDOC_DATA.has(prog) || CODE_INTERPRETERS.has(prog))) {
+    // cat <<EOF | bash처럼 데이터 본문을 넘겨받는 프로그램이 안전 목록 밖이면 실행될 수 있어 명령으로 둔다
+    //   앞에 낱말을 붙여 나눈다: 머리 뒤 남은 글(> 파일)이 첫 조각, 파이프 뒤 프로그램이 다음 조각(' | sed e'의 빈 첫 조각이 버려지지 않게)
+    const piped = segments('x' + line.slice(m.index + m[0].length)).slice(1).some((sg) => !HEREDOC_SAFE.has(path.basename(leadingTokens(sg)[0] || '').toLowerCase().replace(/\.exe$/, '')));
+    if (end < 0 || !(HEREDOC_DATA.has(prog) || CODE_INTERPRETERS.has(prog)) || (HEREDOC_DATA.has(prog) && piped)) {
       bodies.push(null);
       continue;
     }
     bodies.push(lines.slice(i + 1, end).join('\n'));
+    // 따옴표 없는 구분자(<<EOF)의 본문은 셸이 $(…)·백틱을 먼저 실행한다
+    if (!m[2] && /\$\(|`/.test(bodies[bodies.length - 1])) expands = true;
     if (CODE_INTERPRETERS.has(prog)) {
       code.push(...lines.slice(i + 1, end));
       codeBodies.push(bodies[bodies.length - 1]);
+      codeProgs.push(prog);
     } else data.push(bodies[bodies.length - 1]);
     i = end;
   }
-  return { command: out.join('\n'), bodies, code: code.join('\n'), data, codeBodies };
+  return { command: out.join('\n'), bodies, code: code.join('\n'), data, codeBodies, codeProgs, expands };
 }
 
 // ── 오탐 수정(2026-10-10 pm): 설치본 CLI의 읽기 전용 하위 명령, PowerShell 내용 쓰기의 데이터 ──────────
@@ -1069,6 +1268,8 @@ const FILTERS = new Set([...READERS, 'convertfrom-json', 'select-object', 'selec
 //  - 리다이렉트·쓰기 프로그램은 대상이 보호 경로이거나 알 수 없는 값(변수 등)일 때 막는다.
 //    다른 파일에 쓰는 것은 통과(커밋 메시지 본문에 보호 파일 이름이 들어 있는 경우 등)
 //  - 인터프리터는 코드가 읽기 API만 쓸 때만 통과시키고, 판단할 수 없으면 막는다
+// .NET 읽기 호출 뒤에 이어 불러도 읽기로 보는 메서드(글자 다루기)
+const SAFE_CHAIN = new Set(['tostring', 'trim', 'trimend', 'trimstart', 'replace', 'split', 'substring', 'tolower', 'toupper', 'contains', 'startswith', 'endswith', 'equals', 'isinrole']);
 function writesApprovalFiles(command, cwd, depth = 0) {
   if (depth > 6) return true; // 셸 문자열이 너무 깊게 묶이면 판단하지 않고 막는다
   if (!depth) decisionMemo.clear(); // 판단 사이에 파일 상태가 바뀔 수 있다(한 판단 안의 셸 문자열 재귀는 그대로 쓴다)
@@ -1209,13 +1410,34 @@ function writesApprovalFiles(command, cwd, depth = 0) {
       // 그 밖(맨 호출, ( ! & 뒤)은 전처럼 ReadAll·Exists만. 리플렉션(GetType(…).GetMethod(…).Invoke)은 읽기 이름으로 쓰기를 부를 수 있어 넓히지 않는다
       const castOrSet = /^\s*\(?\s*(?:\[[\w.]+\]\s*(?=\[)|\$[\w:]+\s*=)/.test(seg) && !/\b(?:Invoke\w*|GetMethods?|CreateInstance|Activator)\b/i.test(seg);
       const reads = !castOrSet ? /^(?:\[[\w.]+\]|\$[\w:]+)::(?:ReadAll|Exists)/i : /^(?:\[[\w.]+\]|\$[\w:]+)::(?:ReadAll|Exists|Get|Combine|Enumerate|Parse|Join|Is|Has)/i;
-      if (!sensitive || (reads.test(t[0]) && !WRITE_API.test(seg))) continue;
+      // 읽기 호출 뒤에 이어 부른 메서드(…).GetType().GetMethod(…)는 읽기로 보지 않는다(U8). 글자 다루는 메서드만 된다
+      const chained = [...seg.matchAll(/\)\s*\.\s*([A-Za-z_]\w*)\s*\(/g)].every((m) => SAFE_CHAIN.has(m[1].toLowerCase()));
+      if (!sensitive || (reads.test(t[0]) && !WRITE_API.test(seg) && chained)) continue;
       return true;
     }
     const prog = progName(t);
     const rest = t.slice(1);
+    // Start-Process는 풀어서 본다(결함 2): 리다이렉트 대상은 쓰기, 셸·인터프리터에 글자 인자를 주면 그 명령으로 다시 판정,
+    // 그 밖은 인자에 보호 경로·이름·와일드카드가 없으면 통과(경로에 claude 낱말만 든 임시 폴더 인자 오탐). 못 풀면 전처럼 쓰기 프로그램으로 본다
+    // -WorkingDirectory가 있으면 상대 경로 인자가 어디로 갈지 따로 봐야 해서 풀지 않는다(전처럼). 프로그램 경로가 보호 경로여도 그렇다
+    const sp = (prog === 'start-process' || prog === 'saps') && startProcess(seg);
+    if (sp && sp.args && !sp.wd && !sp.files.some((f) => mentionsProtected(f) || namedIn(f))) {
+      if (sp.redirects.some((a) => moved || riskyTarget(a, cwd))) return true;
+      const runs = sp.files.map((f) => progName([f]));
+      if (runs.some((p) => INTERPRETERS.has(p) || RUNNERS.has(p))) {
+        if (sp.files.length === 1) {
+          if (writesApprovalFiles([`"${sp.files[0]}"`, ...sp.args.map((a) => `'${a.replace(/'/g, "''")}'`)].join(' '), cwd, depth + 1)) return true;
+          continue;
+        }
+      } else {
+        const a = sp.args.join(' ');
+        if (moved || mentionsProtected(a) || namedIn(a) || sp.args.some((x) => GLOB.test(x))) return true;
+        continue;
+      }
+    }
     // .NET 객체로 쓰기: (New-Object IO.StreamWriter 경로), (Get-Item 경로).Delete()·.MoveTo(…)
-    if ((own() || ownNamed()) && (prog === 'new-object' || PS_WRITE_METHOD.test(seg.trim().replace(/^(?:\$[\w:]+\s*=\s*|\[[\w.]+\]\s*)+/, '')))) return true;
+    // 이름이 명령 어디든 나오면(flow) 변수에 담은 객체의 쓰기 메서드($f.Delete())도 막는다(U8)
+    if ((own() || ownNamed() || (flow && /^\$/.test(t[0]))) && (prog === 'new-object' || PS_WRITE_METHOD.test(seg.trim().replace(/^(?:\$[\w:]+\s*=\s*|\[[\w.]+\]\s*)+/, '')))) return true;
     // 쓰기 프로그램은 인자가 보호 경로로 갈 수 있을 때만 막는다(직접 언급·알 수 없는 값·와일드카드 펼친 결과)
     // PowerShell 내용 쓰기는 내용(데이터)을 빼고 대상 인자만 본다
     // 남은 here-string(내용 자리가 아니라 dataHereStrings가 그대로 둔 것)은 토큰으로 나눌 수 없으니 조각 전체로 본다
@@ -1354,11 +1576,26 @@ function evaluate(input, rootOverride) {
   }
   const root = rootOverride || store.rootFor(input.cwd || process.cwd());
   // git 명령에 붙은 here-doc 본문(git commit -F - <<'EOF' … 커밋 메시지)의 'git 낱말' 줄은 별칭 판정에서 뺀다
-  const unknown = allSegments(withoutGitHeredocs(command)).find((s) => classify(s) === 'unknown');
+  // cat·tee·인터프리터 here-doc 본문도 데이터·코드라 셸 명령으로 보지 않는다(결함 3). 인터프리터 본문은 X3로 따로 본다
+  // 같은 명령에서 데이터 본문을 쓴 파일을 셸 등 모르는 프로그램이 실행할 수 있으면(cat > x.sh <<EOF … ; bash x.sh) 본문도 명령으로 본다(전처럼).
+  // 인터프리터만 돌면(cat > ed.py … ; python ed.py) 데이터 본문도 코드로 보고 X3로 본다
+  const heredocs = splitHeredocs(command);
+  const segTokens = allSegments(heredocs.command).map((s) => stripRunners(leadingTokens(s)));
+  const runs = segTokens.map((t) => progName(t)).filter(Boolean);
+  // git(훅 파일)·sed(e 명령)·다른 프로세스를 부르는 인터프리터 코드(python -c "os.system('sh x.sh')")는 본문을 실행할 수 있다
+  const interpExec = segTokens.some((t) => CODE_INTERPRETERS.has(progName(t)) && execCode(progName(t), t.slice(1).join(' ')));
+  //   git은 커밋 메시지 파일(cat > .git/MSG <<'EOF' … git commit -F)이 흔해 훅 폴더에 쓸 때만 본다
+  const gitHook = runs.includes('git') && /hooks/i.test(heredocs.command);
+  const execsData = heredocs.data.length && (interpExec || gitHook || runs.some((p) => !HEREDOC_SAFE.has(p) && !FILTERS.has(p) && !CODE_INTERPRETERS.has(p) && !['git', 'sort', 'uniq', 'tr', 'printf'].includes(p)));
+  // 따옴표 없는 구분자 본문의 $(…)·백틱은 셸이 실행하므로 본문을 명령으로 둔다(전처럼)
+  const shell = withoutGitHeredocs(execsData || heredocs.expands ? command : heredocs.command);
+  const codes = [...heredocs.codeBodies.map((b, j) => [heredocs.codeProgs[j], b]), ...(runs.some((p) => CODE_INTERPRETERS.has(p)) ? heredocs.data.map((b) => ['', b]) : [])];
+  const judged = allSegments(shell).map((s) => ({ segment: s, kind: classify(s, 0, shell) }));
+  const unknown = (judged.find((g) => g.kind === 'unknown') || {}).segment || (codes.find(([p, b]) => execCode(p, b) && gitWord(b)) || [])[1];
   if (unknown) {
-    return { decision: 'deny', reason: `git 별칭·외부 명령, 또는 한 셸 문자열 안의 잠금 명령 여럿은 판단할 수 없어 막습니다: "${store.normalize(unknown)}". 정식 하위 명령(git commit·git status …)을 하나씩 따로 쓰세요.` };
+    return { decision: 'deny', reason: `git 별칭·외부 명령, 한 셸 문자열 안의 잠금 명령 여럿, 또는 해석할 수 없는 형태(쪼갠 이름·변수 프로그램·실행 설정·다른 프로그램이 대신 실행하는 git)는 판단할 수 없어 막습니다: "${store.normalize(unknown).slice(0, 200)}". 정식 하위 명령(git commit·git status …)을 하나씩 따로, 셸에서 바로 쓰세요.` };
   }
-  const guarded = allSegments(command).map((s) => ({ segment: s, kind: classify(s) })).filter((g) => g.kind && g.kind !== 'unknown');
+  const guarded = judged.filter((g) => g.kind);
   if (!guarded.length) return null;
   if (ownWorktreeMerge(input, command)) return null; // 평소 권한 흐름대로
   const ops = loadOpsConfig(input.cwd || process.cwd());
