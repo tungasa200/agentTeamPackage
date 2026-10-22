@@ -21,7 +21,7 @@
 
 1. Git을 설치합니다. git-scm.com/download/win에서 받아 실행하고, 묻는 화면은 모두 그대로 두고 [Next] → [Install]을 누릅니다. 이미 있으면 건너뜁니다.
 2. PowerShell을 엽니다. 시작 메뉴에서 'PowerShell'을 찾아 엽니다. 방금 Git을 설치했다면 새로 엽니다.
-3. 아래 한 줄을 붙여 넣고 Enter를 누릅니다. GitHub 로그인 창이 뜨면 로그인합니다.
+3. 아래 한 줄을 붙여 넣고 Enter를 누릅니다. 비공개 저장소면 GitHub 로그인 창이 뜹니다. 그때 로그인합니다.
    ```powershell
    git clone <이 저장소 주소> C:\tools\wy-ops
    ```
