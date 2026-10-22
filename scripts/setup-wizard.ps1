@@ -75,6 +75,9 @@ function Read-Hidden($r) {
     $r.Lines.Add($line); $new += $line; Write-Log "  | $line"
     $r.Task = $r.P.StandardOutput.ReadLineAsync()
   }
+  # 끝났는데 출력이 닫히지 않음: 안에서 띄운 오래 사는 프로세스(처음 뜨는 claude daemon 등)가 출력 핸들을 물려받아 쥐고 있다.
+  # 3초 뒤 끝난 것으로 본다(그러지 않으면 영원히 기다림)
+  if (-not $r.Eof -and $r.P.HasExited -and ((Get-Date) - $r.P.ExitTime).TotalSeconds -ge 3) { $r.Eof = $true; Write-Log "  출력이 닫히지 않아 끝난 것으로 봄: $($r.Cmd)" }
   if ($r.Eof -and $null -eq $r.Exit -and $r.P.HasExited) { $r.Exit = $r.P.ExitCode; Write-Log "  끝(종료 코드 $($r.Exit)): $($r.Cmd)" }
   return $new
 }
@@ -82,6 +85,8 @@ function Stop-Hidden($r) {
   if ($r -and $r.P -and -not $r.P.HasExited) { try { & taskkill.exe /PID $r.P.Id /T /F 2>$null | Out-Null } catch { } }
 }
 function Q([string]$s) { '"' + $s + '"' }
+# 사용자가 PowerShell 창에 붙여 넣을 명령의 경로: 작은따옴표($·`가 풀리지 않게)
+function QP([string]$s) { "'" + $s.Replace("'", "''") + "'" }
 $Node = 'node ' + (Q (Join-Path $Pkg 'lib\install.js'))
 
 # 시험(Demo): 명령 대신 가짜 출력. 줄 사이 쉬는 시간으로 진행이 보이게
@@ -591,10 +596,15 @@ function Read-Install {
 }
 
 # 2초마다 확인하는 명령(한 번에 하나): 끝나면 $onDone(종료 코드, 출력)
-function Start-Poll([string]$cmd, [scriptblock]$onDone) { $St.Poll = @{ R = (Start-Hidden $cmd); Done = $onDone } }
+# 시간 제한 limit(초)를 넘으면 명령을 멈추고 onDone(종료 코드 null, 출력, 시간 초과 true)을 부른다(무한 기다림 금지)
+function Start-Poll([string]$cmd, [scriptblock]$onDone, [int]$limit = 0) { $St.Poll = @{ R = (Start-Hidden $cmd); Done = $onDone; Until = $(if ($limit) { (Get-Date).AddSeconds($limit) }) } }
 function Read-Poll {
   if (-not $St.Poll) { return }
   [void](Read-Hidden $St.Poll.R)
+  if ($null -eq $St.Poll.R.Exit -and $St.Poll.Until -and (Get-Date) -gt $St.Poll.Until) {
+    $p = $St.Poll; $St.Poll = $null; $St.PollAt = Get-Date; Stop-Hidden $p.R; Write-Log "  시간 초과로 멈춤: $($p.R.Cmd)"
+    & $p.Done $null ($p.R.Lines -join "`n") $true; return
+  }
   if ($null -ne $St.Poll.R.Exit) { $p = $St.Poll; $St.Poll = $null; $St.PollAt = Get-Date; & $p.Done $p.R.Exit ($p.R.Lines -join "`n") }
 }
 $PollEvery = [TimeSpan]::FromSeconds(2)
@@ -769,6 +779,7 @@ function Get-GroupOf([string]$id) {
 }
 function Start-Doctor {
   $St.Doctor = $null; $St.Waiting = 'doctor'
+  if (-not $Demo) { Update-PathFromRegistry }  # 설치 뒤·마법사 밖에서 깐 프로그램도 보이게(점검이 이 창의 PATH를 물려받음)
   $cmd = if ($Demo) {
     $j = if ($St.GhSkipped -and -not $St.GhOk) { '[{"id":"tools","level":"ok"},{"id":"login-github","level":"warn","title":"GitHub 로그인"}]' } else { '[{"id":"tools","level":"ok"},{"id":"login-github","level":"ok"}]' }
     Get-DemoCmd @($j) 0.2
@@ -783,7 +794,15 @@ function Start-Doctor {
 # [자세히] 창(W7-d) 문구: 점검 원문 대신 항목마다 쉬운 말 두 줄(굵은 첫 줄 + 할 일), 목업 '쓰지 않는 용어'
 function Get-FriendlyLine($r, [string]$group) {
   switch ($r.id) {
-    'tools' { return @{ Head = '필요한 프로그램 중 일부가 없습니다.'; Do = 'setup을 다시 실행하면 이어서 설치합니다.' } }
+    'tools' {
+      # 점검 원문 '없음: git, code(VS Code, PATH), claude(…)'에서 프로그램 이름만. 설치는 됐는데 이 창에서 못 찾는 경우가 많아(setup을 다시 해도 같음) 새 창에서 다시 점검하게 한다
+      $d = "$($r.detail)"
+      $names = @(@{ P = '(^|[:,] *)git\b'; N = 'Git' }, @{ P = '(^|[:,] *)code\('; N = 'VS Code' }, @{ P = '(^|[:,] *)claude\('; N = 'Claude Code' }, @{ P = '(^|[:,] *)node '; N = 'Node.js' }, @{ P = 'PowerShell'; N = 'PowerShell 5.1' }) |
+        Where-Object { $d -cmatch $_.P } | ForEach-Object { $_.N }
+      $cmd = 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" doctor --project ' + (QP $St.Project)
+      return @{ Head = '이 창에서 찾지 못한 프로그램이 있습니다' + $(if ($names) { ': ' + ($names -join ', ') } else { '.' })
+        Do = '설치 마법사를 닫고 PowerShell 창을 새로 열어 아래 명령으로 다시 점검하세요. 거기서도 없는 프로그램은 설치할지 묻습니다(y로 설치).'; Cmd = $cmd }
+    }
     'stack-tools' {
       $names = if ("$($r.detail)" -match '없음\s*—\s*(.+)$') { $Matches[1] } else { '' }
       return @{ Head = '프로젝트 개발 도구가 아직 없습니다' + $(if ($names) { ": $names" } else { '.' }); Do = '설치 방법은 VS Code의 WY Ops 화면 할 일에 있습니다.' }
@@ -792,6 +811,7 @@ function Get-FriendlyLine($r, [string]$group) {
     default { return @{ Head = "$($group)를 확인하지 못했습니다."; Do = 'setup을 다시 실행해 주세요.' } }
   }
 }
+function Show-Detail($items) { $d = New-DetailDialog $items; [void]$d.ShowDialog($form); $d.Dispose() }
 function New-DetailDialog($items) {
   $w = Px 440; $tw = $w - (Px 86)
   $d = New-Object Windows.Forms.Form; $d.Text = 'WY Ops 설치'; $d.FormBorderStyle = 'FixedDialog'; $d.MaximizeBox = $false; $d.MinimizeBox = $false; $d.ShowInTaskbar = $false
@@ -804,6 +824,13 @@ function New-DetailDialog($items) {
     $nb = "VS$([char]0xA0)Code"  # 'VS Code'가 두 줄로 갈리지 않게(줄바꿈은 보통 띄어쓰기에서만)
     $h = New-Label ($it.Head -replace 'VS Code', $nb) $F.Bold $C.Text $tw; $h.Location = New-Object Drawing.Point((Px 66), $y); $d.Controls.Add($h); $y += $h.PreferredHeight + (Px 2)
     $t = New-Label ($it.Do -replace 'VS Code', $nb) $F.Body $C.Text $tw; $t.Location = New-Object Drawing.Point((Px 66), $y); $d.Controls.Add($t); $y += $t.PreferredHeight
+    if ($it.Cmd) {
+      # 붙여 넣을 명령: 고를 수 있는 읽기 전용 칸 + [명령 복사]
+      $y += Px 6
+      $tb = New-Object Windows.Forms.TextBox; $tb.ReadOnly = $true; $tb.Text = $it.Cmd; $tb.Font = $F.Small; $tb.Width = $tw; $tb.Location = New-Object Drawing.Point((Px 66), $y); $d.Controls.Add($tb); $y += $tb.Height + (Px 4)
+      $cl = New-Object Windows.Forms.LinkLabel; $cl.AutoSize = $true; $cl.Font = $F.Small; $cl.LinkColor = $C.Accent; $cl.Text = '명령 복사'; $cl.Tag = $it.Cmd; $cl.Location = New-Object Drawing.Point((Px 66), $y)
+      $cl.Add_LinkClicked({ param($s) [Windows.Forms.Clipboard]::SetText($s.Tag) }); $d.Controls.Add($cl); $y += $cl.PreferredHeight
+    }
   }
   $ft = New-Object Windows.Forms.Panel; $ft.Dock = 'Bottom'; $ft.Height = Px 50; $ft.BackColor = $C.Foot
   $ok = New-Btn '확인' $true; $ok.DialogResult = 'OK'; $bx = $w - (Px 100); $by = Px 11; $ok.Location = New-Object Drawing.Point($bx, $by)
@@ -834,15 +861,18 @@ function Open-Code { Write-Log "VS Code 열기: $($St.Project)"; if (-not $Demo)
 function Start-Pm {
   $ps1 = Join-Path $St.Project '.claude\skills\pm-ops\scripts\session.ps1'
   $St.PmPhase = 'run'
-  $cmd = if ($Demo) { Get-DemoCmd @('백그라운드 AB-pm 을 띄웠습니다.') 1.5 } else { 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; & ''' + $ps1.Replace("'", "''") + ''' start-pm latest"' }
+  # 실패·시간 초과 때 보일 손으로 할 명령(새 PowerShell 창에 붙여 넣기. 실행 정책에 막히지 않게 -ExecutionPolicy Bypass)
+  $St.PmCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File ' + (QP $ps1) + ' start-pm latest'
+  $cmd = if ($Demo) { Get-DemoCmd @('백그라운드 AB-pm 을 띄웠습니다.') 1.5 } else { 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; & ' + (QP $ps1) + ' start-pm latest"' }
   Start-Poll $cmd {
-    param($code, $out)
-    $St.PmPhase = if ($code -eq 0 -and $out -match '띄웠습니다|이미 실행 중') { 'ok' } else { 'fail' }
+    param($code, $out, $late)
+    $St.PmPhase = if ($late) { 'late' } elseif ($code -eq 0 -and $out -match '띄웠습니다|이미 실행 중') { 'ok' } else { 'fail' }
     Write-Log "pm 시작 결과: $($St.PmPhase)"
     Open-Code
     if ($St.Step -eq 7) { Show-Step }
-  }
+  } $PmLimit
 }
+$PmLimit = 90  # pm 시작이 이 시간(초) 안에 끝나지 않으면 멈추고 실패로 보인다
 function Show-Step7 {
   if ($null -eq $St.Doctor) {
     Add-Title '설치를 마무리하고 있습니다'
@@ -884,7 +914,9 @@ function Show-Step7 {
   }
   $script:firstRow = $true
   foreach ($k in $bad) {
-    $b = New-Btn '다시 시도' $true; $b.Add_Click({ Go-Step 3; if (-not $St.Run) { Start-Install } })
+    # 설치는 끝났는데 점검이 실패: 다시 설치해도 같으므로(있는 것은 건너뜀) [자세히]로 이름과 할 일을 보인다
+    if ($k -eq 'install' -and $St.Installed -and $fin.Detail[$k]) { $b = New-Btn '자세히' $true; $b.Tag = @($fin.Detail[$k]); $b.Add_Click({ param($s) Show-Detail $s.Tag }) }
+    else { $b = New-Btn '다시 시도' $true; $b.Add_Click({ Go-Step 3; if (-not $St.Run) { Start-Install } }) }
     Add-ResultRow 'fail' "$($Groups[$k])를 끝내지 못했습니다" $b $null
   }
   foreach ($x in $left) {
@@ -892,7 +924,7 @@ function Show-Step7 {
     $b.Add_Click({ param($s) $x = $s.Tag
         if ($x.Go) { $St.ReturnTo7 = $true; Go-Step $x.Go }
         elseif ($x.Note) { $file = Join-Path $St.Project '.claude\ops\CLAUDE.part.md'; if (-not $Demo) { Start-Process notepad.exe -ArgumentList (Q $file) } }
-        elseif ($x.Detail) { $d = New-DetailDialog $x.Detail; [void]$d.ShowDialog($form); $d.Dispose() } })
+        elseif ($x.Detail) { Show-Detail $x.Detail } })
     Add-ResultRow 'warn' $x.Text $b $x.Help
   }
   if ($left.Count -or $bad.Count) {
@@ -906,7 +938,10 @@ function Show-Step7 {
     switch ($St.PmPhase) {
       'run' { Add-Status 'run' 'pm을 시작하는 중입니다.' '잠시 기다려 주세요.'; $btnNext.Enabled = $false }
       'ok' { Add-Status 'ok' 'pm이 일을 시작했습니다.' 'VS Code의 WY Ops 화면에서 [붙기]를 누르세요.' }
-      default { Add-Status 'warn' 'pm을 시작하지 못했습니다. VS Code는 열었습니다.' 'WY Ops 화면 맨 위의 [pm 시작]을 누르세요.' }
+      default {
+        $why = if ($St.PmPhase -eq 'late') { "pm 시작이 $($PmLimit)초 안에 끝나지 않아 멈췄습니다." } else { 'pm을 시작하지 못했습니다.' }
+        Add-Status 'warn' "$why VS Code는 열었습니다." ('WY Ops 화면 맨 위의 [pm 시작]을 누르거나, PowerShell 창을 새로 열어 이 명령을 붙여 넣으세요: ' + $St.PmCmd) '명령 복사' { [Windows.Forms.Clipboard]::SetText($St.PmCmd) }
+      }
     }
     return
   }
@@ -948,6 +983,8 @@ function Show-Step {
 }
 function Go-Step([int]$n) {
   Stop-Hidden $St.LoginRun; $St.LoginRun = $null
+  # pm 시작 중에 다른 단계로 가면 아래에서 그 명령을 멈추므로 실패로 둔다(돌아왔을 때 '시작하는 중'에 머물지 않고 손으로 할 명령이 보이게)
+  if ($n -ne 7 -and $St.PmPhase -eq 'run') { $St.PmPhase = 'fail' }
   if ($St.Step -ne 3 -and $St.Poll) { Stop-Hidden $St.Poll.R; $St.Poll = $null }
   $St.Waiting = $null; $St.TrustWindow = $false
   $St.Step = $n
@@ -1100,7 +1137,7 @@ function Invoke-Shots {
   $St.TrustOk = $false; $St.TrustFail = $true; $St.TrustWindow = $true; Show-Step; Save-Shot 'W6-c'
   $St.TrustFail = $false; $St.TrustWindow = $false; $St.TrustOk = $true; $St.Done[6] = $true
   $St.Step = 7; $St.GhSkipped = $false; $St.GhOk = $true; $St.Doctor = @(@{ id = 'tools'; level = 'ok' }); Show-Step7Shot; Open-Help 0; Save-Shot 'W7-a'
-  foreach ($ph in 'run', 'ok', 'fail') { $St.PmPhase = $ph; Show-Step7Shot; Save-Shot "W7-e-$ph" }
+  foreach ($ph in 'run', 'ok', 'fail', 'late') { $St.PmPhase = $ph; Show-Step7Shot; Save-Shot "W7-e-$ph" }
   $St.PmPhase = $null
   $St.GhSkipped = $true; $St.GhOk = $false; $St.ClaudeMd = 'append'; Show-Step7Shot; Open-Help 0; Save-Shot 'W7-b'
   $St.Installed = $false; $St.ClaudeMd = $null; Show-Step7Shot; Save-Shot 'W7-c-fail'

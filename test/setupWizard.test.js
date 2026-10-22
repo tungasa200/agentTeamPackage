@@ -52,7 +52,7 @@ for (const f of ['--progress', '--no-finish', '--todos', '--no-worktree']) { // 
 assert.ok(/ trust --project /.test(wiz) && /cmd === 'trust'/.test(js), 'trust 명령');
 
 // 5. 사용자에게 개발 용어를 보이지 않는다: [자세히]에 점검 원문(title·fix)을 넣지 않고, 이름 없는 스택 도구는 일반 이름
-assert.ok(!/\$detail\[\$gname\] \+= \(?"\$\(\$r\.title\)/.test(wiz) && /Get-FriendlyLine \$r /.test(wiz) && /New-DetailDialog \$x\.Detail/.test(wiz), '[자세히]는 쉬운 말 두 줄 창(W7-d)');
+assert.ok(!/\$detail\[\$gname\] \+= \(?"\$\(\$r\.title\)/.test(wiz) && /Get-FriendlyLine \$r /.test(wiz) && /Show-Detail \$x\.Detail/.test(wiz), '[자세히]는 쉬운 말 두 줄 창(W7-d)');
 assert.ok(/를 확인하지 못했습니다\.'?"?; Do = 'setup을 다시 실행해 주세요\.'/.test(wiz), '바꿀 말이 없는 항목 문구(목업 W7-d)');
 assert.ok(/progress\(`tool stack-\$\{t\.cmd\} installing \$\{t\.label \|\| t\.cmd\}`\)/.test(js), 'install.js 스택 도구 진행 줄 형식(바뀌면 마법사 이름 처리도 확인)');
 assert.ok(/"\$base 개발 도구"/.test(wiz) && /Get-StackToolName/.test(wiz) &&/if \(\$state -ne 'failed'\) \{ \$label = "\$code \$label"\.Trim\(\)/.test(wiz), '스택 도구 이름: 여러 낱말 이름 유지, 없으면 일반 이름');
@@ -91,5 +91,53 @@ assert.ok(/' projects'/.test(wiz) && /cmd === 'projects'/.test(js), '마법사�
     "$env:PATH = ''; $null = Get-OtherPrefixes 'C:\\w\\new'; if ($null -eq $script:Projects) { 'retry' } else { 'cached' }",
   ].join('\n')], { encoding: 'utf8' });
   assert.strictEqual(retry.stdout.trim(), 'retry', retry.stdout + retry.stderr);
+}
+// 6. 새 PC 시험(2026-10-23): 점검 전 PATH 다시 읽기, 'tools' 실패는 이름 + 새 창에서 다시 점검, pm 시작은 시간 제한, 출력이 안 닫혀도 끝남
+{
+  const fnText = (name) => {
+    const m = new RegExp('^function ' + name + '\\b[\\s\\S]*?^\\}', 'm').exec(wiz);
+    assert.ok(m, name);
+    return m[0];
+  };
+  const runPs = (lines) => {
+    const out = spawnSync(POWERSHELL, ['-NoProfile', '-Command', ['[Console]::OutputEncoding = [Text.Encoding]::UTF8', ...lines].join('\n')], { encoding: 'utf8', timeout: 60000 });
+    assert.strictEqual(out.status, 0, out.stdout + out.stderr);
+    return out.stdout.trim();
+  };
+  assert.ok(/\$St\.Waiting = 'doctor'\r?\n\s*if \(-not \$Demo\) \{ Update-PathFromRegistry \}/.test(fnText('Start-Doctor')), '점검 전에 PATH를 레지스트리에서 다시 읽음');
+  assert.ok(/^\s*\} \$PmLimit\r?$/m.test(fnText('Start-Pm')) && /^\$PmLimit = 90\b/m.test(wiz), 'pm 시작은 시간 제한을 걸고 부른다');
+  // 'tools': 점검 원문에서 프로그램 이름만, 할 일은 새 창에서 다시 점검(명령 포함)
+  const tools = runPs([
+    wiz.match(/^function QP\b.*$/m)[0], "$St = @{ Project = 'C:\\w\\my $app' }",
+    fnText('Get-FriendlyLine'),
+    "$it = Get-FriendlyLine @{ id = 'tools'; detail = '없음: code(VS Code, PATH), claude(Claude Code CLI)' } '프로그램 설치'",
+    "$it.Head; $it.Do; $it.Cmd",
+  ]).split(/\r?\n/);
+  assert.ok(/: VS Code, Claude Code$/.test(tools[0]) && !/Git|Node/.test(tools[0]), tools.join('\n'));
+  assert.ok(/새로 열어/.test(tools[1]) && !/setup을 다시/.test(tools[1]), tools.join('\n'));
+  assert.strictEqual(tools[2], 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\.wy-tools\\wy-ops\\current\\install.ps1" doctor --project \'C:\\w\\my $app\'', '붙여 넣는 명령의 경로는 작은따옴표($가 풀리지 않게)');
+  assert.ok(/^function Go-Step[^\n]*\n[^\n]*\n[^\n]*\n\s*if \(\$n -ne 7 -and \$St\.PmPhase -eq 'run'\) \{ \$St\.PmPhase = 'fail' \}/m.test(wiz), 'pm 시작 중 다른 단계로 가면 실패로 둔다(돌아왔을 때 시작하는 중에 머물지 않게)');
+  // 기다리는 명령의 시간 제한(Start-Poll $limit): 안 넘으면 그대로, 넘으면 명령을 멈추고 onDone을 시간 초과로 부른다
+  const poll = runPs([
+    "$script:stopped = 0; function Stop-Hidden($r) { $script:stopped++ }; function Write-Log($s) { }",
+    "function Start-Hidden($c) { @{ Exit = $null; Lines = @('a'); Cmd = $c } }; function Read-Hidden($r) { }",
+    wiz.match(/^function Start-Poll\b.*$/m)[0], fnText('Read-Poll'),
+    "$St = @{}; Start-Poll 'x' { param($code, $out, $late) $script:got = \"$code|$out|$late\" } 90; Read-Poll; $null -ne $St.Poll",
+    "$St.Poll.Until = (Get-Date).AddSeconds(-1); Read-Poll; $script:got; $script:stopped; $null -eq $St.Poll",
+  ]).split(/\r?\n/);
+  assert.deepStrictEqual(poll, ['True', '|a|True', '1', 'True'], poll.join('\n'));
+  assert.ok(/\$St\.PmPhase = if \(\$late\) \{ 'late' \}/.test(fnText('Start-Pm')) && /\$St\.PmPhase -eq 'late'/.test(fnText('Show-Step7')), 'pm 시간 초과는 late로 따로 보인다');
+  assert.ok(/'명령 복사' \{ \[Windows\.Forms\.Clipboard\]::SetText\(\$St\.PmCmd\) \}/.test(wiz) && /\$St\.PmCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File '/.test(wiz), 'pm 실패 안내에 붙여 넣을 명령');
+  // 끝난 명령이 띄운 오래 사는 프로세스가 출력 핸들을 쥐고 있어도(처음 뜨는 claude daemon 등) 몇 초 뒤 끝난 것으로 본다
+  //   (ping이 약 8초 출력 핸들을 쥔다. 이 시험 프로세스의 출력도 물려받으므로 걸린 시간은 PowerShell 안에서 재고, 끝에 그 ping을 끈다)
+  const hidden = runPs([
+    "function Write-Log($s) { }", fnText('Start-Hidden'), fnText('Read-Hidden'),
+    "$t0 = Get-Date; $r = Start-Hidden 'echo hi& start /b ping -n 9 127.0.0.79' $env:TEMP",
+    "$end = (Get-Date).AddSeconds(12); while ($null -eq $r.Exit -and (Get-Date) -lt $end) { [void](Read-Hidden $r); Start-Sleep -Milliseconds 200 }",
+    "\"$($r.Exit)|$($r.Lines[0])|$([int]((Get-Date) - $t0).TotalSeconds)\"",
+    "Get-CimInstance Win32_Process -Filter \"Name='PING.EXE' and CommandLine like '%127.0.0.79%'\" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+  ]).split('|');
+  assert.deepStrictEqual(hidden.slice(0, 2), ['0', 'hi'], hidden.join('|'));
+  assert.ok(Number(hidden[2]) < 6, `출력이 닫히기(약 8초)를 기다리지 않음: ${hidden[2]}초`);
 }
 console.log('설치 마법사 검사 통과');

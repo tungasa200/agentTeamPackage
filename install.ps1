@@ -84,7 +84,7 @@ if ($missing.Count -gt 0) {
     if (-not (Test-Tool 'npm')) { Write-Output "  npm이 없어 $($t.Name)을 설치하지 못했습니다(Node.js 설치 확인)"; Write-ProgressLine "tool $($t.Key) failed nonpm"; continue }
     Write-Output "설치: $($t.Name)"
     Write-ProgressLine "tool $($t.Key) installing"
-    & npm install -g $t.Npm
+    & npm.cmd install -g $t.Npm  # npm.ps1은 실행 정책에 막힐 수 있다
     $code = $LASTEXITCODE
     if ($code -ne 0) { Write-Output "  설치 실패($code): $($t.Name)" }
     if ($progress) { Update-PathFromRegistry; Write-ProgressLine ("tool $($t.Key) " + $(if (& $t.Ok) { 'installed' } else { "failed $code" })) }

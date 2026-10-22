@@ -27,6 +27,9 @@ param([Parameter(Mandatory)][ValidateSet('list','health','start','stop','prep','
 
 # claude.exe가 stderr로 진행 문구를 내면 PowerShell 5.1이 'Stop'에서 오류로 끊어 버려 백그라운드 시작이 실패한다
 $ErrorActionPreference = 'Continue'
+# npm으로 깐 claude는 claude.ps1·claude.cmd가 함께 있고 PowerShell은 .ps1을 먼저 잡는다. 실행 정책이 막는 .ps1 대신 실행 파일(.cmd·.exe)로 부른다
+$Claude = (Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.cmd', '.exe' } | Select-Object -First 1).Source
+if (-not $Claude) { $Claude = 'claude' }
 # 저장소 = 이 스크립트(.claude/skills/pm-ops/scripts/)에서 네 단계 위
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 
@@ -77,7 +80,7 @@ if ($Cmd -notin 'list','health','pm-cmd','start-pm' -and $Role -notin $Roles -an
 
 # PowerShell 5.1의 ConvertFrom-Json은 JSON 배열을 한 덩어리로 넘기므로 괄호로 풀어서 넘긴다
 # 이 PC의 모든 프로젝트 세션(pins.json처럼 PC 전체를 보는 정리에만 쓴다)
-function Get-AllSessions { (claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
+function Get-AllSessions { (& $Claude agents --json --all 2>$null | ConvertFrom-Json) | ForEach-Object { $_ } }
 # 이 프로젝트 세션(MP-01): 이름이 역할 접두사(rolePrefix, 없으면 pm 역할 이름)로 시작하고 작업 폴더(cwd)가 저장소이거나 그 아래.
 # 다른 프로젝트가 같은 이름을 써도 섞이지 않는다. 대소문자·슬래시 차이는 무시
 $NamePrefix = if ($Ops.rolePrefix) { $Ops.rolePrefix } else { $PmRole }
@@ -244,7 +247,7 @@ function Assert-Memory {
 # claude가 0이 아닌 코드로 끝나면 throw(성공 문구를 내지 않게). $dir: 세션 작업 폴더(기본 저장소)
 function Start-Bg([string[]]$argv, $dir = $Repo) {
   Test-Daemon
-  Push-Location $dir; try { claude @argv; $code = $LASTEXITCODE } finally { Pop-Location }
+  Push-Location $dir; try { & $Claude @argv; $code = $LASTEXITCODE } finally { Pop-Location }
   if ($code -ne 0) { throw "claude 백그라운드 시작 실패(종료 코드 $code). 위 출력을 확인하세요." }
 }
 # 새 세션: 역할 파일(.claude/agents/<역할>.md)을 --agent로 싣는다. 인수인계 경로가 있으면 그것부터 불러온다
@@ -286,7 +289,7 @@ switch ($Cmd) {
     # 대화 기록이 없는 항목은 이어 띄울 수 없다("source session not found"). 역할 파일로 새로 띄운다
     $t = Get-Transcript $s
     if (-not $t) {
-      if ($s) { claude rm $s.id | Out-Null }
+      if ($s) { & $Claude rm $s.id | Out-Null }
       Start-New $Role (Get-Handoff $Role).FullName (Enter-WorkDir $Role)
       if ($Prompt) { "새 세션으로 띄웠습니다. 지시는 '시작' 회신을 받은 뒤 SendMessage로 보내세요." }
       break
@@ -305,18 +308,18 @@ switch ($Cmd) {
     $Prompt = $Prompt -replace '"', "'"
     Start-Bg @('--bg', '--resume', $s.sessionId, '--name', $Role, $Prompt) (Enter-WorkDir $Role)
     $n = Get-Bg $Role
-    if ($n -and $n.sessionId -ne $s.sessionId) { claude rm $s.id | Out-Null }
+    if ($n -and $n.sessionId -ne $s.sessionId) { & $Claude rm $s.id | Out-Null }
   }
   'attach' {
     # id는 다시 띄울 때마다 바뀌므로 이름으로 찾는다. 빠져나와도 세션은 계속 돈다
     $s = Get-Bg $Role
     if (-not $s -or -not (Test-Running $s)) { "$Role 백그라운드 세션이 실행 중이 아닙니다. 먼저: session.ps1 start $Role"; break }
-    claude attach $s.id
+    & $Claude attach $s.id
   }
   'stop' {
     $s = Get-Bg $Role
     if (-not $s -or -not (Test-Running $s)) { "$Role 백그라운드 세션이 실행 중이 아닙니다."; break }
-    claude stop $s.id
+    & $Claude stop $s.id
   }
   'prep' {
     $msg = "[$PmRole 세션 교체 준비] 컨텍스트가 길어져 새 세션으로 교체합니다. 지금 하던 일을 멈출 수 있는 지점까지만 마무리하고, 진행 중인 것(미커밋 파일, 반쯤 한 작업, 막힌 이유)만 /wy-save-session 으로 저장하세요. short-id는 $Role (같은 날 두 번째면 $Role-2). 역할 설명과 끝난 일은 적지 마세요. 진행 중인 것이 하나도 없으면 저장하지 말고 '진행 중 없음'이라고만 알리세요. 끝나면 $($PmRole)에 SendMessage로 저장 경로 또는 '진행 중 없음' 한 줄."
@@ -329,8 +332,8 @@ switch ($Cmd) {
     # 작업 폴더(worktree 준비)를 먼저(메모리 관문은 switch 앞): 실패하면 이전 세션을 멈추지 않고 끝난다
     $dir = Enter-WorkDir $Role
     $s = Get-Bg $Role
-    if ($s -and (Test-Running $s)) { claude stop $s.id | Out-Null }
-    if ($s) { claude rm $s.id | Out-Null }   # 작업 항목만 지운다. 대화 기록 파일은 남는다
+    if ($s -and (Test-Running $s)) { & $Claude stop $s.id | Out-Null }
+    if ($s) { & $Claude rm $s.id | Out-Null }   # 작업 항목만 지운다. 대화 기록 파일은 남는다
     $h = if ($Prompt -and $Prompt -ne 'none') { $Prompt } else { $null }
     try { Start-New $Role $h $dir }
     catch {

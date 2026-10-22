@@ -34,6 +34,8 @@ try {
     'if "%1"=="--bg" echo BG %* & exit /b 0',
     'echo UNEXPECTED %* & exit /b 1',
   ].join('\r\n'));
+  // npm 설치처럼 claude.ps1도 함께 둔다. PowerShell은 .ps1을 먼저 잡지만 기본 실행 정책(Restricted)에서 막히므로 session.ps1은 .cmd를 불러야 한다
+  fs.writeFileSync(path.join(bin, 'claude.ps1'), "Write-Output 'PS1CALLED'; exit 1\r\n");
   // daemon.lock 대신: 살아 있는 이 node 프로세스의 pid(그래서 로그온 작업을 시작하려 하지 않음)
   const lock = path.join(tmp, 'daemon.lock');
   fs.writeFileSync(lock, JSON.stringify({ pid: process.pid }));
@@ -58,7 +60,7 @@ try {
     { id: 'other3', name: 'AB-dev', kind: 'background', state: 'done', startedAt: 1, sessionId: 's5', cwd: repoDir + '-copy' },
   ]);
   let out = ps(['list']);
-  assert.ok(/mine1/.test(out) && /mine2/.test(out), `이 프로젝트 세션은 보임\n${out}`);
+  assert.ok(/mine1/.test(out) && /mine2/.test(out) && !/PS1CALLED/.test(out), `이 프로젝트 세션은 보임(claude.ps1이 아니라 claude.cmd로)\n${out}`);
   assert.ok(!/other1|other2|other3/.test(out), `다른 접두사·다른 폴더(이름이 같거나 앞부분만 같은 폴더도)는 안 보임\n${out}`);
   out = ps(['attach', 'AB-pm']);
   assert.ok(/실행 중이 아닙니다/.test(out) && !/ATTACH/.test(out), `다른 프로젝트의 같은 이름 세션에 붙지 않음\n${out}`);
