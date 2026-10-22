@@ -940,7 +940,7 @@ function heredocStart(line, stack) {
 }
 
 // here-doc 본문을 떼어 낸다. 셸(bash 등)이나 모르는 프로그램의 본문은 명령이므로 그대로 둔다.
-//   돌려줌 { command: 본문을 뺀 명령, bodies: here-doc 머리 순서대로 본문(그대로 둔 것은 null),
+//   돌려줌 { command: 본문을 뺀 명령, bodies: here-doc 머리 순서대로 본문(그대로 둔 것은 null), heads: 그 머리의 { at: command 안 << 위치, prog: 본문을 받는 프로그램 },
 //           code: 데이터 본문(cat·tee)만 뺀 명령 — 실행되지 않는 데이터의 ?·[·*를 와일드카드로 보지 않게(2026-10-10 pm 오탐) }
 //   gitMsg: 커밋 메시지를 here-doc으로 받는 git commit·merge(-F - <<'EOF')의 본문도 뗀다(evaluate의 잠금 판정용). 본문은 git이 메시지로 읽을 뿐 셸이 실행하지 않는다
 //   dataToo: false면 cat·tee·인터프리터 본문은 떼지 않는다(그 본문을 실행할 수 있는 명령일 때)
@@ -949,20 +949,25 @@ function splitHeredocs(command, gitMsg = false, dataToo = true) {
   const out = [];
   const code = [];
   const bodies = [];
+  const heads = [];
   const data = [];
   const codeBodies = [];
   const codeProgs = [];
   const stack = [];
+  let pos = 0; // out.join('\n')에서 다음 줄이 시작하는 위치
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const lineStart = pos;
     out.push(line);
     code.push(line);
+    pos += line.length + 1;
     const h = heredocStart(line, stack);
     if (!h) continue;
     const { at, m } = h;
     const before = segments(line.slice(0, at)).pop() || '';
     const t = leadingTokens(before);
-    const prog = t.length ? path.basename(t[0]).toLowerCase().replace(/\.exe$/, '') : '';
+    const prog = progBase(t[0]);
+    heads.push({ at: lineStart + at, prog });
     const end = lines.findIndex((l, j) => j > i && (m[1] ? l.replace(/^\t+/, '') : l) === m[3]);
     // cat <<EOF | bash처럼 데이터 본문을 넘겨받는 프로그램이 안전 목록 밖이면 실행될 수 있어 명령으로 둔다
     //   앞에 낱말을 붙여 나눈다: 머리 뒤 남은 글(> 파일)이 첫 조각, 파이프 뒤 프로그램이 다음 조각(' | sed e'의 빈 첫 조각이 버려지지 않게)
@@ -975,6 +980,7 @@ function splitHeredocs(command, gitMsg = false, dataToo = true) {
       // 남긴 본문은 명령으로 판정하되 따옴표 상태는 따라가지 않는다(본문의 ' 하나가 뒤 줄의 상태를 바꾸지 않게)
       if (end > i) {
         out.push(...lines.slice(i + 1, end + 1));
+        pos += lines.slice(i + 1, end + 1).join('\n').length + 1;
         code.push(...lines.slice(i + 1, end + 1));
         i = end;
       }
@@ -989,8 +995,11 @@ function splitHeredocs(command, gitMsg = false, dataToo = true) {
     } else data.push(bodies[bodies.length - 1]);
     i = end;
   }
-  return { command: out.join('\n'), bodies, code: code.join('\n'), data, codeBodies, codeProgs };
+  return { command: out.join('\n'), bodies, heads, code: code.join('\n'), data, codeBodies, codeProgs };
 }
+const progBase = (p) => (p ? path.basename(p).toLowerCase().replace(/\.exe$/, '') : '');
+// PowerShell에는 here-doc이 없다(<<는 글자일 뿐, 백슬래시도 이스케이프가 아니다). 본문을 떼지 않는다(S3 관문 결함 2)
+const noHeredocs = (command) => ({ command, bodies: [], heads: [], code: command, data: [], codeBodies: [], codeProgs: [] });
 const expandsBody = (m, body) => !m[2] && body.some((l) => /\$\(|`/.test(l));
 
 // ── 오탐 수정(2026-10-10 pm): 설치본 CLI의 읽기 전용 하위 명령, PowerShell 내용 쓰기의 데이터 ──────────
@@ -1315,7 +1324,8 @@ const FILTERS = new Set([...READERS, 'convertfrom-json', 'select-object', 'selec
 //  - 인터프리터는 코드가 읽기 API만 쓸 때만 통과시키고, 판단할 수 없으면 막는다
 // .NET 읽기 호출 뒤에 이어 불러도 읽기로 보는 메서드(글자 다루기)
 const SAFE_CHAIN = new Set(['tostring', 'trim', 'trimend', 'trimstart', 'replace', 'split', 'substring', 'tolower', 'toupper', 'contains', 'startswith', 'endswith', 'equals', 'isinrole']);
-function writesApprovalFiles(command, cwd, depth = 0) {
+// ps: PowerShell 도구 명령(here-doc 본문을 떼지 않는다)
+function writesApprovalFiles(command, cwd, depth = 0, ps = false) {
   if (depth > 6) return true; // 셸 문자열이 너무 깊게 묶이면 판단하지 않고 막는다
   if (!depth) decisionMemo.clear(); // 판단 사이에 파일 상태가 바뀔 수 있다(한 판단 안의 셸 문자열 재귀는 그대로 쓴다)
   command = dataHereStrings(neutralizeReadOnlyCli(foldConcat(resolveVars(command))));
@@ -1327,7 +1337,7 @@ function writesApprovalFiles(command, cwd, depth = 0) {
   // 그런 토큰이 쓰기 프로그램·리다이렉트의 대상이면 아래에서 그대로 막고, 인터프리터 인자이면 그 조각만 민감하게 본다
   const unknownGlob = (a) => GLOB.test(a) && UNKNOWN_TARGET.test(a);
   // here-doc 본문(cat의 데이터, node·python의 코드)은 명령으로 나누지 않는다. 코드 본문은 그 인터프리터 조각에서 본다
-  const { command: shell, bodies, code, data, codeBodies } = splitHeredocs(command);
+  const { command: shell, bodies, heads, code, data, codeBodies } = ps ? noHeredocs(command) : splitHeredocs(command);
   // 데이터 본문(cat·tee)에만 나온 보호 이름은 '언급'으로 치지 않는다(KI-02: 시험 스크립트를 cat으로 쓰고 node로 실행).
   // 그 본문을 같은 명령에서 실행할 수도 있으니, 인터프리터가 있으면 본문을 코드로 보고 보호 경로·알 수 없는 대상에 쓰면 막는다
   // 명령 부분(본문 뺀 것)의 언급은 그대로 친다. 임시 사본 경로 토큰만 뺀다(powershell -c "Set-Content …" 같은 쓰기를 놓치지 않게)
@@ -1342,6 +1352,15 @@ function writesApprovalFiles(command, cwd, depth = 0) {
   // 맨 위 조각과 블록·하위 셸 안 조각(A1)은 한 번만 만든다. here-doc 본문은 맨 위 조각에만 짝짓는다
   const top = segments(shell);
   const segs = [...top, ...innerSegments(shell)];
+  // 뗀 본문은 splitHeredocs가 찾은 머리가 든 맨 위 조각에 붙인다(머리 앞까지 나눈 조각 수로 찾는다. S3 관문 결함 1)
+  // 그 조각의 프로그램이 머리에서 본 프로그램과 다르면(따옴표를 다르게 읽음) 해석할 수 없어 막는다(D-38)
+  const bodyAt = new Map();
+  for (const [j, { at, prog }] of heads.entries()) {
+    if (bodies[j] === null) continue;
+    const k = segments(shell.slice(0, at) + 'x').length - 1;
+    if (progBase(leadingTokens(top[k] || '')[0]) !== prog) return true;
+    bodyAt.set(k, bodyAt.has(k) ? `${bodyAt.get(k)}\n${bodies[j]}` : bodies[j]);
+  }
   const progs = segs.map((s) => leadingTokens(s)[0]).filter(Boolean).map((p) => path.basename(p).toLowerCase().replace(/\.exe$/, ''));
   // 셸·PowerShell·cmd·iex가 실행할 명령 문자열(bash -c '…; rm …', -EncodedCommand)은 그 문자열을 한 명령으로 다시 판정한다
   if (segs.some((s) => {
@@ -1439,7 +1458,7 @@ function writesApprovalFiles(command, cwd, depth = 0) {
   };
   const carries = flow && units.some((u, i) => (ownIn(u) || namedIn(u)) && !readOnly(unitParts[i]));
   for (const [k, seg] of segs.entries()) {
-    const body = k < top.length && /<<-?\s*(['"]?)[A-Za-z_][\w-]*\1/.test(seg) ? bodies.shift() : null;
+    const body = k < top.length ? bodyAt.get(k) : null;
     const t = leadingTokens(seg);
     if (!t.length) continue;
     // 파이프에서 이 조각과 그 앞(입력을 넘기는 쪽)만 본다. 뒤에서 읽는 조각의 이름은 이 조각으로 흘러오지 않는다
@@ -1589,7 +1608,8 @@ function ownWorktreeMerge(input, command) {
 function evaluate(input, rootOverride) {
   const command = String((input.tool_input && input.tool_input.command) || '');
   if (!command) return null;
-  if (writesApprovalFiles(command, input.cwd || process.cwd())) {
+  const ps = input.tool_name === 'PowerShell';
+  if (writesApprovalFiles(command, input.cwd || process.cwd(), 0, ps)) {
     return {
       decision: 'deny',
       reason: '승인 파일(~/.claude/wy-approvals 아래 decisions·decisions.log·used·sessions·message-blocks.log·.trust), 설치본(~/.wy-tools), 프로젝트 설정(.claude/wy-ops.json·wy-ops.local.json·settings.local.json)에는 셸 명령으로 쓸 수 없습니다. 읽기(cat·ls·tail·test)는 됩니다. 설정 변경은 내용을 pm 세션에 보내 사용자가 고치게 하세요.',
@@ -1600,7 +1620,7 @@ function evaluate(input, rootOverride) {
   // cat·tee·인터프리터 here-doc 본문도 데이터·코드라 셸 명령으로 보지 않는다(결함 3). 인터프리터 본문은 X3로 따로 본다
   // 같은 명령에서 데이터 본문을 쓴 파일을 셸 등 모르는 프로그램이 실행할 수 있으면(cat > x.sh <<EOF … ; bash x.sh) 본문도 명령으로 본다(전처럼).
   // 인터프리터만 돌면(cat > ed.py … ; python ed.py) 데이터 본문도 코드로 보고 X3로 본다
-  const heredocs = splitHeredocs(command);
+  const heredocs = ps ? noHeredocs(command) : splitHeredocs(command);
   const segTokens = allSegments(heredocs.command).map((s) => stripRunners(leadingTokens(s)));
   const runs = segTokens.map((t) => progName(t)).filter(Boolean);
   // git(훅 파일)·sed(e 명령)·다른 프로세스를 부르는 인터프리터 코드(python -c "os.system('sh x.sh')")는 본문을 실행할 수 있다
@@ -1609,8 +1629,8 @@ function evaluate(input, rootOverride) {
   const gitHook = runs.includes('git') && /hooks/i.test(heredocs.command);
   const execsData = heredocs.data.length && (interpExec || gitHook || runs.some((p) => !HEREDOC_SAFE.has(p) && !FILTERS.has(p) && !CODE_INTERPRETERS.has(p) && !['git', 'sort', 'uniq', 'tr', 'printf'].includes(p)));
   // 따옴표 없는 구분자 본문의 $(…)·백틱은 셸이 실행하므로 splitHeredocs가 그 본문을 명령으로 남긴다
-  // git commit·merge의 메시지 본문도 뗀다(본문 줄의 'git 낱말'을 별칭으로 보지 않게)
-  const shell = splitHeredocs(command, true, !execsData).command;
+  // git commit·merge의 메시지 본문도 뗀다(본문 줄의 'git 낱말'을 별칭으로 보지 않게). PowerShell에는 here-doc이 없다
+  const shell = ps ? command : splitHeredocs(command, true, !execsData).command;
   const codes = [...heredocs.codeBodies.map((b, j) => [heredocs.codeProgs[j], b]), ...(runs.some((p) => CODE_INTERPRETERS.has(p)) ? heredocs.data.map((b) => ['', b]) : [])];
   const judged = allSegments(shell).map((s) => ({ segment: s, kind: classify(s, 0, shell) }));
   const unknown = (judged.find((g) => g.kind === 'unknown') || {}).segment || (codes.find(([p, b]) => execCode(p, b) && gitWord(b)) || [])[1];

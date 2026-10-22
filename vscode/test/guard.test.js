@@ -702,7 +702,16 @@ ok(ev('git push').decision === 'deny', 'non-commit session git push denied');
     `printf '%s' "it's" && cat <<'EOF'${NL}git push 안내${NL}EOF`,
     `echo "$(cat <<'EOF'${NL}git push 안내${NL}EOF${NL})"`,
     `cat <<'EOF'${NL}it's git push 안내${NL}EOF${NL}echo done`,
-  ]) ok(ev(c) === null, 'here-doc 정상 형태 통과: ' + JSON.stringify(c) + ' → ' + JSON.stringify(ev(c)));
+    `echo "<<X" && node <<'EOF'${NL}console.log('git push 안내')${NL}EOF`,
+  ]) {
+    const e = ev(c);
+    ok(e === null, 'here-doc 정상 형태 통과: ' + JSON.stringify(c) + ' → ' + JSON.stringify(e));
+  }
+  // PowerShell에는 here-doc이 없다(결함 2): '<<' 글자가 든 정상 명령은 통과
+  for (const c of [`Select-String -Path a.md -Pattern '<<EOF'${NL}git status`, `Write-Output "a <<b"; Get-ChildItem`]) {
+    const e = evaluate({ tool_name: 'PowerShell', tool_input: { command: c }, agent_type: 'WY-backend2', cwd: proj, session_id: 's' });
+    ok(e === null, "PowerShell '<<' 글자 통과: " + JSON.stringify(c) + ' → ' + JSON.stringify(e));
+  }
   // 커밋 메시지 here-doc: 따옴표 구분자·"$(cat <<'EOF' …)" 형태는 본문을 떼고 승인 흐름으로 간다(본문 줄을 별칭으로 보지 않는다)
   for (const c of [`git commit -F - <<'EOF'${NL}fix: 정리${NL}git hooks 설명${NL}EOF`, `git commit -m "$(cat <<'EOF'${NL}fix: 정리${NL}git hooks 설명${NL}EOF${NL})"`, `git commit -F - <<EOF${NL}fix: 치환 없는 본문${NL}git hooks 설명${NL}EOF`,
     `cat > a.md <<'EOF'${NL}메모${NL}EOF${NL}git commit -F - <<'EOF'${NL}fix: 정리${NL}git hooks 설명${NL}EOF`]) {
@@ -717,8 +726,10 @@ ok(ev('git push').decision === 'deny', 'non-commit session git push denied');
     ok(classify(c) === 'unknown', 'X3 우회: ' + c);
   ok(ev('mkdir git') === null && ev('rm -rf git') === null, 'X4: 파일 명령의 git 폴더 이름은 통과');
   // X4 오탐(S3 관문): git 프로세스를 이름으로 보거나 끄는 명령은 git을 실행하지 않는다
-  for (const c of ['Get-Process git', 'gps git -ErrorAction SilentlyContinue', 'pgrep git', 'pkill git', 'pidof git', 'Stop-Process -Name git -Force', 'taskkill /IM git.exe /F', 'tasklist /FI "IMAGENAME eq git.exe"'])
-    ok(ev(c) === null, 'X4 프로세스 명령 통과: ' + c + ' → ' + JSON.stringify(ev(c)));
+  for (const c of ['Get-Process git', 'gps git -ErrorAction SilentlyContinue', 'pgrep git', 'pkill git', 'pidof git', 'Stop-Process -Name git -Force', 'taskkill /IM git.exe /F', 'tasklist /FI "IMAGENAME eq git.exe"']) {
+    const e = ev(c);
+    ok(e === null, 'X4 프로세스 명령 통과: ' + c + ' → ' + JSON.stringify(e));
+  }
   ok((ev('pgrep git; git push origin main') || {}).decision === 'deny' && (ev('Get-Process git | Stop-Process; git commit -m x') || {}).decision === 'deny', 'X4 프로세스 명령 뒤의 잠긴 git은 그대로 거부');  // 'g'+'it'·'g''it'처럼 여러 조각인 대입 값은 모른다
   ok((ev("$x='g'+'it'; & $x push origin main") || {}).decision === 'deny' && (ev("x='g''it'; $x push; echo git") || {}).decision === 'deny', '조각낸 대입 값의 변수 프로그램');
   // 결함 2: Start-Process로 브라우저 실행은 통과, 보호 경로로 리다이렉트·셸 인자는 막는다
