@@ -13,6 +13,7 @@
 
 - [ ] Claude Code: `claude` 실행 후 `/login`
 - [ ] GitHub CLI: `gh auth login` 뒤 `gh auth status`가 Logged in이면 됩니다(커밋 역할이 PR·CI 확인에 씁니다). doctor가 확인합니다.
+- [ ] git 커밋 작성자: `git config --global user.name "<이름>"`·`git config --global user.email "<이메일>"`. 비어 있으면 커밋이 실패합니다. doctor가 확인합니다(값은 보이지 않음).
 - [ ] 외부 콘솔(배포·호스팅 등): 브라우저에서 사람이 로그인합니다. 2단계 인증·Google 로그인은 자동화 브라우저에서 막히므로 사람이 합니다.
 
 ## 3. 원래 PC에서 옮겨 오기
