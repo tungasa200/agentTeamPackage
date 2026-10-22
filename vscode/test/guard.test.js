@@ -880,6 +880,20 @@ ok(ev('git push').decision === 'deny', 'non-commit session git push denied');
     ok(e && e.decision === 'deny', `S4 예외 거부(${why}): ${c} → ${JSON.stringify(e)}`);
   }
   ok(run('git merge main', 'AB-dev7', ownBase) === null, '사본 base와 상관없이 본 저장소 base로는 통과');
+  // 실사용 재현(S5): '/'가 든 base, Git Bash 꼴 cwd. 단독은 통과, 파이프·확인 명령·cd가 붙으면 거부하되 단독 실행을 안내
+  const slashRepo = mkRepo({ enabled: true, base: 'feature/x-only' });
+  const slashWt = mkWt(slashRepo, 'AB-dev9');
+  ok(run('git merge feature/x-only', 'AB-dev9', fwd(slashWt)) === null, "S5 재현 ①: '/' base 단독 통과");
+  const hint = '`git merge feature/x-only`만 따로';
+  for (const c of ['git merge feature/x-only 2>&1 | tail -5; git log --oneline -3; git status --short', `cd ${fwd(slashWt)} && git merge feature/x-only 2>&1 | tail -5`, 'git merge --no-edit feature/x-only']) {
+    const e = run(c, 'AB-dev9', fwd(slashWt));
+    ok(e && e.decision === 'deny' && e.reason.includes(hint), `S5 재현 ②③: 거부 + 단독 실행 안내: ${c} → ${JSON.stringify(e)}`);
+  }
+  // 예외 조건 밖이면 안내 없음(다른 역할·base 없음·다른 대상·본 저장소)
+  for (const [c, who, cwd] of [['git merge main | tail', 'AB-dev2', wt1], ['git merge main | tail', 'AB-dev3', noBase], ['git merge feature | tail', 'AB-dev1', wt1], ['git merge main | tail', 'AB-dev1', repo]]) {
+    const e = run(c, who, cwd);
+    ok(e && e.decision === 'deny' && !e.reason.includes('승인 없이 됩니다'), `예외 밖은 안내 없이 거부: ${who} ${c} → ${JSON.stringify(e)}`);
+  }
   for (const r of tmpRoots) fs.rmSync(r, { recursive: true, force: true });
 }
 ok(writesApprovalFiles('ls') === false, 'unrelated passes');

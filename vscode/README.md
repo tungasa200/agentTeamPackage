@@ -207,7 +207,7 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
 - `steps`: 방법 단계(최대 20개). `check`(선택): 끝났는지 확인하는 방법.
 - 카드의 [완료](메모 선택)를 누르면 결정 `decision: "done"`이 생긴다(`note`에 메모). 요청 세션은 아래 '결정을 받는 방법'대로 `decisions/<id>.json`을 기다렸다가 이어 간다. 대화창으로 따로 알릴 필요가 없다.
 - 요청 세션이 이미 종료됐으면 카드에 '세션 종료됨'이 붙는다. [완료]는 눌러도 되지만, 이어 갈 세션이 없으니 pm 역할이 다시 배정한다.
-- 권한 요청 카드(`permission`)와 분류기 거부 할 일 카드(`denied-<키>`)는 `hooks/wy-permission.js`가 쓴다. 세션이 직접 쓰지 않는다.
+- 권한 요청 카드(`permission`)와 분류기 거부 할 일 카드(`denied-<키>`)는 `hooks/wy-permission.js`가 쓴다. 세션이 직접 쓰지 않는다. 분류기 거부 카드는 세션 cwd가 본 저장소(worktree면 `.claude/worktrees/<이름>` 앞부분)와 다르면 `cwd` 칸과 '실행 폴더' 단계를 넣고, `command` 앞에 폴더 이동(Bash `cd '<cwd>' && `, PowerShell `Set-Location -LiteralPath '<cwd>'; `)을 붙인다(S5: worktree 세션의 `git merge`를 본 저장소에서 실행한 일).
 
 ### 결정 형식
 

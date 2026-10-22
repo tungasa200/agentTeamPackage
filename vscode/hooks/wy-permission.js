@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const store = require('../approvalStore');
+const { findProjectRoot } = require('../opsConfig');
 
 const WAIT_MS = Number(process.env.WY_PERMISSION_WAIT_MS) || 15 * 60 * 1000; // 테스트에서 줄인다
 const POLL_MS = 1000;
@@ -134,14 +135,25 @@ function bashForPowerShell(command) {
   return ["$c = @'", command, "'@", `& '${GIT_BASH}' -c (($c -replace "\`r", '') -replace '(\\\\*)"', '$1$1\\"')`].join('\n');
 }
 
+// 세션 cwd가 본 저장소(worktree면 .claude/worktrees/<이름> 앞부분)와 다르면 그 cwd. 같거나 저장소를 모르면 null.
+// 사용자는 본 저장소에서 연 창의 터미널에 붙여 넣으므로, 다르면 실행 폴더를 명령에 넣어야 한다(S5: worktree 세션 카드를 본 저장소에서 실행)
+function otherCwd(cwd) {
+  if (!cwd) return null;
+  const abs = path.resolve(cwd);
+  const repo = findProjectRoot(abs.replace(/[\\/]\.claude[\\/]worktrees[\\/].*$/, ''));
+  return repo && path.relative(repo, abs) ? abs : null;
+}
+
 function onPermissionDenied(input, root) {
   const p = store.ensureDirs(root);
   const id = `denied-${keyOf(input)}`;
   if (fs.existsSync(path.join(p.requests, `${id}.json`))) return;
-  const command = commandOf(input);
   const sessionName = sessionNameOf(input.session_id);
   const who = sessionName || `세션 ${String(input.session_id || '').slice(0, 8)}`;
   const shell = input.tool_name === 'Bash' ? 'bash' : input.tool_name === 'PowerShell' ? 'powershell' : null;
+  const cwd = otherCwd(input.cwd);
+  const at = cwd && shell === 'bash' ? `cd '${cwd.replace(/\\/g, '/').replace(/'/g, "'\\''")}' && ` : cwd && shell === 'powershell' ? `Set-Location -LiteralPath '${cwd.replace(/'/g, "''")}'; ` : '';
+  const command = at + commandOf(input);
   const ps = shell === 'bash' ? bashForPowerShell(command) : null;
   const advice = "대부분은 실행하지 않아도 됩니다. 판단이 어려우면 실행하지 말고 메모에 '실행 안 함'이라고 적어 '완료'로 닫으세요.";
   const where =
@@ -163,7 +175,8 @@ function onPermissionDenied(input, root) {
     shell,
     command,
     ...(ps ? { commandPowerShell: ps } : {}),
-    steps: [advice, where, '실행했다면 결과(출력·오류)를 메모에 적고 \'완료\'를 누릅니다.'],
+    ...(cwd ? { cwd } : {}),
+    steps: [advice, where, ...(cwd ? [`실행 폴더: ${cwd} (본 저장소가 아닌 세션 작업 폴더입니다. ${at ? '아래 명령 앞에 폴더 이동을 붙여 두었습니다' : '이 폴더에서 하세요'}.)`] : []), '실행했다면 결과(출력·오류)를 메모에 적고 \'완료\'를 누릅니다.'],
     check: shell === 'bash' ? '명령이 오류 없이 끝나면 됩니다. "unexpected token" 같은 문법 오류는 PowerShell에 Bash 명령을 붙여 넣은 경우입니다.' : '명령이 오류 없이 끝나면 됩니다.',
   });
 }
