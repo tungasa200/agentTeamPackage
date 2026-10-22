@@ -121,6 +121,38 @@ const waitFor = async (f) => { for (let i = 0; i < 100 && !f(); i++) await new P
   const before = fs.statSync(path.join(p.requests, `${tid}.json`)).mtimeMs;
   hook.onPermissionDenied(din, root);
   assert.strictEqual(fs.statSync(path.join(p.requests, `${tid}.json`)).mtimeMs, before, '중복 카드 없음');
+  // S5: worktree 세션이 막힌 명령은 실행 폴더를 카드 명령에 넣는다(사용자가 본 저장소에서 실행해 worktree에 반영 안 된 일)
+  {
+    const repo = path.join(base, "re'po");
+    const wt = path.join(repo, '.claude', 'worktrees', 'AB-dev1');
+    fs.mkdirSync(wt, { recursive: true });
+    fs.writeFileSync(path.join(repo, '.claude', 'wy-ops.json'), '{}');
+    fs.mkdirSync(path.join(wt, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(wt, '.claude', 'wy-ops.json'), '{}'); // worktree에도 커밋된 설정 사본이 있다
+    const deny = (tool_name, command, cwd) => {
+      const i = { session_id: 'sess-aaaa1111', tool_name, tool_input: { command }, cwd, hook_event_name: 'PermissionDenied', reason: 'git' };
+      hook.onPermissionDenied(i, root);
+      const id = `denied-${hook.keyOf(i)}`;
+      const r = read('requests', id);
+      store.markDone(id, { note: '실행 안 함', root });
+      return r;
+    };
+    const b = deny('Bash', 'git merge feature/x', wt);
+    const q = `'${wt.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`;
+    assert.strictEqual(b.command, `cd ${q} && git merge feature/x`, 'Bash: cd <worktree> && 명령');
+    assert.ok(b.cwd === wt && b.steps.some((s) => s.startsWith(`실행 폴더: ${wt}`)), 'cwd 칸·단계에 실행 폴더');
+    assert.ok(b.commandPowerShell.includes(`cd ${q} && git merge feature/x`), 'PowerShell 형태도 폴더 이동 포함');
+    const s = deny('PowerShell', 'git merge feature/x', wt);
+    assert.strictEqual(s.command, `Set-Location -LiteralPath '${wt.replace(/'/g, "''")}'; git merge feature/x`, 'PowerShell: Set-Location 뒤 명령');
+    const r = deny('Bash', 'git merge feature/y', repo);
+    assert.ok(r.command === 'git merge feature/y' && r.cwd === undefined && r.steps.length === 3, '본 저장소면 그대로');
+    const sub = deny('Bash', 'git status x', path.join(repo, 'src'));
+    assert.ok(sub.command.startsWith("cd '") && sub.cwd === path.join(repo, 'src'), '본 저장소 아래 폴더도 실행 폴더를 넣음');
+    if (fs.existsSync('C:\\Program Files\\Git\\bin\\bash.exe')) {
+      const out = cp.spawnSync('C:\\Program Files\\Git\\bin\\bash.exe', ['-c', b.command.replace('git merge feature/x', 'pwd -W')], { encoding: 'utf8', timeout: 20000 });
+      if (out.status === 0) assert.strictEqual(out.stdout.trim().toLowerCase(), wt.replace(/\\/g, '/').toLowerCase(), "Git Bash에서 '가 든 경로로 이동");
+    }
+  }
 
   // 저장소: 권한 카드 목록과 결정 상태
   const list = store.listPermissionRequests(root);

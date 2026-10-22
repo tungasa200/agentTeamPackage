@@ -1580,27 +1580,32 @@ function markUsed(ids, input, root) {
 // 그 폴더의 .git이 본 저장소 .git/worktrees/ 아래를 가리키는 표지 파일이고 HEAD가 wt/<역할> 가지여야 한다.
 // base는 본 저장소의 wy-ops.json(+local) worktree.base(없으면 예외 없음). worktree 안 사본은 역할 세션이 고칠 수 있어 보지 않는다
 function ownWorktreeMerge(input, command) {
-  const role = input.agent_type;
-  if (!role || !input.cwd) return false;
   const t = tokens(command.trim());
   if (t.length !== 3 || !/^git(?:\.exe)?$/i.test(t[0]) || t[1] !== 'merge' || segments(command).length !== 1 || innerSegments(command).length) return false;
+  return t[2] === ownWorktreeBase(input);
+}
+
+// 이 세션이 자기 worktree(cwd·.git 표지·HEAD wt/<역할>)에 있으면 본 저장소의 worktree.base, 아니면 null
+function ownWorktreeBase(input) {
+  const role = input.agent_type;
+  if (!role || !input.cwd) return null;
   const cwd = path.resolve(input.cwd);
   const m = [...cwd.matchAll(/[\\/]\.claude[\\/]worktrees[\\/]([^\\/]+)(?=[\\/]|$)/g)].pop();
-  if (!m || m[1] !== role) return false;
+  if (!m || m[1] !== role) return null;
   const repo = cwd.slice(0, m.index);
   const wt = cwd.slice(0, m.index + m[0].length);
   const ops = loadOpsConfig(repo);
   const base = ops && ops.worktree && ops.worktree.base;
-  if (typeof base !== 'string' || !/^[A-Za-z0-9._/-]+$/.test(base) || base.startsWith('-') || t[2] !== base || ops.root !== repo) return false;
+  if (typeof base !== 'string' || !/^[A-Za-z0-9._/-]+$/.test(base) || base.startsWith('-') || ops.root !== repo) return null;
   try {
     const dotGit = fs.readFileSync(path.join(wt, '.git'), 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
     const admin = dotGit && path.resolve(wt, dotGit[1]);
     const rel = admin && path.relative(path.join(repo, '.git', 'worktrees'), admin);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
     const head = fs.readFileSync(path.join(admin, 'HEAD'), 'utf8').trim();
-    return head === `ref: refs/heads/wt/${role}`;
+    return head === `ref: refs/heads/wt/${role}` ? base : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -1649,7 +1654,10 @@ function evaluate(input, rootOverride) {
   const ttlMs = (ttlMinutes > 0 ? ttlMinutes : DEFAULT_TTL_MINUTES) * 60 * 1000;
   if (input.agent_type !== COMMIT_SESSION) {
     const who = input.agent_type || 'agent_type 없음';
-    return { decision: 'deny', reason: `'${store.KINDS[guarded[0].kind]}' 명령은 ${COMMIT_SESSION}(--agent ${COMMIT_SESSION}로 실행한 세션)만 실행합니다(이 세션: ${who}). 커밋 요청은 ${COMMIT_SESSION}에 보내세요.` };
+    // D-32 예외에 다른 조각·옵션이 붙어 거부될 때(S5 실사용): 판정은 그대로, 이유에 단독 실행 안내만 덧붙인다
+    const base = guarded.some((g) => g.kind === 'merge') && ownWorktreeBase(input);
+    const hint = base && guarded.some((g) => g.kind === 'merge' && tokens(g.segment).includes(base)) ? ` 기준 가지를 받는 것이면 \`git merge ${base}\`만 따로(파이프·cd·다른 명령·옵션 없이) 실행하면 승인 없이 됩니다.` : '';
+    return { decision: 'deny', reason: `'${store.KINDS[guarded[0].kind]}' 명령은 ${COMMIT_SESSION}(--agent ${COMMIT_SESSION}로 실행한 세션)만 실행합니다(이 세션: ${who}). 커밋 요청은 ${COMMIT_SESSION}에 보내세요.${hint}` };
   }
   // 조각마다 승인을 먼저 다 찾고, 모두 있을 때만 한꺼번에 사용 표시를 남긴다(일부만 쓰고 막히면 승인이 헛되이 사라진다)
   const taken = new Set();
