@@ -202,6 +202,25 @@ try {
     s = byId(doctor.checkAll({ ...pc.opts, run: runHead('bbb2222') })).install;
     assert.ok(s.level === 'fail' && s.detail.includes('bbb2222'), 'clone이 앞서면(pull 뒤 deploy 안 함) 실패');
     assert.strictEqual(byId(doctor.checkAll({ ...pc.opts, run: runHead(null) })).install.level, 'warn', '원본을 못 읽으면 주의');
+    // 커밋이 달라도 그 사이 배포 대상이 안 바뀌었으면 통과(docs·.claude·시험만), 배포 대상이 바뀌었거나 diff를 못 읽으면 실패
+    const runDiff = (diff) => (cmd, args) => {
+      if (cmd === 'git' && args[0] === '-C' && args[1] === clone && args[2] === 'diff') {
+        assert.deepStrictEqual(args.slice(3), ['--name-only', '--no-renames', '-z', 'aaa1111', 'bbb2222'], 'diff 범위는 설치본 커밋..HEAD');
+        return diff === null ? { status: 128, stdout: '' } : { status: 0, stdout: diff.map((f) => `${f}\0`).join('') };
+      }
+      return runHead('bbb2222')(cmd, args);
+    };
+    s = byId(doctor.checkAll({ ...pc.opts, run: runDiff(['docs/진행현황.md', '.claude/agents/X-pm.md', 'test/doctor.test.js', 'vscode/test/a.test.js']) })).install;
+    assert.ok(s.level === 'ok' && s.detail === '설치본 aaa1111 (HEAD bbb2222, 배포 대상 변경 없음)', JSON.stringify(s));
+    s = byId(doctor.checkAll({ ...pc.opts, run: runDiff(['docs/진행현황.md', 'lib/doctor.js']) })).install;
+    assert.ok(s.level === 'fail' && s.detail.includes('HEAD bbb2222와 다름') && s.detail.includes('lib/doctor.js') && !s.detail.includes('docs/'), JSON.stringify(s));
+    s = byId(doctor.checkAll({ ...pc.opts, run: runDiff(null) })).install;
+    assert.ok(s.level === 'fail' && s.detail.endsWith('HEAD bbb2222와 다름'), 'diff를 못 읽으면 실패: ' + JSON.stringify(s));
+    // 패키지가 저장소 하위 폴더면 그 폴더만 보고 접두사를 떼어 판정
+    json(dep, { version: '0.7.0', commit: 'aaa1111', stubHash: 'h1', source: { kind: 'head', repo: clone, rel: 'tools/wy-ops' } });
+    const runSub = (cmd, args) => (cmd === 'git' && args[2] === 'diff' ? (assert.deepStrictEqual(args.slice(-2), ['--', 'tools/wy-ops/']), { status: 0, stdout: 'tools/wy-ops/docs/a.md\0tools/wy-ops/test/x.js\0' }) : runHead('bbb2222')(cmd, args));
+    assert.strictEqual(byId(doctor.checkAll({ ...pc.opts, run: runSub })).install.level, 'ok', '하위 폴더 패키지의 docs·시험만 바뀜');
+    json(dep, { version: '0.7.0', commit: 'aaa1111', stubHash: 'h1', source: { kind: 'head', repo: clone, rel: '' } });
     // 개발 연결 중이면 주의
     json(dep, { version: '0.7.2', commit: 'dev', dev: true, stubHash: 'h1', source: { kind: 'dev', repo: clone, rel: '' } });
     s = byId(doctor.checkAll(pc.opts)).install;
