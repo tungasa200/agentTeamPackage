@@ -119,7 +119,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 |---|---|---|
 | `enabled` | `false`면 모두 본 저장소 한 폴더를 함께 씀 | 켬 |
 | `base` | 기준 가지. 아래 커밋 흐름 3의 `git merge <기준>` 예외는 이 값을 적었을 때만 동작 | 본 저장소의 지금 가지(`session.ps1`만, 가드는 추정하지 않음) |
-| `roles` | worktree를 쓸 역할 목록(예: qa처럼 기준 가지에서 돌 역할을 빼려고) | pm·commit을 뺀 모든 역할 |
+| `roles` | worktree를 쓸 역할 목록(예: qa처럼 기준 가지에서 돌 역할을 빼려고). 넣지 않은 역할은 본 저장소에서 돌고, 작업 폴더 규칙 문구에 두 쪽 역할 이름이 들어감. 역할이 아닌 이름이나 pm·commit을 넣으면 doctor가 주의로 알림 | pm·commit을 뺀 모든 역할 |
 | `deps` | 역할별로 `npm ci --prefer-offline`을 돌릴 폴더. 예: `{ "AB-frontend1": ["frontend"] }` | 설치하지 않음 |
 
 값을 바꾼 뒤에는 `<설치> gen`(역할 파일·pm-ops 스킬의 작업 폴더 규칙 문구가 바뀜) → `CLAUDE.md`의 워킹트리 줄(세션 역할 절 첫 줄)과 커밋 절을 손으로 고침 → 떠 있는 역할 세션을 `rotate`합니다. gen은 `CLAUDE.md`도 `.claude/ops/CLAUDE.part.md`도 쓰지 않습니다(`CLAUDE.part.md`는 `init`만 씀). 켤 때 넣을 문구는 worktree를 켠 이 패키지 저장소의 `CLAUDE.md`에서 얻습니다: 세션 역할 절 첫 줄('같은 저장소에서 작업한다(개발 역할은 각자 worktree)'), 커밋 절 '작업 세션'의 첫 줄(worktree에서 일하기·지우는 명령 금지·커밋 요청에 worktree 이름·충돌 때 `git merge <기준 가지>`), '`OPS-commit`' 절의 둘째 줄(그 worktree에서 요청 파일만 커밋하고 기준 가지에 `git merge --no-ff wt/<역할>`, 충돌하면 `--abort`하고 `[되돌림]`). 역할 이름만 내 프로젝트 것으로 바꿉니다. 끌 때는 '같은 워킹트리에서 작업한다'로 되돌리고, 작업 세션 첫 줄을 '워킹트리는 모든 세션이 함께 쓴다·파일을 바꾸는 git 명령 금지·일부 파일 검증은 `git archive` 사본'으로 바꾸고, `OPS-commit` 절의 worktree 줄을 지웁니다.
@@ -409,7 +409,7 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 |---|---|---|
 | `doctor` | 뭔가 이상할 때 먼저. 읽기만 함 | `<설치> doctor` (`--json`, `--todos`는 남은 손일을 할 일 카드로) |
 | `trust` | 폴더 사용 허락을 `~/.claude.json`에 기록(설치 마법사 6단계, 3-0) | `<설치> trust --project <폴더>` (`--check`는 확인만) |
-| `update` | 운영 도구를 새 버전으로. 패키지 저장소를 pull(확인)하고 설치본을 갱신한 뒤 생성 파일을 다시 만듦. 사람이 고친 생성 파일은 덮지 않고 차이만 보여 줌. 생성 파일을 갱신한 뒤 `.claude/settings.json`의 표준(`enabledPlugins` 끄기·`skillOverrides`·`disableClaudeAiConnectors`·`worktree.bgIsolation`·`autoCompactWindow`)에서 비어 있는 키만 채움(`.bak-<시각>`). 이미 적힌 값은 바꾸지 않고, 표준과 다르면 '다름: 키 · 기존 · 표준'으로 알림. `--dry-run`이면 더할 것만 보여 줌 | `<설치> update` (미리 보기 `--dry-run`, pull 생략 `--no-pull`) → Reload |
+| `update` | 운영 도구를 새 버전으로. 패키지 저장소를 pull(확인)하고 설치본을 갱신한 뒤 생성 파일을 다시 만듦. 사람이 고친 생성 파일은 덮지 않고 차이만 보여 줌. 생성 파일을 갱신한 뒤 `.claude/settings.json`의 표준(`enabledPlugins` 끄기·`skillOverrides`·`disableClaudeAiConnectors`·`worktree.bgIsolation`·`autoCompactWindow`)에서 비어 있는 키만 채움(`.bak-<시각>`). 이미 적힌 값은 바꾸지 않고, 표준과 다르면 '다름: 키 · 기존 · 표준'으로 알림. `--dry-run`도 pull·deploy는 하고, 생성 파일·settings에서 바꿀 것만 보여 줌. 미리 보기만 하려면 `--no-deploy`를 함께 씀 | `<설치> update` (미리 보기 `--dry-run --no-deploy`, pull 생략 `--no-pull`) → Reload |
 | `detect` | 폴더를 보고 알아낸 스택·검증 명령 미리 보기. 읽기만 함. 설정에 `verify`가 있으면 그 값을 보여 줌 | `<설치> detect` (`--project <폴더>`, `--json`) |
 | `detect --apply` | 폴더를 다시 보고 `wy-ops.json`의 비어 있는 `verify` 키를 채우고 `detected`·`tools`·`stackNotes`를 바꿈(옛 `stack` 키는 지움, 다른 키 그대로, 바꿀 때 `.bak-<시각>`을 남김). 이미 적힌 검증 명령은 그대로 두고, 판정과 다르면 '다름: 키 · 기존 · 판정'으로 알림(바꾸려면 `verify`를 직접 고침). 바꾸기 전·뒤 검증 명령과 CLAUDE.md에 넣을 목록을 보여 줌. 알아낸 것이 없거나 채울 것이 없으면 바꾸지 않음. 빈 폴더에 설치한 뒤 코드가 생겼을 때 씀 | `<설치> detect --apply` (`--project <폴더>`) → `<설치> gen` |
 | `gen` | `.claude/ops`의 역할 원본·pm-ops 부록을 고친 뒤 역할 파일·스킬 다시 만들기 | `<설치> gen` |
@@ -422,6 +422,8 @@ claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 
 | `connect` | 접속 PC 준비: 키·ssh 별칭·Remote-SSH·바로가기·호스트 제어 창(3-5) | `<설치> connect <별칭> --host <Tailscale 이름>` |
 
 rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다른 버전이면 확장도 다시 깝니다. 버전 없이 두 번 하면 더 옛 버전이 아니라 최신과 직전 사이만 오가니, 더 옛 버전은 이름을 주세요. 프로젝트의 생성물(.claude/agents·skills)은 되돌리지 않으니 템플릿이 바뀐 배포를 되돌렸다면 `<설치> gen`을 다시 하세요.
+
+프로젝트에 공통 문구 틀 `.claude/ops/agent.md`(8장)를 두었으면, `update`는 그 파일을 바꾸지 않으므로 패키지 틀(`templates/agent.md`)의 새 문구가 들어가지 않습니다. 순서: `<설치> update` → 패키지 `templates/agent.md`와 비교해 `.claude/ops/agent.md`와 `CLAUDE.md`를 손으로 고침 → `<설치> gen`(역할 파일 다시 만들기) → 떠 있는 역할 세션을 다시 띄움(`rotate`). `.claude/settings.json`의 플러그인 끄기(`enabledPlugins`) 등 표준 값은 `update`가 빈 키만 채우므로 `init`을 다시 할 필요는 없습니다.
 
 0.13.0으로 올린 뒤 각 프로젝트에서 `<설치> setup`을 한 번 실행하세요(승인 보호 deny 줄 2개 추가). 실행 전에는 doctor 'deny 줄'이 실패로 나옵니다.
 
@@ -470,6 +472,7 @@ rollback은 설치본(current)만 바꿉니다. 껍데기 확장 내용이 다�
 | 결정을 기다리는 세션이 메시지에 답하지 않음 | 결정 파일을 포그라운드 셸 루프로 기다려 세션이 묶임 | 기다리지 말고 턴을 끝냄. 결정이 오면 훅이 세션을 깨움(4-1). 결정 파일은 지워지지 않으니 나중에 읽어도 됨 |
 | 카드를 처리했는데 세션이 깨지 않음 | 세션이 꺼져 있음, 0.7.2 설치(`setup`) 전에 뜬 뒤 턴이 없었음, 요청의 `session`이 세션 이름과 다름 | `doctor`로 훅 확인. 꺼진 세션은 pm이 `session.ps1 start`로 전함. 그 세션에 아무 메시지나 보내 한 턴을 돌리면 다음부터 깨어남 |
 | `start`에 지시를 붙였더니 같은 이름 세션이 둘 | 옛 세션이 아직 살아 있을 때 대화를 이어 띄워 사본이 생김 | `session.ps1 list`로 확인하고 하나를 `stop`. 지시는 붙이지 말고 '시작' 회신을 받은 뒤 `SendMessage`로 보냄 |
+| `git lfs`·git 별칭이 승인 가드에 막힘 | 내장이 아닌 하위 명령·별칭은 무엇을 실행할지 판단할 수 없어 모든 역할에서 거부(커밋 역할 포함) | 정식 하위 명령(`git commit`·`git push` …)으로 따로 씀. git lfs 저장소는 아직 지원하지 않음 |
 | 설치 명령이 승인 가드에 막힘 | 명령에 `~/.wy-tools` 경로가 들어 있어 가드가 설치본 쓰기로 봄 | 패키지 clone 폴더에서 `node lib/install.js <명령> --project <프로젝트 폴더>`로 실행 |
 | `start`가 '승인 가드 훅이 없어 띄우지 않습니다' | 본 저장소 `settings.local.json`에 승인 가드 훅이 없거나 worktree로 복사하지 못함(2-6) | 프로젝트 폴더에서 `<설치> setup` → 다시 `start` |
 | `start`가 'worktree 폴더가 있는데 git worktree 목록에 없습니다' | 지운 흔적 폴더가 남음 | 그 폴더 안 파일을 확인해 옮기거나 지우고 `git worktree prune`(사용자) → 다시 `start` |
