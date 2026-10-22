@@ -307,7 +307,8 @@ function decide(id, decision, { reason = '', root = ROOT } = {}) {
   if (req.kind === 'choice') throw new Error('결정 요청은 선택지로 답해야 함');
   if (req.kind === 'todo') throw new Error("할 일은 '완료'로 닫아야 함");
   if (req.kind === 'permission' && permissionClosed(paths(root), req)) throw new Error('기한이 지나 이미 거부된 권한 요청');
-  return writeDecision(id, req, { decision, reason: text(reason).trim(), command: normalize(req.command) }, root);
+  // command는 요청 그대로 둔다(커밋 본문 줄바꿈 보존). 가드는 양쪽을 normalize해 대조한다
+  return writeDecision(id, req, { decision, reason: text(reason).trim(), command: req.command }, root);
 }
 
 // choice 요청의 답. answers[i] = { selected: [선택지 제목…], other: '직접 입력' }
