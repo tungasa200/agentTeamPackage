@@ -254,7 +254,8 @@ function Start-New($name, $handoff, $dir) {
   Start-Bg @('--bg', '--agent', $name, '--name', $name, $first) $dir
 }
 
-if ($Cmd -in 'start', 'prep', 'rotate', 'adopt', 'start-pm') { Assert-Memory }
+# start는 이미 실행 중인지 본 뒤에(새 프로세스를 띄우지 않으면 막지 않음, [pm 결정])
+if ($Cmd -in 'prep', 'rotate', 'adopt', 'start-pm') { Assert-Memory }
 switch ($Cmd) {
   'list' {
     $all = @(Get-Sessions)
@@ -281,6 +282,7 @@ switch ($Cmd) {
   'start' {
     $s = Get-Bg $Role
     if ($s -and (Test-Running $s)) { "$Role 은 이미 실행 중입니다($($s.id))."; break }
+    Assert-Memory
     # 대화 기록이 없는 항목은 이어 띄울 수 없다("source session not found"). 역할 파일로 새로 띄운다
     $t = Get-Transcript $s
     if (-not $t) {

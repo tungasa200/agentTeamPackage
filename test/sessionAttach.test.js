@@ -213,6 +213,9 @@ try {
   write([{ id: 'q9', name: 'AB-qa', kind: 'background', state: 'done', startedAt: 1, sessionId: 'sid-q9' }]);
   out = ps(['prep', 'AB-qa'], low);
   assert.ok(refused(out), `prep(멈춘 세션 이어 띄우기)\n${out}`);
+  write([{ id: 'q7', name: 'AB-qa', kind: 'background', state: 'working', status: 'busy', pid: 402, startedAt: 1, sessionId: 'sid-q7' }]);
+  out = ps(['start', 'AB-qa', '지시'], low);
+  assert.ok(/AB-qa 은 이미 실행 중입니다/.test(out) && !/여유 메모리/.test(out), `실행 중인 세션 start는 관문 건너뜀([pm 결정])\n${out}`);
   write([]);
   out = ps(['start', 'AB-qa'], low);
   assert.ok(refused(out), `start\n${out}`);
