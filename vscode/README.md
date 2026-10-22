@@ -232,7 +232,7 @@ git 명령 요청(`kind`: `commit` `push` `force-push` `branch` `delete-branch` 
 ```
 
 - 할 일 결정은 `decision: "done"`과 `note`가 들어 있다.
-- git 명령 결정은 `decision`이 `approved` 또는 `rejected`이고, `reason`(거부 사유)과 `command`(정리한 명령)가 들어 있다.
+- git 명령 결정은 `decision`이 `approved` 또는 `rejected`이고, `reason`(거부 사유)과 `command`(요청의 명령 그대로, 커밋 본문 줄바꿈 포함)가 들어 있다. 가드 훅은 이 값과 실행 명령의 공백을 정리해 비교한다.
 - `decisions.log`에는 같은 결정이 한 줄로 붙는다: `{"id":"…","kind":"choice","session":"AB-pm","relatedSessions":[…],"decision":"answered","decidedAt":"…"}`
 
 ### 결정을 받는 방법(기다리지 않아도 되게)

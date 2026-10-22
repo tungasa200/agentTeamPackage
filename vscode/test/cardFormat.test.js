@@ -32,6 +32,22 @@ const p = store.ensureDirs(dir);
 fs.writeFileSync(path.join(p.requests, 'bad.json'), JSON.stringify({ kind: 'commit', session: 'x', command: 'git commit' }));
 assert.throws(() => store.decide('bad', 'approved', { root: dir }), /필수 필드 누락/);
 
+// 결정 command는 요청 그대로(커밋 본문 줄바꿈이 공백으로 뭉개지지 않음), 가드는 양쪽을 정리해 같은 명령으로 대조
+const multi = 'git commit -m "제목\n\n- 첫째\n- 둘째"';
+fs.writeFileSync(path.join(p.requests, 'multi.json'), JSON.stringify({ kind: 'commit', session: 'WY-commit', command: multi, ...filled }));
+const dm = store.decide('multi', 'approved', { root: dir });
+assert.strictEqual(dm.command, multi, '결정 command에 줄바꿈 보존');
+assert.strictEqual(store.readJson(path.join(p.decisions, 'multi.json')).command, multi, '결정 파일에도 그대로');
+const { evaluate } = require('../hooks/wy-approval-guard.js');
+const gev = (c) => evaluate({ tool_name: 'Bash', tool_input: { command: c }, agent_type: 'WY-commit', cwd: dir, session_id: 's' }, dir);
+fs.mkdirSync(path.join(dir, '.claude'), { recursive: true });
+fs.writeFileSync(path.join(dir, '.claude', 'wy-ops.json'), JSON.stringify({ commitRole: 'WY-commit' }));
+assert.strictEqual((gev(multi) || {}).decision, 'allow', '가드: 줄바꿈 그대로 실행해도 승인과 대조됨');
+fs.writeFileSync(path.join(p.requests, 'multi2.json'), JSON.stringify({ kind: 'commit', session: 'WY-commit', command: multi, ...filled }));
+store.decide('multi2', 'approved', { root: dir });
+assert.strictEqual((gev(multi.replace(/\n/g, ' ')) || {}).decision, 'allow', '가드: 공백으로 바꾼 명령도 전처럼 대조됨');
+assert.strictEqual((gev(multi) || {}).decision, 'deny', '가드: 쓴 승인은 다시 못 씀');
+
 // 정상 카드는 네 칸을 그대로 넘긴다
 const ok = read(choice);
 assert.ok(!ok.broken, ok.broken);
