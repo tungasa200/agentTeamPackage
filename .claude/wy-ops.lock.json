@@ -14,8 +14,8 @@
     ".claude/agents/OPS-dev2.md": "030fe866d7949453a6db1077b17d6f863e67425ab0d8ce17cbf4ed35f7c96004",
     ".claude/agents/OPS-review.md": "744cf298fc7436360a0ac3af2c29dfab922df943bf9968f05cdc99a63c707ea4",
     ".claude/skills/pm-ops/SKILL.md": "b8aa23d81a1cafda71075869e3ab5c0615a2d9aa72027667dc3d44d67b9dd00e",
-    ".claude/skills/pm-ops/scripts/session.ps1": "42676a9dcbe8f55a4348d8d73e9bfe83cbfeda7b24de959b87c97b8e3bc9c798",
-    ".claude/skills/wy-resume-session/SKILL.md": "6355af151cf2809556404f4a23796a6fd06c33ff630bb6d7743d534018b2f761",
+    ".claude/skills/pm-ops/scripts/session.ps1": "9523609f9a904bfbd26dab8ff3782abf3a43c2cf2201c1cf617fb5bebe3b9b4e",
+    ".claude/skills/wy-resume-session/SKILL.md": "4220f8416a65c29f137e688cf7bc052a7f64c6d14ac9adaa7aa5a86fddf7dee0",
     ".claude/skills/wy-save-session/SKILL.md": "fc42063fb2fcfdc521c9e30cf624cb151b11f6dcb66f6cbbebf9356b0c295d5c",
     ".claude/agents/OPS-pm.md": "41d4182babbeb211fc1aa8ef6fddd783ebaaa4dc9e0bc17fefa5a3cbbf55e225"
   }
