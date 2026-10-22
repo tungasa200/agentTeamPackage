@@ -141,6 +141,31 @@ try {
   assert.strictEqual(res['agent-reach'].state, 'ok', 'agent-reach는 이미 있음(needs 실패와 무관)');
   assert.strictEqual(res.graphify.state, 'skipped', 'needs(pipx) 실패로 건너뜀');
   assert.ok(!calls.some((c) => /pipx install/.test(c)), '건너뛴 항목은 설치 명령을 부르지 않음');
+
+  // winget으로 python을 깐 뒤에는 PATH를 레지스트리에서 다시 읽고 나서 py를 부른다(새 PC에서 py가 바로 안 보임)
+  failing.delete('winget');
+  const savedPath = process.env.Path;
+  const savedKeep = process.env.WY_OPS_KEEP_PATH;
+  delete process.env.WY_OPS_KEEP_PATH;
+  try {
+    calls.length = 0;
+    process.env.Path = 'P:\\only-here;Y:\\user';
+    const runPs = (cmd, args) => (cmd === 'powershell' ? (calls.push('powershell'), { status: 0, stdout: 'X:\\fresh;Y:\\user\r\n' }) : run(cmd, args));
+    res = Object.fromEntries(install(['python', 'pipx'], { run: runPs, home }).map((r) => [r.id, r]));
+    assert.deepStrictEqual([res.python.state, res.pipx.state], ['installed', 'installed']);
+    const w = calls.findIndex((c) => c.startsWith('winget install'));
+    assert.ok(w >= 0 && calls[w + 1] === 'powershell' && calls.indexOf('py -3 -m pip install --user pipx') > w + 1, calls.join(' | '));
+    assert.strictEqual(process.env.Path, 'P:\\only-here;Y:\\user;X:\\fresh', 'PATH 다시 읽음: 지금 항목 유지, 새 항목만 붙임');
+    // 시험용 가짜 도구 PATH(WY_OPS_KEEP_PATH)면 다시 읽지 않음
+    process.env.WY_OPS_KEEP_PATH = '1';
+    calls.length = 0;
+    install(['python'], { run: runPs, home });
+    assert.ok(!calls.includes('powershell'));
+  } finally {
+    process.env.Path = savedPath;
+    if (savedKeep === undefined) delete process.env.WY_OPS_KEEP_PATH;
+    else process.env.WY_OPS_KEEP_PATH = savedKeep;
+  }
 } finally {
   rmTree(home);
 }

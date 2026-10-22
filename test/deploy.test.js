@@ -39,6 +39,9 @@ try {
   put('.claude/agents/x.md', 'x');
   put('docs/plan.md', 'x');
   put('vscode/docs/keep.md', 'x');
+  put('CLAUDE.md', 'x');
+  put('design/mock.html', 'x');
+  put('templates/CLAUDE.md', 'x');
   const c1 = commit('v1');
 
   // 1. 첫 배포: 버전 폴더·current·deployed.json, 테스트 제외, 껍데기 폴더
@@ -50,6 +53,8 @@ try {
   assert.ok(!fs.existsSync(path.join(cur, 'vscode', 'test')) && !fs.existsSync(path.join(cur, 'lib', 'x.test.js')), '테스트는 설치하지 않음');
   assert.ok(!fs.existsSync(path.join(cur, '.claude')) && !fs.existsSync(path.join(cur, 'docs')), '패키지 최상위 .claude/·docs/는 설치하지 않음');
   assert.ok(fs.existsSync(path.join(cur, 'vscode', 'docs', 'keep.md')), '하위 폴더의 docs/는 설치함');
+  assert.ok(!fs.existsSync(path.join(cur, 'CLAUDE.md')) && !fs.existsSync(path.join(cur, 'design')), '패키지 최상위 CLAUDE.md·design/은 설치하지 않음');
+  assert.ok(fs.existsSync(path.join(cur, 'templates', 'CLAUDE.md')), '하위 폴더의 CLAUDE.md는 설치함');
   const dep = JSON.parse(fs.readFileSync(path.join(cur, 'deployed.json'), 'utf8'));
   assert.deepStrictEqual([dep.version, dep.commit, dep.stubHash], ['0.6.0', c1, r1.stubHash]);
   const sp = JSON.parse(fs.readFileSync(path.join(cur, 'stub-ext', 'package.json'), 'utf8'));

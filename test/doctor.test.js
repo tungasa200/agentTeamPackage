@@ -77,6 +77,7 @@ function makePc(name, { home: homeName = 'home' } = {}) {
     if (cmd === 'git' && args.includes('worktree')) return state.wtList === null ? { status: 128, stdout: '' } : ok(state.wtList || `worktree ${repo.replace(/\\/g, '/')}\nHEAD ${HEAD}\nbranch refs/heads/main\n\n`);
     if (cmd === 'git' && args.includes('branch')) return ok(state.wtBranches || '');
     if (cmd === 'git' && args.includes('status')) return ok(state.wtStatus || '');
+    if (cmd === 'git' && args.includes('config')) return state.gitUser && args.includes(state.gitUser) ? { status: 1, stdout: '' } : ok(args.includes('user.email') ? 'me@example.com\n' : 'Me\n');
     if (cmd === 'code' && args[0] === '--version') return ok('1.140.0\n');
     if (cmd === 'code' && args[0] === '--list-extensions') return ok(state.extensions.join('\n') + '\n');
     if (cmd === 'claude' && args[0] === '--version') return ok('2.1.292 (Claude Code)\n');
@@ -185,6 +186,16 @@ try {
     assert.deepStrictEqual([r.hooks.level, r.deny.level], ['fail', 'fail'], '깨진 settings');
   }
 
+  // 3-1. git 작성자: 비면 주의, 값은 보이지 않음
+  {
+    const pc = makePc('gituser');
+    let r = byId(doctor.checkAll(pc.opts))['git-user'];
+    assert.ok(r.level === 'ok' && !r.detail.includes('Me') && !r.detail.includes('me@example.com'), JSON.stringify(r));
+    pc.state.gitUser = 'user.email';
+    r = byId(doctor.checkAll(pc.opts))['git-user'];
+    assert.ok(r.level === 'warn' && r.detail.startsWith('user.email 비어') && r.fix === 'git config --global user.email "<이메일>"', JSON.stringify(r));
+  }
+
   // 4. 설치본: 없음·커밋 다름
   {
     const pc = makePc('install');
@@ -210,7 +221,7 @@ try {
       }
       return runHead('bbb2222')(cmd, args);
     };
-    s = byId(doctor.checkAll({ ...pc.opts, run: runDiff(['docs/진행현황.md', '.claude/agents/X-pm.md', 'test/doctor.test.js', 'vscode/test/a.test.js']) })).install;
+    s = byId(doctor.checkAll({ ...pc.opts, run: runDiff(['docs/진행현황.md', '.claude/agents/X-pm.md', 'CLAUDE.md', 'design/m.html', 'test/doctor.test.js', 'vscode/test/a.test.js']) })).install;
     assert.ok(s.level === 'ok' && s.detail === '설치본 aaa1111 (HEAD bbb2222, 배포 대상 변경 없음)', JSON.stringify(s));
     s = byId(doctor.checkAll({ ...pc.opts, run: runDiff(['docs/진행현황.md', 'lib/doctor.js']) })).install;
     assert.ok(s.level === 'fail' && s.detail.includes('HEAD bbb2222와 다름') && s.detail.includes('lib/doctor.js') && !s.detail.includes('docs/'), JSON.stringify(s));
