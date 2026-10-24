@@ -174,6 +174,15 @@ try {
     assert.ok(h.fix.includes('install.ps1" setup'), '고치기');
   }
 
+  // 2-1. settings.local.json 자체가 없으면(새 PC, setup 전) 그 사실을 말함
+  {
+    const pc = makePc('hooks-nofile');
+    fs.unlinkSync(pc.settingsFile);
+    const h = byId(doctor.checkAll(pc.opts)).hooks;
+    assert.strictEqual(h.level, 'fail');
+    assert.ok(h.detail.includes('setup을 아직 안 돌림'), '파일 없음 안내');
+  }
+
   // 3. deny 줄 빠짐, settings 깨짐
   {
     const pc = makePc('deny');
