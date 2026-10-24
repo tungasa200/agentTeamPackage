@@ -431,3 +431,28 @@ body.vscode-high-contrast .pm-box.is-perm { outline: 1px dashed var(--err); outl
   .wide { display: none; }
   .narrow { display: inline; }
 }
+
+/* 소형 화면 모드(ui.compact, MiniBook 등): 눌리는 칸 40px, 보조 글자 12px 이상, 좌우 여백 8px.
+   켜졌을 때만 <body class="compact">라 꺼져 있으면 위 규칙 그대로다 */
+body.compact { padding-left: 8px; padding-right: 8px; }
+body.compact :is(.stamp, .aside, .proc-count, .proc-mem, .orphans-result, .sess-others, .s-meta, .s-pending, .s-stuck, .s-stuck code, .s-id, .badge, .s-offwarn, .st-why, .pm-name small, .pm-top .elapsed, .pm-why, .pm-note, .ctx-row, .steps4 small) { font-size: 12px; }
+body.compact h2 { font-size: 12px; }
+body.compact :is(.icon-btn, .open-btn, .btn, .ack-btn, .fold) { min-height: 40px; }
+body.compact .icon-btn { min-width: 40px; justify-content: center; }
+body.compact .btn { height: auto; min-height: 40px; }
+body.compact .fold { margin-top: 0; margin-bottom: 0; }
+body.compact .open-btn { min-width: 56px; }
+body.compact .pm-acts { gap: 8px; flex-wrap: wrap; }
+/* 세션 표: 고정 열(190px)을 풀어 역할 이름이 한 줄 전체를 쓰고, 상태·경과·열기가 그 아래 한 줄 */
+body.compact .sessions, body.compact .sessions tbody { display: block; }
+body.compact .sessions thead { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+body.compact .sessions tr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+body.compact .sessions tr.warn-row { border-top: 0; padding-top: 0; }
+body.compact .sessions tr td { padding: 0; border-top: 0; border-radius: 0; background: transparent; }
+body.compact .sessions tr > td:first-child { grid-column: 1 / -1; }
+body.compact .sessions tr.warn-row > td { padding-top: 2px; }
+body.compact .sessions tr.fold-row { padding: 4px 0 0; }
+body.compact .state { flex-wrap: wrap; white-space: normal; }
+body.compact tr.st-row-permission { background: color-mix(in srgb, var(--err) 10%, transparent); }
+body.compact :is(tr.needs-answer, tr.st-row-offwarn, tr.is-stuck) { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+body.compact tr.is-revealed { background: color-mix(in srgb, var(--focus) 22%, transparent); }
