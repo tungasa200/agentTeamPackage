@@ -128,7 +128,7 @@ try {
   fs.unlinkSync(localFile);
   fs.unlinkSync(dst);
   out = ps(['start', 'AB-qa']);
-  assert.ok(/승인 가드 훅.*없어 띄우지 않습니다/.test(out) && !/BG /.test(out), `settings.local.json 없음 → 거부\n${out}`);
+  assert.ok(/본 저장소 \.claude\/settings\.local\.json이 없습니다.*install\.ps1 setup/.test(out) && !/승인 가드 훅/.test(out) && !/BG /.test(out), `settings.local.json 없음 → 원본 없음 안내\n${out}`);
   fs.writeFileSync(localFile, local(4));
   // 복사 대상 폴더(.claude) 자리에 파일을 두면 복사 실패(Copy-Item -Force는 읽기 전용도 덮어써서 그것으로는 못 냄)
   const wtClaude = path.join(wt('AB-qa'), '.claude');
