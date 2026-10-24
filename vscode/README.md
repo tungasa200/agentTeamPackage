@@ -31,6 +31,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 - 입력 대기는 할 일을 마치고 다음 지시를 기다리는 상태, 승인 대기는 권한·샌드박스·선택 대화상자 응답을 기다리는 상태다(`claude agents`의 `waitingFor`로 구분). 상태 위에 마우스를 올리면 기다리는 이유가 보인다.
 - 대화 기록 위치(S4 WT-06): Claude Code는 세션 실행 폴더 경로의 영문·숫자 외 문자를 `-`로 바꾼 이름으로 `~/.claude/projects/<키>/`에 기록한다. 역할 worktree(`<저장소>/.claude/worktrees/<역할>`)에서 뜬 세션은 키가 `<저장소 키>--claude-worktrees-<역할>`이다. 세션 표의 토큰·멈춤 감지는 `claude agents`의 `cwd` 키에서 먼저 찾고 없으면 저장소 키를 본다(`contextSize.transcriptFile`). 활동 탭은 저장소 키와 `<저장소 키>--claude-worktrees-*` 폴더를 함께 읽는다(`sessionActivity.transcriptDirs`, 접두를 정확히 맞춰 `my-app2` 같은 다른 저장소는 섞지 않음).
 - 여유 메모리가 1GB 미만이면 막대와 문구가 경고색으로 바뀐다. 막대 위의 세로선이 1GB 기준이다.
+- 소형 화면 모드: `.claude/wy-ops.json`의 `ui.compact: true`이면 세션 현황·승인 센터·활동 탭이 터치용으로 바뀐다(버튼 40px·승인/거부 44px, 글자 12px, 단축키 표시 숨김, 세션 표는 이름 아래 한 줄, 상태 이유를 글자로 표시). 기본은 꺼짐.
 
 ### pm 줄
 

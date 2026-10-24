@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
-const { loadOpsConfig } = require('./opsConfig');
+const { loadOpsConfig, uiBodyClass } = require('./opsConfig');
 const { rootFor } = require('./approvalStore');
 const { readSessionStatus, readAgents, splitByProject, treeMB } = require('./agentsReader');
 const { notifyStuck } = require('./stuckTool');
@@ -219,6 +219,7 @@ class Provider {
       .readFileSync(path.join(media.fsPath, 'panel.html'), 'utf8')
       .replace(/{{csp}}/g, csp)
       .replace(/{{nonce}}/g, nonce)
+      .replace(/{{bodyClass}}/g, uiBodyClass(workspaceDir() ? loadOpsConfig(workspaceDir()) : null))
       .replace(/{{css}}/g, uri('panel.css'))
       .replace(/{{js}}/g, uri('panel.js'));
   }

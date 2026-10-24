@@ -225,3 +225,11 @@ body.vscode-high-contrast-light .seg-ctl button[aria-pressed="true"] { outline: 
 @media (prefers-reduced-motion: reduce) {
   .wy *, .wy *::before, .wy *::after { animation: none !important; transition: none !important; }
 }
+
+/* 소형 화면 모드(ui.compact): 눌리는 칸 40px, 보조 글자 12px 이상 */
+.compact :is(.seg-ctl button, .more, .to-card) { min-height: 40px; height: auto; }
+.compact .seg-ctl button { padding: 0 14px; }
+.compact .msg > button { min-height: 40px; }
+.compact .sc { min-height: 40px; }
+.compact :is(.sc .ac, .msg .tm, .day, .legend, .th-h .tm, .sum, .sn .who, .pill) { font-size: 12px; }
+.compact .more, .compact .to-card { padding-left: 10px; padding-right: 10px; }

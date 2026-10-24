@@ -42,4 +42,9 @@ function loadOpsConfig(start) {
   return { ...merge(base, readJson(path.join(root, LOCAL))), root };
 }
 
-module.exports = { loadOpsConfig, findProjectRoot };
+// 소형 화면 모드(ui.compact, 보통 PC별 wy-ops.local.json): 켜졌을 때만 webview <body>에 'compact' 클래스
+function uiBodyClass(ops) {
+  return ops && ops.ui && ops.ui.compact === true ? 'compact' : '';
+}
+
+module.exports = { loadOpsConfig, findProjectRoot, uiBodyClass };
