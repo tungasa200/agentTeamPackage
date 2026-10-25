@@ -134,7 +134,10 @@ try {
   fs.mkdirSync(path.join(home, '.claude', 'skills', 'agent-reach'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'skills', 'agent-reach', 'SKILL.md'), '');
   calls.length = 0;
-  res = Object.fromEntries(install(['python', 'pipx', 'agent-reach', 'graphify'], { run, home }).map((r) => [r.id, r]));
+  const events = [];
+  res = Object.fromEntries(install(['python', 'pipx', 'agent-reach', 'graphify'], { run, home, onItem: (it, st) => events.push(`${it.id} ${st}`) }).map((r) => [r.id, r]));
+  // onItem(설치 마법사 진행 줄): 설치하는 것만 installing, 모든 항목이 결과 state로 끝남
+  assert.deepStrictEqual(events, ['python installing', 'python failed', 'pipx skipped', 'agent-reach ok', 'graphify skipped']);
   assert.strictEqual(res.python.state, 'failed');
   assert.match(res.python.error, /winget install .*: last line/);
   assert.strictEqual(res.pipx.state, 'skipped');

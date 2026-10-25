@@ -87,7 +87,7 @@ try {
 
   // 3-1. --dry-run: 아무것도 바꾸지 않음
   let r = connect({ ...opts, dryRun: true }, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'manual', key: 'todo', config: 'todo', 'remote-ssh': 'todo', 'local-sound': 'todo', shortcut: 'todo', control: 'todo' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'manual', key: 'todo', config: 'todo', 'remote-ssh': 'todo', 'local-sound': 'todo', shortcut: 'todo', control: 'todo', keybinding: 'todo' });
   assert.ok(!fs.existsSync(path.join(home, '.ssh')) && !fs.readdirSync(desktop).length, 'dry-run은 쓰지 않음');
   assert.strictEqual(r.hostLine, null);
   assert.ok(!calls.some((c) => /ssh-keygen|--install-extension|\.Save\(\)/.test(c)));
@@ -103,13 +103,15 @@ try {
   out.length = 0;
   r = connect(opts, deps);
   assert.ok(r.ok, JSON.stringify(r.results));
-  assert.ok(r.results.every((x) => x.state === 'done') && r.results.length === 6);
+  assert.ok(r.results.every((x) => x.state === 'done') && r.results.length === 7);
   assert.ok(fs.existsSync(path.join(desktop, 'wy-host 제어.lnk')), '제어 창은 --folder·--attach 없이도(호스트 하나에 하나)');
   const cfg = fs.readFileSync(path.join(home, '.ssh', 'config'), 'utf8');
   assert.ok(cfg.startsWith(other.trimEnd()) && cfg.includes('Host wy-host\n    HostName wy-host\n    User dev\n    IdentityFile ~/.ssh/id_ed25519\n'));
   assert.strictEqual(fs.readFileSync(path.join(home, '.ssh', 'config.wy-bak'), 'utf8'), other, '원래 config 백업');
   assert.ok(exts.has(REMOTE_SSH) && fs.existsSync(path.join(desktop, 'wy-host.lnk')));
   assert.ok(exts.has(`${LOCAL_EXT}@${LOCAL_VER}`) && vsixFiles.length === 1 && !fs.existsSync(vsixFiles[0]), '소리 확장 설치, 임시 vsix는 지움');
+  const kbFile = path.join(home, 'AppData', 'Roaming', 'Code', 'User', 'keybindings.json');
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(kbFile, 'utf8')), [{ key: 'shift+enter', command: 'workbench.action.terminal.sendSequence', args: { text: '\u001b\r' }, when: 'terminalFocus' }], '없던 keybindings.json을 만들고 터미널 shift+enter 한 줄');
   assert.ok(r.hostLine.endsWith("host --add-key 'ssh-ed25519 AAAAC3fake wy-ops-connect-wy-host'"));
   assert.ok(out.includes('호스트의 관리자 PowerShell에서 실행할 한 줄(공개키 등록):'));
   assert.ok(out.some((s) => s.includes('ssh -N -L 19222:localhost:9222 wy-host')), 'Chrome 포트 전달은 접속 PC 쪽 다른 포트(0.8.0 실측)');
@@ -124,7 +126,7 @@ try {
 
   // 3-5. 호스트 주소가 바뀌면 그 블록만 갱신. 폴더가 없으면 바로가기 건너뜀
   r = connect({ alias: 'wy-host', host: '100.100.1.2', yes: true }, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'ok', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'skip', control: 'ok' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'ok', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'skip', control: 'ok', keybinding: 'ok' });
   assert.ok(fs.readFileSync(path.join(home, '.ssh', 'config'), 'utf8').includes('    HostName 100.100.1.2\n    User dev\n'));
 
   // 3-6. 개인 키만 있고 .pub이 없으면 손으로
@@ -133,6 +135,26 @@ try {
   assert.strictEqual(state(r.plan).key, 'manual');
 } finally {
   rmTree(root);
+}
+
+// 3b. keybindings.json(JSONC): 주석·다른 줄 보존하고 배열 끝에 추가, 터미널용 shift+enter가 있으면 그대로, 못 읽으면 손으로
+{
+  const { keybindingsPlan } = require('../lib/connect');
+  const jsonc = '// 내 키\r\n[\r\n  { "key": "ctrl+k", "command": "a" } // 끝 주석, "]"\r\n  /* 막힌 주석 ] */\r\n]\r\n';
+  const p = keybindingsPlan(jsonc);
+  assert.strictEqual(p.state, 'todo');
+  assert.ok(p.text.startsWith('// 내 키\r\n[\r\n  { "key": "ctrl+k", "command": "a" }, // 끝 주석, "]"') && p.text.includes('/* 막힌 주석 ] */\r\n  {"key":"shift+enter"') && p.text.endsWith('}\r\n]\r\n'), p.text);
+  assert.strictEqual(keybindingsPlan(p.text).state, 'ok', '넣은 뒤에는 이미 있음');
+  assert.strictEqual(keybindingsPlan('[{"key":"ctrl+k","command":"a"},]').text.split('{"key":"shift').length, 2, '끝 쉼표가 있으면 쉼표를 더하지 않음');
+  assert.ok(!/,,/.test(keybindingsPlan('[{"key":"ctrl+k","command":"a"},]').text));
+  assert.strictEqual(keybindingsPlan('[\n  { "key": "Shift+Enter", "command": "mine", "when": "terminalFocus && x" }\n]').state, 'ok', '내가 정한 터미널 shift+enter는 건드리지 않음');
+  assert.strictEqual(keybindingsPlan('[]').text, '[\n  ' + JSON.stringify({ key: 'shift+enter', command: 'workbench.action.terminal.sendSequence', args: { text: '\u001b\r' }, when: 'terminalFocus' }) + '\n]');
+  assert.strictEqual(keybindingsPlan('{ broken').state, 'skip');
+  assert.strictEqual(keybindingsPlan('{}').state, 'skip');
+  assert.strictEqual(keybindingsPlan('[{"key":"shift+enter","command":"x","when":"!terminalFocus"}]').state, 'todo', '!terminalFocus는 없는 것');
+  assert.strictEqual(keybindingsPlan('[{"key":"shift+enter","command":"-workbench.action.terminal.sendSequence","when":"terminalFocus"}]').state, 'todo', '지우는 항목은 없는 것');
+  const onlyComment = keybindingsPlan('// Place your key bindings in this file');
+  assert.ok(onlyComment.state === 'todo' && /^\/\/ Place[^\n]*\n\[\n  \{"key":"shift\+enter"/.test(onlyComment.text) && JSON.parse(onlyComment.text.replace(/^\/\/.*\n/, '')).length === 1, `주석뿐인 파일은 주석 뒤에 배열\n${onlyComment.text}`);
 }
 
 // 4. --attach는 쓰지 않음(HC-01): 받아도 검사하지 않고 무시, 한 줄 안내
@@ -201,7 +223,7 @@ try {
   // 5-2. ssh-agent가 멈춰 있으면 안내(손으로)·ssh-add 건너뜀, 키는 대화형으로 만듦. --attach는 무시하고 안내 한 줄
   const opts = { alias: 'wy-host', host: 'wy-host', folder: 'C:\\projects\\my-project', attach: 'AB-pm', passphrase: true, yes: true };
   let r = connect(opts, deps);
-  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'todo', agent: 'manual', 'ssh-add': 'skip', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'todo', 'old-attach': 'todo', control: 'todo' });
+  assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'todo', agent: 'manual', 'ssh-add': 'skip', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'todo', 'old-attach': 'todo', control: 'todo', keybinding: 'todo' });
   assert.ok(said.some((s) => s.includes('--attach AB-pm는 더 쓰지 않아 무시합니다')), said.join('\n'));
   assert.ok(!r.ok, '손으로 할 단계가 남음');
   assert.ok(r.results.every((x) => x.state === 'done'), JSON.stringify(r.results));

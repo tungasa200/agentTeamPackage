@@ -554,14 +554,15 @@ function Read-Install {
         if ($state -eq 'have') { continue }  # Git 등 목록에 없는 도구는 이미 있으면 보이지 않음
         $nm = if ($k -like 'stack-*') { Get-StackToolName ($k -replace '^stack-', '') $label } elseif ($label) { $label } elseif ($k -eq 'git') { 'Git' } else { $k }
         $r = @{ Key = $k; Name = $nm; State = 'wait'; Ui = $null }
-        $at = $(if ($k -like 'stack-*') { $St.Rows.IndexOf((Find-Row 'folder')) } else { $St.Rows.IndexOf((Find-Row 'ops')) })
+        $at = $(if ($k -like 'stack-*' -or $k -like 'extra-*') { $St.Rows.IndexOf((Find-Row 'folder')) } else { $St.Rows.IndexOf((Find-Row 'ops')) })
         $St.Rows.Insert($at, $r); Show-Step
       }
       switch ($state) {
         'have' { $r.State = 'have' }
         'installing' { $r.State = 'run'; $St.RunSeg = New-Object Text.StringBuilder }
         'installed' { $r.State = 'installed' }
-        'failed' { $r.State = 'fail'; $St.FailMsg = Get-FailMsg $r $code $St.RunSeg.ToString() }
+        # 함께 까는 도구(extra-*)는 실패해도 설치를 멈추지 않는다: 줄만 ✕, 마지막 점검에서 [자세히]로 다시 설치 명령을 보인다
+        'failed' { $r.State = 'fail'; if ($k -notlike 'extra-*') { $St.FailMsg = Get-FailMsg $r $code $St.RunSeg.ToString() } }
       }
       Update-RowUi $r
       if ($state -ne 'installing' -and $St.CancelPending) { Stop-Hidden $run; Close-Wizard; return }
@@ -773,9 +774,11 @@ function Open-ClaudeWindow {
 }
 
 # 7단계: 점검 결과를 거친 단계 이름으로 묶는다(점검 항목 이름은 숨김)
-$Groups = [ordered]@{ install = '프로그램 설치'; folder = '프로젝트 폴더 준비'; claude = 'Claude 로그인'; gh = 'GitHub 로그인'; trust = '폴더 사용 허락' }
-function Get-GroupOf([string]$id) {
-  switch ($id) { 'tools' { 'install' } 'stack-tools' { 'install' } 'login-github' { 'gh' } 'host' { $null } default { 'folder' } }
+# extras(함께 까는 도구·플러그인)는 빠져도 pm 시작을 막지 않는다(남은 일로만 보임): 마법사만으로 pm까지 뜨게
+$Groups = [ordered]@{ install = '프로그램 설치'; folder = '프로젝트 폴더 준비'; extras = '함께 까는 도구'; claude = 'Claude 로그인'; gh = 'GitHub 로그인'; trust = '폴더 사용 허락' }
+# 빠진 플러그인(점검이 missing을 줌)만 '함께 까는 도구'로, 목록을 읽지 못한 것(Claude CLI 고장)·버전 낮음은 'folder'로
+function Get-GroupOf([string]$id, $missing) {
+  switch ($id) { 'tools' { 'install' } 'stack-tools' { 'install' } 'extras' { 'extras' } 'plugins' { if ($missing) { 'extras' } else { 'folder' } } 'login-github' { 'gh' } 'host' { $null } default { 'folder' } }
 }
 function Start-Doctor {
   $St.Doctor = $null; $St.Waiting = 'doctor'
@@ -791,6 +794,8 @@ function Start-Doctor {
     Show-Step
   }
 }
+# 사용자가 새 PowerShell 창에 붙여 넣을 설치본 명령(이 프로젝트 대상)
+function Get-InstalledCmd([string]$sub) { 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" ' + $sub + ' --project ' + (QP $St.Project) }
 # [자세히] 창(W7-d) 문구: 점검 원문 대신 항목마다 쉬운 말 두 줄(굵은 첫 줄 + 할 일), 목업 '쓰지 않는 용어'
 function Get-FriendlyLine($r, [string]$group) {
   switch ($r.id) {
@@ -799,7 +804,7 @@ function Get-FriendlyLine($r, [string]$group) {
       $d = "$($r.detail)"
       $names = @(@{ P = '(^|[:,] *)git\b'; N = 'Git' }, @{ P = '(^|[:,] *)code\('; N = 'VS Code' }, @{ P = '(^|[:,] *)claude\('; N = 'Claude Code' }, @{ P = '(^|[:,] *)node '; N = 'Node.js' }, @{ P = 'PowerShell'; N = 'PowerShell 5.1' }) |
         Where-Object { $d -cmatch $_.P } | ForEach-Object { $_.N }
-      $cmd = 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.wy-tools\wy-ops\current\install.ps1" doctor --project ' + (QP $St.Project)
+      $cmd = Get-InstalledCmd 'doctor'
       return @{ Head = '이 창에서 찾지 못한 프로그램이 있습니다' + $(if ($names) { ': ' + ($names -join ', ') } else { '.' })
         Do = '설치 마법사를 닫고 PowerShell 창을 새로 열어 아래 명령으로 다시 점검하세요. 거기서도 없는 프로그램은 설치할지 묻습니다(y로 설치).'; Cmd = $cmd }
     }
@@ -808,6 +813,12 @@ function Get-FriendlyLine($r, [string]$group) {
       return @{ Head = '프로젝트 개발 도구가 아직 없습니다' + $(if ($names) { ": $names" } else { '.' }); Do = '설치 방법은 VS Code의 WY Ops 화면 할 일에 있습니다.' }
     }
     'extension' { return @{ Head = 'VS Code를 다시 열어 주세요.'; Do = 'WY Ops 화면이 아직 보이지 않을 수 있습니다. VS Code를 닫았다가 다시 열면 나타납니다.' } }
+    { $_ -in 'extras', 'plugins' } {
+      # 점검이 준 빠진 것 이름(missing). 다시 설치는 setup(빠진 것만 설치, pm은 건드리지 않음). missing이 없으면(버전 낮음 등) 점검 원문과 고치는 명령
+      if (-not $r.missing) { return @{ Head = "$($r.title): $($r.detail)"; Do = 'PowerShell 창에서 아래 명령을 실행하세요.'; Cmd = "$($r.fix)" } }
+      return @{ Head = 'AI 도우미가 쓰는 도구 일부를 받지 못했습니다: ' + (@($r.missing) -join ', ')
+        Do = '인터넷 연결을 확인하고 PowerShell 창에서 아래 명령으로 다시 받으세요. 이미 있는 것은 건너뜁니다.'; Cmd = (Get-InstalledCmd 'setup') }
+    }
     default { return @{ Head = "$($group)를 확인하지 못했습니다."; Do = 'setup을 다시 실행해 주세요.' } }
   }
 }
@@ -840,11 +851,12 @@ function New-DetailDialog($items) {
   return $d
 }
 function Get-Final {
-  $lv = @{ install = 'ok'; folder = 'ok'; claude = $(if ($St.ClaudeOk) { 'ok' } else { 'warn' }); gh = 'ok'; trust = $(if ($St.TrustOk) { 'ok' } else { 'warn' }) }
+  $lv = @{ install = 'ok'; folder = 'ok'; extras = 'ok'; claude = $(if ($St.ClaudeOk) { 'ok' } else { 'warn' }); gh = 'ok'; trust = $(if ($St.TrustOk) { 'ok' } else { 'warn' }) }
   $detail = @{}
   foreach ($r in @($St.Doctor)) {
-    $gname = Get-GroupOf $r.id; if (-not $gname) { continue }
-    if ($r.level -eq 'fail' -or ($r.level -eq 'warn' -and $lv[$gname] -eq 'ok')) { $lv[$gname] = $r.level }
+    $gname = Get-GroupOf $r.id $r.missing; if (-not $gname) { continue }
+    $level = if ($gname -eq 'extras' -and $r.level -eq 'fail') { 'warn' } else { $r.level }  # 함께 까는 도구는 pm 시작을 막지 않음(남은 일로만)
+    if ($level -eq 'fail' -or ($level -eq 'warn' -and $lv[$gname] -eq 'ok')) { $lv[$gname] = $level }
     if ($r.level -ne 'ok') {
       Write-Log "점검 $($r.id) $($r.level): $($r.title) $($r.detail) $($r.fix)"  # 원문(개발 용어)은 로그에만
       if (-not $detail[$gname]) { $detail[$gname] = @() }
@@ -888,7 +900,7 @@ function Show-Step7 {
   if ($lv.claude -eq 'warn') { [void]$left.Add(@{ Text = 'Claude 로그인이 확인되지 않았습니다'; Btn = '지금 하기'; Go = 4 }) }
   if ($lv.trust -eq 'warn') { [void]$left.Add(@{ Text = '폴더 사용 허락이 확인되지 않았습니다'; Btn = '지금 하기'; Go = 6 }) }
   if ($St.ClaudeMd -eq 'append') { [void]$left.Add(@{ Text = '프로젝트 규칙 파일이 이미 있어 그대로 두었습니다'; Btn = '붙일 내용 보기'; Note = $true; Help = 'AI 도우미가 읽는 규칙 파일(CLAUDE.md)입니다. 이미 있던 파일은 고치지 않았습니다. [붙일 내용 보기]로 연 내용을 그 파일 끝에 붙여 넣으세요.' }) }
-  foreach ($k in 'install', 'folder') { if ($lv[$k] -eq 'warn') { [void]$left.Add(@{ Text = "$($Groups[$k])에 확인할 것이 있습니다"; Btn = '자세히'; Detail = @($fin.Detail[$k]) }) } }
+  foreach ($k in 'install', 'folder', 'extras') { if ($lv[$k] -eq 'warn') { [void]$left.Add(@{ Text = "$($Groups[$k])에 확인할 것이 있습니다"; Btn = '자세히'; Detail = @($fin.Detail[$k]) }) } }
   if ($bad.Count) { Add-Title '설치를 끝내지 못했습니다' }
   elseif ($left.Count) { Add-Title "설치를 마쳤습니다 (남은 일 $($left.Count)개)" }
   else { Add-Title '설치를 마쳤습니다' }

@@ -133,7 +133,7 @@ try {
   // 백그라운드 pm이 없으면 --agent <pm>으로 --bg, 시작 지시는 인수인계 경로 한 줄(시작 규칙은 역할 파일에)
   out = ps(['start-pm', `'${handoff}'`]);
   assert.ok(out.includes(`BG --bg --agent AB-pm --name AB-pm "[AB-pm 시작] 인수인계: ${hp}"`), `pm은 --agent로 --bg, 인수인계 한 줄\n${out}`);
-  assert.ok(/이전 AB-pm 을 멈추세요: claude stop ide1/.test(out) && !/창을 닫으세요/.test(out), `이전 pm은 종류와 상관없이 claude stop\n${out}`);
+  assert.ok(/이전 AB-pm 을 멈추세요: claude.cmd stop ide1/.test(out) && !/창을 닫으세요/.test(out), `이전 pm은 종류와 상관없이 claude stop\n${out}`);
   out = ps(['start-pm']);
   assert.ok(out.includes('BG --bg --agent AB-pm --name AB-pm "[AB-pm 시작] 인수인계 없음"'), `인수인계 없이\n${out}`);
   // start-pm latest(0.10.0): 가장 최근 pm 인수인계(USERPROFILE의 .claude/session-data), 없으면 인수인계 없이
@@ -157,14 +157,14 @@ try {
   out = ps(['start-pm', `'${handoff}'`]);
   assert.ok(/이미 실행 중입니다\(bg9\)/.test(out) && !/BG /.test(out), `실행 중이면 거부\n${out}`);
   out = ps(['start-pm', `'${handoff}'`, '-Force']);
-  assert.ok(/BG --bg --agent AB-pm --name AB-pm /.test(out) && /claude stop bg9/.test(out), `-Force: 띄우고 이전 pm 멈추기 안내\n${out}`);
+  assert.ok(/BG --bg --agent AB-pm --name AB-pm /.test(out) && /claude.cmd stop bg9/.test(out), `-Force: 띄우고 이전 pm 멈추기 안내\n${out}`);
 
   // claude --bg가 실패(종료 코드≠0)하면 성공 문구 없이 실패를 알린다(0.8.2). rotate는 이전 세션을 이미 지웠다고 이어 띄우는 명령까지
   const fail = { FAKE_BG_FAIL: '1' };
   write([{ id: 'q5', name: 'AB-qa', kind: 'background', state: 'blocked', status: 'idle', pid: 301, startedAt: 1, sessionId: 'sid-q5' }]);
   out = ps(['rotate', 'AB-qa', 'none'], fail);
   assert.ok(/BGFAIL --bg --agent AB-qa/.test(out), `rotate: (멈추고 지운 뒤) 띄우기 시도\n${out}`);
-  assert.ok(/백그라운드 시작 실패\(종료 코드 1\)/.test(out) && /이미 멈추고 목록에서 지웠습니다/.test(out) && out.includes('claude --bg --resume sid-q5 --name AB-qa'), `rotate 실패 안내\n${out}`);
+  assert.ok(/백그라운드 시작 실패\(종료 코드 1\)/.test(out) && /이미 멈추고 목록에서 지웠습니다/.test(out) && out.includes('claude.cmd --bg --resume sid-q5 --name AB-qa'), `rotate 실패 안내\n${out}`);
   assert.ok(!/세션을 교체했습니다/.test(out), `실패면 성공 문구 없음\n${out}`);
   out = ps(['rotate', 'AB-qa', 'none']);
   assert.ok(/BG --bg --agent AB-qa/.test(out) && /세션을 교체했습니다/.test(out), `성공이면 그대로\n${out}`);
@@ -189,7 +189,7 @@ try {
 
   // pm-cmd: 원격 운용 순서(start-pm -Force → 이전 pm 종료 → attach)
   out = ps(['pm-cmd', `'${handoff}'`]);
-  assert.ok(out.includes(`start-pm '${hp}' -Force`) && /attach AB-pm/.test(out) && /claude stop <id>/.test(out) && !/대화형|claude.cmd/.test(out), `pm-cmd 안내(대화형 잔재 없음, D-36)\n${out}`);
+  assert.ok(out.includes(`start-pm '${hp}' -Force`) && /attach AB-pm/.test(out) && /claude.cmd stop <id>/.test(out) && !/대화형|claude.cmd (?!stop)/.test(out), `pm-cmd 안내(대화형 잔재 없음, D-36)\n${out}`);
 
   // D-36 뒤 새 설치: pm이 agent:true라 역할 목록에 들어가도 health에 pm 줄은 하나, start·rotate·prep은 start-pm으로
   fs.writeFileSync(path.join(repoDir, '.claude', 'wy-ops.json'), JSON.stringify({
