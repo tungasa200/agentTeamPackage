@@ -31,7 +31,7 @@ VS Code 사이드바에서 메모리, 프로세스 그룹별 사용량, Claude �
 - 입력 대기는 할 일을 마치고 다음 지시를 기다리는 상태, 승인 대기는 권한·샌드박스·선택 대화상자 응답을 기다리는 상태다(`claude agents`의 `waitingFor`로 구분). 상태 위에 마우스를 올리면 기다리는 이유가 보인다.
 - 대화 기록 위치(S4 WT-06): Claude Code는 세션 실행 폴더 경로의 영문·숫자 외 문자를 `-`로 바꾼 이름으로 `~/.claude/projects/<키>/`에 기록한다. 역할 worktree(`<저장소>/.claude/worktrees/<역할>`)에서 뜬 세션은 키가 `<저장소 키>--claude-worktrees-<역할>`이다. 세션 표의 토큰·멈춤 감지는 `claude agents`의 `cwd` 키에서 먼저 찾고 없으면 저장소 키를 본다(`contextSize.transcriptFile`). 활동 탭은 저장소 키와 `<저장소 키>--claude-worktrees-*` 폴더를 함께 읽는다(`sessionActivity.transcriptDirs`, 접두를 정확히 맞춰 `my-app2` 같은 다른 저장소는 섞지 않음).
 - 여유 메모리가 1GB 미만이면 막대와 문구가 경고색으로 바뀐다. 막대 위의 세로선이 1GB 기준이다.
-- 소형 화면 모드: `.claude/wy-ops.local.json`(PC별)의 `ui.compact: true`이면(local을 wy-ops.json 위에 합쳐 읽으므로 wy-ops.json에 넣어도 동작하지만 모든 PC에 걸린다) 세션 현황·승인 센터·활동 탭이 터치용으로 바뀐다(버튼 40px·승인/거부 44px, 글자 12px, 단축키 표시 숨김, 세션 표는 이름 아래 한 줄, 상태 이유를 글자로 표시). 기본은 꺼짐.
+- 소형 화면 모드: 화면이 작은 PC의 VS Code 사용자 설정에 `"wyOps.compact": true`를 넣으면(설정 화면 User 탭의 'WY Ops') 세션 현황·승인 센터·활동 탭이 터치용으로 바뀐다(버튼 40px·승인/거부 44px, 글자 12px, 단축키 표시 숨김, 세션 표는 이름 아래 한 줄, 상태 이유를 글자로 표시). 기본은 꺼짐. 이 설정은 scope `application`이라 사용자 설정에만 두고, 그 PC에서 연 로컬 창과 원격 창(Remote-SSH, 호스트의 모든 프로젝트) 모두에 걸린다. 호스트의 Remote 설정·작업 영역 설정으로는 켜고 끌 수 없고, 설정 동기화(Settings Sync)로 다른 PC에 넘어가지 않는다. 바꾸면 리로드 없이 세 화면을 다시 그린다. 예전 방식 `.claude/wy-ops.local.json`(프로젝트별)의 `ui.compact: true`도 계속 동작한다: 사용자 설정이 꺼져 있거나 없으면 이 값을 따른다(이쪽은 바꾼 뒤 Reload Window 때 반영).
 
 ### pm 줄
 

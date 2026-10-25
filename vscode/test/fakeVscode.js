@@ -42,6 +42,13 @@ function install({ workspace = null } = {}) {
     opened: [],
     subscriptions: [],
     settings: { 'wyOps.approvals.sound': false },
+    configListeners: [],
+  };
+  // 설정 하나를 바꾸고 onDidChangeConfiguration 구독자에게 알린다
+  fake.setSetting = (key, value) => {
+    fake.settings[key] = value;
+    const e = { affectsConfiguration: (s) => key === s || key.startsWith(`${s}.`) };
+    fake.configListeners.forEach((f) => f(e));
   };
 
   const makeWebview = (posts) => ({
@@ -79,6 +86,7 @@ function install({ workspace = null } = {}) {
       workspaceFolders: workspace ? [{ uri: { fsPath: workspace } }] : undefined,
       // 설정은 fake.settings('섹션.키')에서. 테스트 중 소리는 기본으로 끈다
       getConfiguration: (section) => ({ get: (k, d) => { const key = section ? `${section}.${k}` : k; return key in fake.settings ? fake.settings[key] : d; } }),
+      onDidChangeConfiguration: (f) => { fake.configListeners.push(f); return { dispose() {} }; },
     },
     window: {
       get terminals() { return fake.terminals; },
