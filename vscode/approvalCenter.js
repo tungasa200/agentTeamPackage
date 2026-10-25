@@ -1,6 +1,7 @@
 // WY 승인 센터: 작업창 탭 + 상태 표시줄 '승인 대기 N'. 데이터는 approvalStore.js의 파일 저장소.
 const vscode = require('vscode');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const store = require('./approvalStore');
@@ -16,7 +17,12 @@ const POLL = 15000; // 파일 감시가 놓친 변경을 잡는 느린 주기
 const ROLE_POLL = 30000; // 커밋 세션 역할 확인 주기(claude agents)
 
 const KEY_STATE = 'wyApprovals.deviceKey'; // 이 기기의 서명 키(globalState, 기기 단위)
-const ANCHORS_STATE = 'wyApprovals.anchors'; // 이 기기가 고정한 뿌리(기기 단위 하나). 옛 구조는 승인 폴더마다 'wyApprovals.anchors:<폴더>'
+// 이 기기가 고정한 뿌리는 호스트(명부)마다 'wyApprovals.anchors@<호스트>'. 명부는 호스트에 있고 globalState는 접속 PC 쪽이라
+// 한 접속 PC가 여러 호스트에 붙으면 고정도 호스트마다 따로 둔다(D-43). 옛 구조: 기기 단위 'wyApprovals.anchors', 승인 폴더마다 'wyApprovals.anchors:<폴더>'
+const ANCHORS_STATE = 'wyApprovals.anchors';
+
+// 고정 목록 중 모양이 맞는 것만
+const validPins = (list) => (Array.isArray(list) ? list.filter((a) => a && typeof a.fp === 'string' && typeof a.pub === 'string') : []);
 
 // 기기 기본 이름: 확장은 늘 작업 폴더가 있는 쪽(호스트)에서 돌아 os.hostname()이 호스트 이름이다. 창 종류와 기기 id로 구분한다
 function deviceName() {
@@ -122,7 +128,7 @@ class ApprovalCenter {
     }
   }
 
-  // 기기 신뢰(접속 기기 N대): 키·뿌리 고정·기기 명부 모두 기기(호스트) 단위 하나다(globalState는 기기의 VS Code마다 하나라 같은 기기의 창은 함께 쓴다).
+  // 기기 신뢰(접속 기기 N대): 키는 기기 단위 하나, 뿌리 고정은 호스트마다 하나, 기기 명부는 호스트에 하나다(globalState는 기기의 VS Code마다 하나라 같은 기기의 창은 함께 쓴다).
   // 전역 명부가 없으면 옛 구조(승인 폴더마다 명부)에서 한 번 가져오고, 그것도 없으면 이 기기가 뿌리가 된다.
   loadTrust() {
     const state = this.context.globalState;
@@ -132,8 +138,9 @@ class ApprovalCenter {
       if (state) state.update(KEY_STATE, key);
     }
     this.key = key;
-    const anchors = state && state.get(ANCHORS_STATE);
-    this.anchors = Array.isArray(anchors) ? anchors : null; // null: 새 키가 아직 없음 → 옛 고정에서 이어받는다(currentAnchors)
+    this.anchorsKey = `${ANCHORS_STATE}@${os.hostname().toLowerCase()}`;
+    const anchors = state && state.get(this.anchorsKey);
+    this.anchors = Array.isArray(anchors) ? validPins(anchors) : null; // null: 새 키가 아직 없음 → 옛 고정에서 이어받는다(currentAnchors)
     this.legacyAmbiguous = null;
     try {
       const r = trust.importLegacy(this.key, this.legacyAnchors().map((a) => a.fp));
@@ -151,17 +158,18 @@ class ApprovalCenter {
     const out = [];
     for (const k of state.keys()) {
       if (!k.startsWith(`${ANCHORS_STATE}:`)) continue;
-      const list = state.get(k);
-      if (Array.isArray(list)) for (const a of list) if (a && typeof a.fp === 'string' && typeof a.pub === 'string') out.push(a);
+      out.push(...validPins(state.get(k)));
     }
     return out;
   }
 
-  // 지금 쓰는 고정. 새 키가 없으면 옛 고정 중 전역 명부 뿌리와 같은 것만 이어받아 새 키에 남긴다
+  // 지금 쓰는 고정. 이 호스트 키가 없으면 옛 고정(기기 단위 키·폴더별 키) 중 지금 명부 뿌리와 같은 것만 이어받아 이 호스트 키에 남긴다.
+  // 다른 호스트의 @키는 보지 않는다(그 호스트 명부의 뿌리라 여기서는 맞지 않는다)
   currentAnchors() {
     if (this.anchors) return this.anchors;
     const root = trust.rosterRoot(trust.readRoster());
-    const got = root ? this.legacyAnchors().filter((a) => a.fp === root.fp).slice(0, 1) : [];
+    const old = [...validPins(this.context.globalState && this.context.globalState.get(ANCHORS_STATE)), ...this.legacyAnchors()];
+    const got = root ? old.filter((a) => a.fp === root.fp).slice(0, 1) : [];
     if (!got.length) return [];
     this.anchors = got;
     this.saveAnchors();
@@ -179,11 +187,11 @@ class ApprovalCenter {
     }
   }
 
-  // 명령 'WY: 기기 신뢰 고정 초기화': 이 기기에 고정한 뿌리를 비운다(명부를 새로 만든 뒤 옛 뿌리를 버릴 때). 옛 키는 건드리지 않는다.
+  // 명령 'WY: 기기 신뢰 고정 초기화': 이 기기가 이 호스트에 고정한 뿌리를 비운다(명부를 새로 만든 뒤 옛 뿌리를 버릴 때). 옛 키는 건드리지 않는다.
   // 확인을 한 번 받는다. 비우면 지금 명부의 뿌리 지문을 비교해 다시 등록을 요청하는 안내가 뜬다
   async resetAnchors() {
     const pick = await vscode.window.showWarningMessage(
-      '이 기기에 고정한 뿌리 기기를 지웁니다. 이 창은 미등록 상태가 되고, 기기 명부의 뿌리 지문을 확인해 다시 등록을 요청해야 합니다. 명부를 새로 만든 경우에만 하세요.',
+      "이 호스트에 고정한 뿌리 기기를 지웁니다. 이 창은 미등록 상태가 되고, 다시 등록을 요청해야 합니다. 그 전에 명부 뿌리 지문을 이미 쓰던 승인 센터 창의 '기기' 목록과 비교하세요. 다르면 초기화하지 말고 pm에 알리세요. 다른 호스트의 고정은 그대로입니다.",
       { modal: true },
       '초기화',
     );
@@ -196,7 +204,7 @@ class ApprovalCenter {
   }
 
   saveAnchors() {
-    if (this.context.globalState) this.context.globalState.update(ANCHORS_STATE, this.anchors);
+    if (this.context.globalState) this.context.globalState.update(this.anchorsKey, this.anchors);
   }
 
   evaluateTrust() {
