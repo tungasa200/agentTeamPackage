@@ -181,7 +181,7 @@
     const dv = state.devices;
     if (dv) {
       // 기기 n대(신뢰하는 기기 수). 이 기기가 미등록·해제이거나 등록 요청이 있으면 경고색
-      const warn = dv.selfStatus !== 'member' || dv.joins.length > 0;
+      const warn = dv.selfStatus !== 'member' || dv.joins.length > 0 || dv.anchorMismatch;
       const c = button('chip dev-chip' + (warn ? ' warn' : ''), `기기 ${dv.list.filter((d) => d.state === 'trusted').length}대`, () => {
         ui.devicesOpen = !ui.devicesOpen;
         focusAfter = 'open-devices';
@@ -235,7 +235,11 @@
     if (state.error) add('err', '승인 파일을 읽지 못했습니다', state.error);
     const dv = state.devices;
     if (dv) {
-      if (dv.selfStatus === 'revoked') {
+      if (dv.anchorMismatch && dv.selfStatus !== 'revoked') {
+        const sp = el('span', 'dev-act');
+        sp.append(button('btn secondary', '고정 초기화', () => vscode.postMessage({ type: 'resetAnchors' }), { id: 'reset-anchors', title: "명령 'WY: 기기 신뢰 고정 초기화'와 같습니다(확인 창이 뜹니다)" }));
+        add('err', '이 기기가 고정한 뿌리가 기기 명부의 뿌리와 다릅니다', `명부의 뿌리: ${dv.root.name || '이름 없음'} · 지문 ${dv.root.short}. 이 PC가 자기 로컬 명부의 뿌리를 고정한 채 이 창을 열었거나 명부를 새로 만든 경우입니다. 그대로면 다른 기기와 그 결정을 신뢰하지 못합니다. 고정을 초기화하면 뿌리 지문 확인과 등록 요청 안내가 뜹니다. 지문이 이미 쓰던 창의 '기기' 목록과 다르면 초기화하지 말고 pm에 알리세요.`, sp);
+      } else if (dv.selfStatus === 'revoked') {
         add('err', '이 기기는 신뢰 해제됨', `다른 기기에서 이 기기(지문 ${dv.selfShort})의 신뢰를 해제했습니다. 이 창에서 내린 결정은 다른 기기에서 출처 불명으로 보입니다. 다시 쓰려면 pm에 알려 기기 등록을 새로 하세요.`);
       } else if (dv.selfStatus === 'unpaired' && !dv.root && dv.legacyAmbiguous) {
         const list = dv.legacyAmbiguous.map((c) => `${c.folder}(뿌리 ${c.name || '이름 없음'} · 지문 ${c.short})`).join(', ');
