@@ -299,6 +299,8 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 
 매일: 바로가기 → 원격 창 세션 현황 pm 줄의 [붙기](또는 원격 터미널에서 `session.ps1 attach <pm 역할>`) → 카드는 승인 센터 탭에서. 미리보기는 VS Code 포트 탭에서 포워딩해 접속 PC 브라우저의 `localhost`로 봅니다. 재부팅 뒤에는 자동 로그인 → `ssh <별칭>` → 역할 세션을 다시 띄웁니다. doctor의 '호스트' 줄이 sshd·방화벽 범위·Tailscale·전원·daemon 로그온 작업·daemon 로그온 유형·원격 창용 확장을 점검합니다(호스트가 아닌 PC는 '해당 없음').
 
+화면이 작은 접속 PC(터치): 그 접속 PC의 VS Code 사용자 설정(`Ctrl+,` → User 탭 → 'WY Ops', 또는 settings.json)에 `"wyOps.compact": true`를 한 번 넣으면 세션 현황·승인 센터·활동 탭이 큰 버튼·12px 글자로 바뀝니다. 그 PC에서 여는 원격 창(호스트의 모든 프로젝트)과 로컬 창에 모두 걸리고, 호스트에서 직접 연 창이나 다른 접속 PC에는 걸리지 않습니다. 리로드 없이 바로 바뀝니다. 프로젝트마다 `.claude/wy-ops.local.json`에 `ui.compact`를 넣던 예전 방식도 계속 동작합니다(자세히는 `vscode/README.md`).
+
 claude daemon은 바탕화면 로그온에서(0.8.2): 백그라운드 세션은 claude daemon이 띄우고 daemon의 로그온을 그대로 물려받습니다. ssh 키 로그인은 네트워크 로그온(유형 3)이라 거기서 뜬 daemon 아래 세션은 Windows 자격 증명 관리자를 읽지 못해 `git push`·`gh`가 실패합니다. 그래서 호스트는 자동 로그인된 바탕화면 로그온(유형 2)에서 daemon을 띄워 둡니다. `host`가 등록한 로그온 작업이 로그온 때 띄우고, `session.ps1`은 세션을 띄우기 전에 daemon이 없으면 이 작업을 먼저 시작하며 daemon이 바탕화면 로그온이 아니면 경고합니다.
 이미 ssh 쪽 daemon으로 세션을 돌리던 호스트를 옮기는 순서:
 1. pm에서 진행 중인 것을 저장하고(`/wy-save-session`, short-id는 pm 역할), 지금 돌고 있는 세션 ID를 적어 둡니다(`claude agents`).

@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
-const { loadOpsConfig, uiBodyClass } = require('./opsConfig');
+const { loadOpsConfig, uiBodyClass, compactSetting, onCompactChange } = require('./opsConfig');
 const { rootFor } = require('./approvalStore');
 const { readSessionStatus, readAgents, splitByProject, treeMB } = require('./agentsReader');
 const { notifyStuck } = require('./stuckTool');
@@ -66,6 +66,12 @@ function workspaceDir() {
   return folder ? folder.uri.fsPath : null;
 }
 
+// 이 창 프로젝트의 wy-ops 설정(그때그때 읽어 gen·설정 변경이 리로드 없이 반영된다)
+function workspaceOps() {
+  const dir = workspaceDir();
+  return dir ? loadOpsConfig(dir) : null;
+}
+
 // 세션 상태: claude agents + 권한 요청 파일 + 세션 등록 기록(agentsReader, 계획 2.2).
 // 멈춤 의심인 세션은 여기서 pm 세션에 한 번 알린다(stuckTool.notifyStuck, 같은 도구 호출로는 한 번)
 // pmAgents: pm 줄이 교체 전·후 pm을 함께 보려고 이름별 한 줄로 줄이기 전 pm 항목을 따로 넘긴다
@@ -73,7 +79,7 @@ function workspaceDir() {
 async function readSessions() {
   const dir = workspaceDir();
   const root = rootFor(dir);
-  const ops = dir ? loadOpsConfig(dir) : null;
+  const ops = workspaceOps();
   const list = await readAgents();
   const { mine, others } = splitByProject(list, ops);
   const rows = await readSessionStatus({ root, ops, list: mine });
@@ -99,25 +105,22 @@ async function withOthersMemory(others) {
 }
 
 // 메모리 경고 선(wy-ops.json memory, D-86): warnFreeMB 미만 주의, blockFreeMB 미만 위험
-function readMemoryLimits() {
-  const dir = workspaceDir();
-  const m = (dir && (loadOpsConfig(dir) || {}).memory) || {};
+function readMemoryLimits(ops) {
+  const m = (ops && ops.memory) || {};
   const num = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
   return { warnFreeMB: num(m.warnFreeMB, 1024), blockFreeMB: num(m.blockFreeMB, 500) };
 }
 
 // 커밋 전담 역할: 열면(attach) 나온 뒤 --agent 없이 다시 뜰 수 있다(OPS-06 4)
 function commitRole() {
-  const dir = workspaceDir();
-  const ops = dir ? loadOpsConfig(dir) : null;
+  const ops = workspaceOps();
   return (ops && ops.commitRole) || null;
 }
 
 // 역할 순서: 프로젝트 설정(.claude/wy-ops.json)의 roles, 없으면 CLAUDE.md 세션 역할 표, 둘 다 없으면 빈 목록
-function readRoles() {
+function readRoles(ops) {
   const dir = workspaceDir();
   if (!dir) return [];
-  const ops = loadOpsConfig(dir);
   if (ops && Array.isArray(ops.roles) && ops.roles.length) return ops.roles.map((r) => r && r.name).filter(Boolean);
   try {
     const text = fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8');
@@ -170,8 +173,9 @@ class Provider {
       // 숨겼다 다시 보이면 webview가 새로 뜨므로 ready마다 마지막 값을 다시 보낸다
       if (msg.type === 'ready') {
         this.folded = new Set(msg.folded || []);
-        this.post({ type: 'roles', data: readRoles() });
-        this.post({ type: 'limits', data: readMemoryLimits() });
+        const ops = workspaceOps();
+        this.post({ type: 'roles', data: readRoles(ops) });
+        this.post({ type: 'limits', data: readMemoryLimits(ops) });
         Object.values(this.cache).forEach((m) => this.post(m));
         this.postPm();
         // 뷰가 막 열리는 중에 온 "세션 현황에서 보기"는 webview가 준비된 뒤 다시 보낸다
@@ -219,7 +223,7 @@ class Provider {
       .readFileSync(path.join(media.fsPath, 'panel.html'), 'utf8')
       .replace(/{{csp}}/g, csp)
       .replace(/{{nonce}}/g, nonce)
-      .replace(/{{bodyClass}}/g, uiBodyClass(workspaceDir() ? loadOpsConfig(workspaceDir()) : null))
+      .replace(/{{bodyClass}}/g, uiBodyClass(workspaceOps(), compactSetting(vscode)))
       .replace(/{{css}}/g, uri('panel.css'))
       .replace(/{{js}}/g, uri('panel.js'));
   }
@@ -365,10 +369,7 @@ function register(context) {
     vscode,
     store: context.workspaceState,
     folder: workspaceDir,
-    ops: () => {
-      const dir = workspaceDir();
-      return dir ? loadOpsConfig(dir) : null;
-    },
+    ops: workspaceOps,
     run,
     logFile: path.join(context.logUri ? context.logUri.fsPath : path.join(os.tmpdir(), 'wy-ops'), 'pm-control.log'),
     onChange: () => provider && provider.postPm(),
@@ -389,6 +390,7 @@ function register(context) {
     { dispose: () => provider.stop() },
     { dispose: () => provider.stopAutoClean() },
     { dispose: () => provider.pmTimer && clearInterval(provider.pmTimer) },
+    onCompactChange(vscode, () => provider.view && (provider.view.webview.html = provider.html(provider.view.webview, vscode.Uri.joinPath(context.extensionUri, 'media')))),
   );
   // 창을 닫았다 열어도 교체 진행을 이어서 본다(R-4)
   if (pm.busy()) provider.update('sessions');

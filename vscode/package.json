@@ -90,6 +90,13 @@
           ],
           "default": "auto",
           "description": "새 카드를 알리는 방법."
+        },
+        "wyOps.compact": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "ignoreSync": true,
+          "description": "소형 화면 모드(터치용 큰 버튼·12px 글자): 세션 현황·승인 센터·활동 탭. 이 PC의 사용자 설정에만 두며, 이 PC에서 연 로컬 창과 원격 창(Remote-SSH) 모두에 걸립니다. 꺼져 있으면 프로젝트의 .claude/wy-ops.local.json ui.compact를 따릅니다."
         }
       }
     },

@@ -42,9 +42,21 @@ function loadOpsConfig(start) {
   return { ...merge(base, readJson(path.join(root, LOCAL))), root };
 }
 
-// 소형 화면 모드(ui.compact, 보통 PC별 wy-ops.local.json): 켜졌을 때만 webview <body>에 'compact' 클래스
-function uiBodyClass(ops) {
-  return ops && ops.ui && ops.ui.compact === true ? 'compact' : '';
+// 소형 화면 모드: VS Code 사용자 설정 wyOps.compact(setting)가 켜졌거나, 프로젝트 설정 ui.compact(보통 PC별 wy-ops.local.json)가
+// 켜졌을 때만 webview <body>에 'compact' 클래스
+function uiBodyClass(ops, setting) {
+  return setting === true || (ops && ops.ui && ops.ui.compact === true) ? 'compact' : '';
 }
 
-module.exports = { loadOpsConfig, findProjectRoot, uiBodyClass };
+// 확장 설정 wyOps.compact(scope application: 접속 PC 사용자 설정 하나가 그 PC의 로컬 창과 원격 창 모두에 걸린다)
+function compactSetting(vscode) {
+  const c = vscode.workspace.getConfiguration && vscode.workspace.getConfiguration('wyOps');
+  return !!c && c.get('compact', false) === true;
+}
+
+// 설정이 바뀌면 그 webview를 다시 그린다(onRedraw). 돌려준 Disposable은 context.subscriptions에 넣는다
+function onCompactChange(vscode, onRedraw) {
+  return vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration('wyOps.compact') && onRedraw());
+}
+
+module.exports = { loadOpsConfig, findProjectRoot, uiBodyClass, compactSetting, onCompactChange };

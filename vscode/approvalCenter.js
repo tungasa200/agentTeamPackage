@@ -7,7 +7,7 @@ const store = require('./approvalStore');
 const trust = require('./approvalTrust');
 const { ArrivalBell, alertMode, notifyText, ring } = require('./arrivalBell');
 
-const { loadOpsConfig, uiBodyClass } = require('./opsConfig');
+const { loadOpsConfig, uiBodyClass, compactSetting, onCompactChange } = require('./opsConfig');
 
 const VIEW_TYPE = 'wyApprovals';
 const OPEN_COMMAND = 'wyApprovals.open';
@@ -58,6 +58,7 @@ class ApprovalCenter {
         deserializeWebviewPanel: async (panel) => this.attach(panel),
       }),
       { dispose: () => this.dispose() },
+      onCompactChange(vscode, () => this.panel && (this.panel.webview.html = this.html(this.panel.webview, vscode.Uri.joinPath(context.extensionUri, 'media')))),
     );
 
     // 이 창의 워크스페이스가 속한 프로젝트의 승인 폴더(설정이 없으면 이전처럼 바탕 폴더)
@@ -435,7 +436,7 @@ class ApprovalCenter {
       .readFileSync(path.join(media.fsPath, 'approvals.html'), 'utf8')
       .replace(/{{csp}}/g, csp)
       .replace(/{{nonce}}/g, nonce)
-      .replace(/{{bodyClass}}/g, uiBodyClass(this.ops))
+      .replace(/{{bodyClass}}/g, uiBodyClass(this.ops, compactSetting(vscode)))
       .replace(/{{css}}/g, uri('approvals.css'))
       .replace(/{{js}}/g, uri('approvals.js'));
   }

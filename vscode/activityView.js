@@ -6,7 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { ActivityReader, transcriptDirs, bundle } = require('./sessionActivity');
-const { loadOpsConfig, uiBodyClass } = require('./opsConfig');
+const { loadOpsConfig, uiBodyClass, compactSetting, onCompactChange } = require('./opsConfig');
 const store = require('./approvalStore');
 
 const VIEW_TYPE = 'wyActivity';
@@ -232,7 +232,7 @@ class ActivityView {
       .readFileSync(path.join(media.fsPath, 'activity.html'), 'utf8')
       .replace(/{{csp}}/g, csp)
       .replace(/{{nonce}}/g, nonce)
-      .replace(/{{bodyClass}}/g, uiBodyClass(this.repo ? loadOpsConfig(this.repo) : null))
+      .replace(/{{bodyClass}}/g, uiBodyClass(this.ops, compactSetting(vscode)))
       .replace(/{{css}}/g, uri('activity.css'))
       .replace(/{{js}}/g, uri('activity.js'));
   }
@@ -248,6 +248,7 @@ function register(context) {
     vscode.commands.registerCommand(OPEN_COMMAND, () => view.open()),
     vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, { deserializeWebviewPanel: async (panel) => view.attach(panel) }),
     { dispose: () => view.stop() },
+    onCompactChange(vscode, () => view.panel && (view.panel.webview.html = view.html(view.panel.webview, vscode.Uri.joinPath(context.extensionUri, 'media')))),
   );
   return view;
 }
