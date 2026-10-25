@@ -128,6 +128,13 @@ try {
   r = connect({ alias: 'wy-host', host: '100.100.1.2', yes: true }, deps);
   assert.deepStrictEqual(state(r.plan), { tailscale: 'ok', key: 'ok', config: 'todo', 'remote-ssh': 'ok', 'local-sound': 'ok', shortcut: 'skip', control: 'ok', keybinding: 'ok' });
   assert.ok(fs.readFileSync(path.join(home, '.ssh', 'config'), 'utf8').includes('    HostName 100.100.1.2\n    User dev\n'));
+  // keybindings 원본(.wy-bak)은 처음 한 번만: 다시 돌려도 첫 원본을 덮지 않는다
+  fs.writeFileSync(kbFile, '[]');
+  connect({ ...opts, yes: true }, deps);
+  fs.writeFileSync(kbFile, '[{"key":"ctrl+k","command":"a"}]');
+  connect({ ...opts, yes: true }, deps);
+  assert.strictEqual(fs.readFileSync(kbFile + '.wy-bak', 'utf8'), '[]', '첫 원본 유지');
+  assert.ok(fs.readFileSync(kbFile, 'utf8').includes('ctrl+k') && fs.readFileSync(kbFile, 'utf8').includes('shift+enter'));
 
   // 3-6. 개인 키만 있고 .pub이 없으면 손으로
   fs.unlinkSync(path.join(home, '.ssh', 'id_ed25519.pub'));
@@ -152,7 +159,7 @@ try {
   assert.strictEqual(keybindingsPlan('{ broken').state, 'skip');
   assert.strictEqual(keybindingsPlan('{}').state, 'skip');
   assert.strictEqual(keybindingsPlan('[{"key":"shift+enter","command":"x","when":"!terminalFocus"}]').state, 'todo', '!terminalFocus는 없는 것');
-  assert.strictEqual(keybindingsPlan('[{"key":"shift+enter","command":"-workbench.action.terminal.sendSequence","when":"terminalFocus"}]').state, 'todo', '지우는 항목은 없는 것');
+  assert.strictEqual(keybindingsPlan('[{"key":"shift+enter","command":"x","when":"! terminalFocus"}]').state, 'todo', '! 뒤 공백도 없는 것');  assert.strictEqual(keybindingsPlan('[{"key":"shift+enter","command":"-workbench.action.terminal.sendSequence","when":"terminalFocus"}]').state, 'todo', '지우는 항목은 없는 것');
   const onlyComment = keybindingsPlan('// Place your key bindings in this file');
   assert.ok(onlyComment.state === 'todo' && /^\/\/ Place[^\n]*\n\[\n  \{"key":"shift\+enter"/.test(onlyComment.text) && JSON.parse(onlyComment.text.replace(/^\/\/.*\n/, '')).length === 1, `주석뿐인 파일은 주석 뒤에 배열\n${onlyComment.text}`);
 }

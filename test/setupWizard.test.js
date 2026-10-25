@@ -66,10 +66,10 @@ assert.ok(/\$k -like 'extra-\*'\) \{ \$St\.Rows\.IndexOf\(\(Find-Row 'folder'\)\
 assert.ok(/'extras' \{ 'extras' \} 'plugins' \{ if \(\$missing\) \{ 'extras' \} else \{ 'folder' \} \}/.test(wiz) && /if \(\$gname -eq 'extras' -and \$r\.level -eq 'fail'\) \{ 'warn' \}/.test(wiz) && /Get-InstalledCmd 'setup'/.test(wiz) && /install\.ps1" ' \+ \$sub \+ ' --project/.test(wiz), '마법사 extras 묶음은 pm 시작을 막지 않음(점검 missing 필드로 판정)');
 // STK: 스택은 고르지 않고 보여 주기만(install.js detect)
 assert.ok(!/--stack/.test(wiz), '마법사는 --stack을 넘기지 않는다');
-assert.ok(/' detect --project '/.test(wiz), '마법사는 install.js detect로 검증 명령을 보여 준다');
+assert.ok(/Invoke-InstallJs \('detect --project '/.test(wiz), '마법사는 install.js detect로 검증 명령을 보여 준다');
 assert.ok(/cmd === 'detect'/.test(js), 'install.js에 detect 명령');
 // D-39 ③: 기본 접두사는 lib/projects.js freePrefix와 같은 규칙(다른 프로젝트 목록은 install.js projects로 한 번 읽음). 함수만 떼어 PowerShell로 돌린다(목록은 미리 넣어 node를 부르지 않음)
-assert.ok(/' projects'/.test(wiz) && /cmd === 'projects'/.test(js), '마법사는 install.js projects로 다른 프로젝트 접두사를 읽는다');
+assert.ok(/Invoke-InstallJs 'projects'/.test(wiz) && /cmd === 'projects'/.test(js), '마법사는 install.js projects로 다른 프로젝트 접두사를 읽는다');
 {
   const fnText = (name) => {
     const m = new RegExp('^function ' + name + '\\b[\\s\\S]*?^\\}', 'm').exec(wiz);
@@ -112,14 +112,18 @@ assert.ok(/' projects'/.test(wiz) && /cmd === 'projects'/.test(js), '마법사�
     assert.strictEqual(out.status, 0, out.stdout + out.stderr);
     return out.stdout.trim();
   };
-  assert.ok(/\$St\.Waiting = 'doctor'\r?\n\s*if \(-not \$Demo\) \{ Update-PathFromRegistry \}/.test(fnText('Start-Doctor')), '점검 전에 PATH를 레지스트리에서 다시 읽음');
+  // PATH 다시 읽기는 프로세스를 띄우는 두 곳(Start-Hidden·Invoke-InstallJs)에서만. 점검·설치 뒤 따로 부르지 않는다
+  assert.ok(/^\s*Update-PathFromRegistry\r?$/m.test(fnText('Start-Hidden')) && /^\s*Update-PathFromRegistry\r?$/m.test(fnText('Invoke-InstallJs')), '띄우기 직전에 PATH를 레지스트리에서 다시 읽음');
+  assert.strictEqual((wiz.match(/Update-PathFromRegistry/g) || []).length, 3, '정의 1 + 부르는 곳 2');
+  assert.strictEqual((wiz.match(/ProcessStartInfo/g) || []).length, 2, '프로세스는 Start-Hidden·Invoke-InstallJs로만 띄운다');
+  assert.ok(!/Clipboard\]::SetText/.test(wiz.replace(/^function Copy-Text\b.*$/m, '')), '복사는 Copy-Text 한 곳');
   assert.ok(/^\s*\} \$PmLimit\r?$/m.test(fnText('Start-Pm')) && /^\$PmLimit = 90\b/m.test(wiz), 'pm 시작은 시간 제한을 걸고 부른다');
   // 'tools': 점검 원문에서 프로그램 이름만, 할 일은 새 창에서 다시 점검(명령 포함)
   const tools = runPs([
     wiz.match(/^function QP\b.*$/m)[0], "$St = @{ Project = 'C:\\w\\my $app' }",
     wiz.match(/^function Get-InstalledCmd\b.*$/m)[0],
     fnText('Get-FriendlyLine'),
-    "$it = Get-FriendlyLine @{ id = 'tools'; detail = '없음: code(VS Code, PATH), claude(Claude Code CLI)' } '프로그램 설치'",
+    "$it = Get-FriendlyLine @{ id = 'tools'; detail = '없음: code(VS Code, PATH), claude(Claude Code CLI)'; missing = @('VS Code', 'Claude Code') } '프로그램 설치'",
     "$it.Head; $it.Do; $it.Cmd",
     // 함께 까는 도구: 점검 missing이 있으면 이름 + setup으로 다시 받기, 없으면(버전 낮음) 점검 원문 + 고치는 명령
     "$it = Get-FriendlyLine @{ id = 'plugins'; detail = 'impeccable@impeccable 없음'; missing = @('impeccable', 'claude-mem') } '함께 까는 도구'",
@@ -143,11 +147,11 @@ assert.ok(/' projects'/.test(wiz) && /cmd === 'projects'/.test(js), '마법사�
   ]).split(/\r?\n/);
   assert.deepStrictEqual(poll, ['True', '|a|True', '1', 'True'], poll.join('\n'));
   assert.ok(/\$St\.PmPhase = if \(\$late\) \{ 'late' \}/.test(fnText('Start-Pm')) && /\$St\.PmPhase -eq 'late'/.test(fnText('Show-Step7')), 'pm 시간 초과는 late로 따로 보인다');
-  assert.ok(/'명령 복사' \{ \[Windows\.Forms\.Clipboard\]::SetText\(\$St\.PmCmd\) \}/.test(wiz) && /\$St\.PmCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File '/.test(wiz), 'pm 실패 안내에 붙여 넣을 명령');
+  assert.ok(/'명령 복사' \{ Copy-Text \$St\.PmCmd \}/.test(wiz) && /\$St\.PmCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File '/.test(wiz), 'pm 실패 안내에 붙여 넣을 명령');
   // 끝난 명령이 띄운 오래 사는 프로세스가 출력 핸들을 쥐고 있어도(처음 뜨는 claude daemon 등) 몇 초 뒤 끝난 것으로 본다
   //   (ping이 약 8초 출력 핸들을 쥔다. 이 시험 프로세스의 출력도 물려받으므로 걸린 시간은 PowerShell 안에서 재고, 끝에 그 ping을 끈다)
   const hidden = runPs([
-    "function Write-Log($s) { }", fnText('Start-Hidden'), fnText('Read-Hidden'),
+    "function Write-Log($s) { }; function Update-PathFromRegistry { }", fnText('Start-Hidden'), fnText('Read-Hidden'),
     "$t0 = Get-Date; $r = Start-Hidden 'echo hi& start /b ping -n 9 127.0.0.79' $env:TEMP",
     "$end = (Get-Date).AddSeconds(12); while ($null -eq $r.Exit -and (Get-Date) -lt $end) { [void](Read-Hidden $r); Start-Sleep -Milliseconds 200 }",
     "\"$($r.Exit)|$($r.Lines[0])|$([int]((Get-Date) - $t0).TotalSeconds)\"",

@@ -123,6 +123,11 @@ function extrasCases() {
   pc.state.plugins = pc.state.plugins.filter((p) => p.id !== 'impeccable@impeccable');
   r = byId(doctor.checkAll(pc.opts)).plugins;
   assert.ok(r.level === 'fail' && r.missing.includes('impeccable'), `켜진 플러그인 없음은 실패(missing에 이름, 설치 마법사용)\n${JSON.stringify(r)}`);
+  // 전제 도구가 없으면 실패 + missing에 쉬운 이름(설치 마법사용)
+  const run0 = pc.opts.run;
+  r = byId(doctor.checkAll({ ...pc.opts, run: (cmd, args = []) => (cmd === 'code' || cmd === 'claude') && args[0] === '--version' ? { status: 1, stdout: '' } : run0(cmd, args) })).tools;
+  assert.ok(r.level === 'fail' && r.detail.includes('code(VS Code, PATH)') && JSON.stringify(r.missing) === '["VS Code","Claude Code"]', JSON.stringify(r));
+  assert.strictEqual(byId(doctor.checkAll(pc.opts)).tools.missing, undefined, '다 있으면 missing 없음');
 }
 
 const byId = (results) => Object.fromEntries(results.map((r) => [r.id, r]));
