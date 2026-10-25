@@ -8,6 +8,7 @@
 #   7 마침      node lib/install.js doctor --json --todos --project <폴더>(남은 일은 승인 센터 할 일 카드로도)
 #               [pm 시작하고 VS Code 열기](0.10.0, 목업 W7-e): <폴더>\.claude\skills\pm-ops\scripts\session.ps1 start-pm latest(창 없이)가
 #               끝나면 code <폴더>. 상태 상자: 시작하는 중 → 시작했습니다 / 시작하지 못함(VS Code는 그래도 연다, 사이드바 [pm 시작]으로 이어서).
+#               그 전에 daemon이 없으면 따로 먼저 띄우고, 90초를 넘기면 기다림만 그만둔다(pm은 죽이지 않음, '아직 뜨는 중일 수 있음', D-44).
 #               마법사는 스스로 닫지 않는다. [VS Code만 열기] 링크는 pm 없이. Claude 로그인·폴더 허락이 끝나지 않았거나
 #               설치를 끝내지 못했으면 pm은 건너뛰고 [VS Code 열기]만(GitHub만 건너뛴 것은 pm을 띄울 수 있음)
 # 외부 명령은 모두 창 없는 프로세스로 돌리고 타이머로 출력을 읽는다(창이 굳지 않게). 출력 전체는 기록 파일에만 남고 화면에는 쉬운 말만.
@@ -602,13 +603,15 @@ function Read-Install {
 }
 
 # 2초마다 확인하는 명령(한 번에 하나): 끝나면 $onDone(종료 코드, 출력)
-# 시간 제한 limit(초)를 넘으면 명령을 멈추고 onDone(종료 코드 null, 출력, 시간 초과 true)을 부른다(무한 기다림 금지)
-function Start-Poll([string]$cmd, [scriptblock]$onDone, [int]$limit = 0) { $St.Poll = @{ R = (Start-Hidden $cmd); Done = $onDone; Until = $(if ($limit) { (Get-Date).AddSeconds($limit) }) } }
+# 시간 제한 limit(초)를 넘으면 기다림을 그만두고 onDone(종료 코드 null, 출력, 시간 초과 true)을 부른다(무한 기다림 금지)
+# -Keep(pm 시작): 그만둘 때(시간 초과·단계 이동·창 닫기) 명령은 죽이지 않는다(D-44: taskkill /T가 그 아래 daemon·백그라운드 세션까지 죽일 수 있음)
+function Start-Poll([string]$cmd, [scriptblock]$onDone, [int]$limit = 0, [switch]$Keep) { $St.Poll = @{ R = (Start-Hidden $cmd); Done = $onDone; Until = $(if ($limit) { (Get-Date).AddSeconds($limit) }); Keep = [bool]$Keep } }
+function Stop-Poll { if ($St.Poll) { if (-not $St.Poll.Keep) { Stop-Hidden $St.Poll.R }; $St.Poll = $null } }
 function Read-Poll {
   if (-not $St.Poll) { return }
   [void](Read-Hidden $St.Poll.R)
   if ($null -eq $St.Poll.R.Exit -and $St.Poll.Until -and (Get-Date) -gt $St.Poll.Until) {
-    $p = $St.Poll; $St.Poll = $null; $St.PollAt = Get-Date; Stop-Hidden $p.R; Write-Log "  시간 초과로 멈춤: $($p.R.Cmd)"
+    $p = $St.Poll; Stop-Poll; $St.PollAt = Get-Date; Write-Log "  시간 초과로 기다림 그만둠$(if (-not $p.Keep) { '(멈춤)' }): $($p.R.Cmd)"
     & $p.Done $null ($p.R.Lines -join "`n") $true; return
   }
   if ($null -ne $St.Poll.R.Exit) { $p = $St.Poll; $St.Poll = $null; $St.PollAt = Get-Date; & $p.Done $p.R.Exit ($p.R.Lines -join "`n") }
@@ -872,9 +875,34 @@ function Get-Final {
 function Open-Code { Write-Log "VS Code 열기: $($St.Project)"; if (-not $Demo) { $null = Start-Hidden ('code ' + (Q $St.Project)) } }
 # pm을 백그라운드 세션으로(start-pm latest: 가장 최근 pm 인수인계, 없으면 없이). 끝나면 VS Code를 연다(뜨지 않았어도 — 사이드바 [pm 시작]으로 이어서).
 # 출력은 UTF-8로 받아 '띄웠습니다'(새로 띄움)·'이미 실행 중'(이미 떠 있음)이면 됨으로 본다
+# D-44: daemon이 없으면 claude --bg가 그때 띄우고(daemon.log origin=transient), 그 daemon이 이 명령의 출력 핸들을 물려받는다.
+# 그래서 먼저 따로(Start-Process: 핸들·프로세스 트리를 물려주지 않음) 숨긴 창으로 띄운다. 명령은 lib/host.js daemonArgs와 같다.
+# session.ps1 Test-Daemon에는 넣지 않는다(ssh 로그온에서 띄우면 그 아래 세션이 자격 증명을 못 읽음, D-166)
+# 있는지는 session.ps1 Get-DaemonProc와 같이 daemon.lock의 pid가 살아 있는 claude 프로세스인지로 본다
+function Get-DaemonPid {
+  try { $id = [int](([IO.File]::ReadAllText((Join-Path $env:USERPROFILE '.claude\daemon.lock')) | ConvertFrom-Json).pid) } catch { return $null }
+  if ($id -and (Get-Process -Id $id -ErrorAction SilentlyContinue).ProcessName -eq 'claude') { $id }
+}
+function Start-Daemon {
+  if ($Demo -or (Get-DaemonPid)) { return }
+  Update-PathFromRegistry
+  # npm 설치면 claude.cmd 옆의 실제 claude.exe(lib/host.js probe와 같음). .ps1은 실행 정책에 막히므로 고르지 않는다
+  $exe = (Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.cmd', '.exe' } | Select-Object -First 1).Source
+  if (-not $exe) { Write-Log 'daemon: claude를 찾지 못해 먼저 띄우지 않음'; return }
+  if ($exe -like '*.cmd') { $e = Join-Path (Split-Path $exe) 'node_modules\@anthropic-ai\claude-code\bin\claude.exe'; if (Test-Path -LiteralPath $e) { $exe = $e } }
+  $a = '-NoProfile -NonInteractive -WindowStyle Hidden -Command "& ' + (QP $exe) + ' daemon run"'
+  Write-Log "daemon 먼저 띄우기: powershell $a"
+  try { Start-Process powershell.exe -ArgumentList $a -WindowStyle Hidden } catch { Write-Log "daemon을 띄우지 못함: $($_.Exception.Message)"; return }
+  # 뜰 때까지 잠깐(최대 10초) 기다린다. 못 봐도 그대로 간다(claude --bg가 띄우고, 3초 규칙·기다림만 그만두기가 안전망)
+  $end = (Get-Date).AddSeconds(10)
+  while (-not (Get-DaemonPid) -and (Get-Date) -lt $end) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 200 }
+  Write-Log "daemon: $(if (Get-DaemonPid) { '떴음' } else { '10초 안에 보이지 않음' })"
+}
 function Start-Pm {
   $ps1 = Join-Path $St.Project '.claude\skills\pm-ops\scripts\session.ps1'
-  $St.PmPhase = 'run'
+  $St.PmPhase = 'run'; Show-Step
+  Start-Daemon
+  if ($script:Closing) { Write-Log 'daemon을 기다리는 동안 창을 닫아 pm을 시작하지 않음'; return }
   # 실패·시간 초과 때 보일 손으로 할 명령(새 PowerShell 창에 붙여 넣기. 실행 정책에 막히지 않게 -ExecutionPolicy Bypass)
   $St.PmCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File ' + (QP $ps1) + ' start-pm latest'
   $cmd = if ($Demo) { Get-DemoCmd @('백그라운드 AB-pm 을 띄웠습니다.') 1.5 } else { 'powershell -NoProfile -ExecutionPolicy Bypass -Command "[Console]::OutputEncoding=[Text.Encoding]::UTF8; & ' + (QP $ps1) + ' start-pm latest"' }
@@ -884,9 +912,9 @@ function Start-Pm {
     Write-Log "pm 시작 결과: $($St.PmPhase)"
     Open-Code
     if ($St.Step -eq 7) { Show-Step }
-  } $PmLimit
+  } $PmLimit -Keep
 }
-$PmLimit = 90  # pm 시작이 이 시간(초) 안에 끝나지 않으면 멈추고 실패로 보인다
+$PmLimit = 90  # pm 시작이 이 시간(초) 안에 끝나지 않으면 기다림만 그만두고 '아직 뜨는 중일 수 있음'으로 보인다
 function Show-Step7 {
   if ($null -eq $St.Doctor) {
     Add-Title '설치를 마무리하고 있습니다'
@@ -952,9 +980,9 @@ function Show-Step7 {
     switch ($St.PmPhase) {
       'run' { Add-Status 'run' 'pm을 시작하는 중입니다.' '잠시 기다려 주세요.'; $btnNext.Enabled = $false }
       'ok' { Add-Status 'ok' 'pm이 일을 시작했습니다.' 'VS Code의 WY Ops 화면에서 [붙기]를 누르세요.' }
+      'late' { Add-Status 'warn' 'pm이 아직 뜨는 중일 수 있습니다.' ('잠시 뒤 VS Code의 WY Ops 화면 맨 위에 pm이 보이지 않으면 [pm 시작]을 누르거나, PowerShell 창을 새로 열어 이 명령을 붙여 넣으세요: ' + $St.PmCmd) '명령 복사' { Copy-Text $St.PmCmd } }
       default {
-        $why = if ($St.PmPhase -eq 'late') { "pm 시작이 $($PmLimit)초 안에 끝나지 않아 멈췄습니다." } else { 'pm을 시작하지 못했습니다.' }
-        Add-Status 'warn' "$why VS Code는 열었습니다." ('WY Ops 화면 맨 위의 [pm 시작]을 누르거나, PowerShell 창을 새로 열어 이 명령을 붙여 넣으세요: ' + $St.PmCmd) '명령 복사' { Copy-Text $St.PmCmd }
+        Add-Status 'warn' 'pm을 시작하지 못했습니다. VS Code는 열었습니다.' ('WY Ops 화면 맨 위의 [pm 시작]을 누르거나, PowerShell 창을 새로 열어 이 명령을 붙여 넣으세요: ' + $St.PmCmd) '명령 복사' { Copy-Text $St.PmCmd }
       }
     }
     return
@@ -962,7 +990,7 @@ function Show-Step7 {
   $r = New-Row 16
   if ($St.PmOk) {
     $vs = New-Btn 'pm 시작하고 VS Code 열기' $true 210 34
-    $vs.Add_Click({ Start-Pm; Show-Step })
+    $vs.Add_Click({ Start-Pm })
     $r.Controls.Add($vs)
     $only = New-Object Windows.Forms.LinkLabel; $only.AutoSize = $true; $only.Font = $F.Body; $only.LinkColor = $C.Accent; $only.Text = 'VS Code만 열기'
     $only.Margin = New-Object Windows.Forms.Padding((Px 14), (Px 9), 0, 0); $only.Add_LinkClicked({ Open-Code })
@@ -997,9 +1025,9 @@ function Show-Step {
 }
 function Go-Step([int]$n) {
   Stop-Hidden $St.LoginRun; $St.LoginRun = $null
-  # pm 시작 중에 다른 단계로 가면 아래에서 그 명령을 멈추므로 실패로 둔다(돌아왔을 때 '시작하는 중'에 머물지 않고 손으로 할 명령이 보이게)
-  if ($n -ne 7 -and $St.PmPhase -eq 'run') { $St.PmPhase = 'fail' }
-  if ($St.Step -ne 3 -and $St.Poll) { Stop-Hidden $St.Poll.R; $St.Poll = $null }
+  # pm 시작 중에 다른 단계로 가면 아래에서 기다림만 그만두므로(pm은 계속 뜸) '아직 뜨는 중일 수 있음'으로 둔다(돌아왔을 때 '시작하는 중'에 머물지 않게)
+  if ($n -ne 7 -and $St.PmPhase -eq 'run') { $St.PmPhase = 'late' }
+  if ($St.Step -ne 3) { Stop-Poll }
   $St.Waiting = $null; $St.TrustWindow = $false
   $St.Step = $n
   if ($n -eq 3) { if (-not $St.Rows) { Initialize-Rows }; if (-not $St.Installed -and -not $St.Run -and -not $St.FailMsg) { Start-Install; return } }
@@ -1035,32 +1063,38 @@ $btnPrev.Add_Click({
 $lnkLater.Add_LinkClicked({ $St.GhSkipped = $true; $St.Done[5] = $true; if ($St.ReturnTo7) { $St.ReturnTo7 = $false; Go-Step 7 } else { Go-Step 6 } })
 
 # 취소 확인(버튼 글자를 바꿔야 해서 작은 창)
-function New-CancelDialog {
+function New-CancelDialog([string]$q = '설치를 멈출까요?', [string]$sub = '이미 설치한 프로그램은 그대로 남습니다. setup을 다시 실행하면 이어서 합니다.', [string]$stopText = '멈추기') {
   $d = New-Object Windows.Forms.Form; $d.Text = 'WY Ops 설치'; $d.FormBorderStyle = 'FixedDialog'; $d.MaximizeBox = $false; $d.MinimizeBox = $false; $d.ShowInTaskbar = $false
   $d.StartPosition = 'CenterParent'; $d.ClientSize = New-Object Drawing.Size((Px 420), (Px 150)); $d.Font = $F.Body; $d.BackColor = [Drawing.Color]::White; $d.AutoScaleMode = 'None'
   $qi = New-Object Windows.Forms.Label; $qi.Text = '?'; $qi.Font = New-Font 12 'Bold' 'Segoe UI'; $qi.ForeColor = [Drawing.Color]::White; $qi.BackColor = $C.Accent; $qi.TextAlign = 'MiddleCenter'
   $qi.SetBounds((Px 20), (Px 20), (Px 32), (Px 32))
-  $t1 = New-Label '설치를 멈출까요?' $F.Body $C.Text (Px 330); $t1.Location = New-Object Drawing.Point((Px 66), (Px 20))
-  $t2 = New-Label '이미 설치한 프로그램은 그대로 남습니다. setup을 다시 실행하면 이어서 합니다.' $F.Small $C.Muted (Px 330); $t2.Location = New-Object Drawing.Point((Px 66), (Px 46))
+  $t1 = New-Label $q $F.Body $C.Text (Px 330); $t1.Location = New-Object Drawing.Point((Px 66), (Px 20))
+  $t2 = New-Label $sub $F.Small $C.Muted (Px 330); $t2.Location = New-Object Drawing.Point((Px 66), (Px 46))
   $ft = New-Object Windows.Forms.Panel; $ft.Dock = 'Bottom'; $ft.Height = Px 50; $ft.BackColor = $C.Foot
-  $go = New-Btn '계속 설치' $true; $go.DialogResult = 'Cancel'; $stop = New-Btn '멈추기'; $stop.DialogResult = 'OK'
+  $go = New-Btn '계속 설치' $true; $go.DialogResult = 'Cancel'; $stop = New-Btn $stopText; $stop.DialogResult = 'OK'
   $x1 = (Px 420) - (Px 100); $x2 = (Px 420) - (Px 194); $y = Px 11
   $go.Location = New-Object Drawing.Point($x1, $y); $stop.Location = New-Object Drawing.Point($x2, $y)  # 인자 안에서 빼기를 하면 배열로 넘어가 실패
   $ft.Controls.AddRange(@($go, $stop)); $d.Controls.AddRange(@($qi, $t1, $t2, $ft)); $d.AcceptButton = $go; $d.CancelButton = $go
   $d.Add_Shown({ $go.Focus() }.GetNewClosure())
   return $d
 }
-function Confirm-Cancel {
-  $d = New-CancelDialog
+function Confirm-Cancel([switch]$Now) {
+  $d = if ($Now) { New-CancelDialog '지금 멈출까요?' $NowStopText '지금 멈추기' } else { New-CancelDialog }
   $r = $d.ShowDialog($form); $d.Dispose()
   return $r -eq 'OK'
 }
-function Close-Wizard { $script:Closing = $true; Stop-Hidden $St.LoginRun; if ($St.Poll) { Stop-Hidden $St.Poll.R }; $tick.Stop(); $form.Close() }
+$NowStopText = '지금 멈추면 설치 중이던 프로그램이 덜 깔릴 수 있습니다.'
+function Close-Wizard { $script:Closing = $true; Stop-Hidden $St.LoginRun; Stop-Poll; $tick.Stop(); $form.Close() }
 $btnCancel.Add_Click({ $form.Close() })
 $form.Add_FormClosing({ param($s, $e)
     if ($script:Closing -or $Shots) { return }
     if ($St.Step -eq 7) { Close-Wizard; return }
     $e.Cancel = $true
+    # 이미 [취소]로 '끝나면 닫기'를 고른 뒤 창을 다시 닫으면: 확인받고 하던 설치(winget 등)까지 바로 멈춘다(D-44 ②)
+    if ($St.CancelPending -and $St.Run) {
+      if (Confirm-Cancel -Now) { Write-Log '설치 중 바로 멈춤'; Stop-Hidden $St.Run; $St.Run = $null; Close-Wizard }
+      return
+    }
     if (Confirm-Cancel) {
       if ($St.Run) { $St.CancelPending = $true; $btnCancel.Enabled = $false; $script:ui.Count.Text = '지금 설치하던 프로그램이 끝나면 닫습니다.' }  # 설치 중이면 지금 것만 끝내고 닫는다
       else { Close-Wizard }
