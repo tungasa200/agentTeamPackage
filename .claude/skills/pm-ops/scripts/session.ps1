@@ -30,6 +30,8 @@ $ErrorActionPreference = 'Continue'
 # npm으로 깐 claude는 claude.ps1·claude.cmd가 함께 있고 PowerShell은 .ps1을 먼저 잡는다. 실행 정책이 막는 .ps1 대신 실행 파일(.cmd·.exe)로 부른다
 $Claude = (Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.cmd', '.exe' } | Select-Object -First 1).Source
 if (-not $Claude) { $Claude = 'claude' }
+# 사용자에게 보여 주는 명령 이름(claude.cmd·claude.exe): 붙여 넣어도 실행 정책에 막히지 않는 쪽
+$ClaudeName = Split-Path -Leaf $Claude
 # 저장소 = 이 스크립트(.claude/skills/pm-ops/scripts/)에서 네 단계 위
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 
@@ -212,6 +214,7 @@ function Enter-WorkDir($name) {
   if ($LASTEXITCODE) { Write-Warning "$name worktree를 기준 가지($base)로 빨리감지 못했습니다(병합 전 커밋이 있거나 같은 파일을 고치는 중일 때가 많음). 그대로 띄웁니다. git: $(($o | Select-Object -First 3) -join ' / ')" }
   # gitignore 대상이라 worktree에 없다. 훅·승인 가드가 빠지지 않게 띄울 때마다 복사한다(S2: -w 복사는 한 번뿐이라 낡음).
   # 복사하지 못했거나 복사본에 승인 가드 훅이 없으면 띄우지 않는다(D-32: 가드 없이 도는 worktree를 만들지 않음)
+  if (-not (Test-Path "$Repo\.claude\settings.local.json")) { throw "본 저장소 .claude/settings.local.json이 없습니다($name worktree에 복사할 원본이 없음). 먼저 install.ps1 setup을 실행하세요." }
   foreach ($f in 'settings.local.json', 'wy-ops.local.json') {
     if (-not (Test-Path "$Repo\.claude\$f")) { continue }
     try { Copy-Item "$Repo\.claude\$f" "$dir\.claude\$f" -Force -ErrorAction Stop }
@@ -337,7 +340,7 @@ switch ($Cmd) {
     $h = if ($Prompt -and $Prompt -ne 'none') { $Prompt } else { $null }
     try { Start-New $Role $h $dir }
     catch {
-      $back = if ($s) { " 이전 $Role 세션은 이미 멈추고 목록에서 지웠습니다(대화 기록은 남음). 이어 띄우기: claude --bg --resume $($s.sessionId) --name $Role '<지시>'" } else { '' }
+      $back = if ($s) { " 이전 $Role 세션은 이미 멈추고 목록에서 지웠습니다(대화 기록은 남음). 이어 띄우기: $ClaudeName --bg --resume $($s.sessionId) --name $Role '<지시>'" } else { '' }
       throw "$($_.Exception.Message) 새 세션을 띄우지 못했습니다.$back"
     }
     "세션을 교체했습니다. 새 세션이 '시작' 또는 인계 확인을 보내면 '멈춰 있는 동안 끝난 일'을 SendMessage로 알려 주세요."
@@ -358,7 +361,7 @@ switch ($Cmd) {
     "pm 세션 교체(원격 운용: pm은 호스트의 백그라운드 세션, 노트북을 닫아도 계속 돎):"
     "  1. 인수인계 저장(끝남): $hp"
     "  2. 새 pm 띄우기: & '$PSCommandPath' start-pm '$hp' -Force"
-    "  3. 이전 pm 종료: 2가 알려 주는 claude stop <id>. 이전 pm이 2를 실행했다면 3이 마지막 동작"
+    "  3. 이전 pm 종료: 2가 알려 주는 $ClaudeName stop <id>. 이전 pm이 2를 실행했다면 3이 마지막 동작"
     "  4. 붙기: & '$PSCommandPath' attach $PmRole"
   }
   'start-pm' {
@@ -371,13 +374,14 @@ switch ($Cmd) {
     $bg = @($live | Where-Object { $_.kind -eq 'background' })
     if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force(메모리 관문도 함께 넘김)"; break }
     # 시작 규칙(pm-ops 먼저·인수인계·중복 pm 판단)은 역할 파일에 있다(D-36). 시작 지시는 인수인계 경로만 넘긴다
+    if (-not (Test-Path "$Repo\.claude\settings.local.json")) { Write-Warning "본 저장소 .claude/settings.local.json이 없어 승인 가드 훅 없이 뜹니다. 먼저 install.ps1 setup을 실행하세요." }
     if (-not (Test-Path "$Repo\.claude\agents\$PmRole.md")) { throw "$PmRole 역할 파일(.claude/agents/$PmRole.md)이 없습니다. install.ps1 gen 먼저 실행하세요." }
     $first = if ($h) { "[$PmRole 시작] 인수인계: $($h -replace '\\','/')" } else { "[$PmRole 시작] 인수인계 없음" }
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다
     $first = $first -replace '"', "'"
     Start-Bg @('--bg', '--agent', $PmRole, '--name', $PmRole, $first)
     "백그라운드 $PmRole 을 띄웠습니다. 붙기: session.ps1 attach $PmRole"
-    foreach ($o in $live) { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" }
+    foreach ($o in $live) { "이전 $PmRole 을 멈추세요: $ClaudeName stop $($o.id)" }
   }
   'wt-clean' {
     # 고정 worktree는 평소 지우지 않는다(D-31). 역할을 없애거나 worktree를 끌 때·트리가 망가졌을 때만. --force 없이 지우고 가지는 남긴다
