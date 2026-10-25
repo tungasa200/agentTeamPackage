@@ -7,7 +7,7 @@ const store = require('./approvalStore');
 const trust = require('./approvalTrust');
 const { ArrivalBell, alertMode, notifyText, ring } = require('./arrivalBell');
 
-const { loadOpsConfig } = require('./opsConfig');
+const { loadOpsConfig, uiBodyClass } = require('./opsConfig');
 
 const VIEW_TYPE = 'wyApprovals';
 const OPEN_COMMAND = 'wyApprovals.open';
@@ -435,6 +435,7 @@ class ApprovalCenter {
       .readFileSync(path.join(media.fsPath, 'approvals.html'), 'utf8')
       .replace(/{{csp}}/g, csp)
       .replace(/{{nonce}}/g, nonce)
+      .replace(/{{bodyClass}}/g, uiBodyClass(this.ops))
       .replace(/{{css}}/g, uri('approvals.css'))
       .replace(/{{js}}/g, uri('approvals.js'));
   }

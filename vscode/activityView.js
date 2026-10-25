@@ -6,7 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { ActivityReader, transcriptDirs, bundle } = require('./sessionActivity');
-const { loadOpsConfig } = require('./opsConfig');
+const { loadOpsConfig, uiBodyClass } = require('./opsConfig');
 const store = require('./approvalStore');
 
 const VIEW_TYPE = 'wyActivity';
@@ -232,6 +232,7 @@ class ActivityView {
       .readFileSync(path.join(media.fsPath, 'activity.html'), 'utf8')
       .replace(/{{csp}}/g, csp)
       .replace(/{{nonce}}/g, nonce)
+      .replace(/{{bodyClass}}/g, uiBodyClass(this.repo ? loadOpsConfig(this.repo) : null))
       .replace(/{{css}}/g, uri('activity.css'))
       .replace(/{{js}}/g, uri('activity.js'));
   }

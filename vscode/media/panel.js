@@ -491,7 +491,12 @@ ${s.stuck.command || ''}`;
     chip.append(icon(STATES[state].icon), el('span', null, STATES[state].label));
     if (state === 'off' && s && OFF_REASON[s.offReason]) chip.append(el('span', 'st-why', OFF_REASON[s.offReason]));
     const wf = s && s.waitingFor;
-    if (wf) chip.title = WAITING_FOR[String(wf).toLowerCase()] || wf;
+    if (wf) {
+      const why = WAITING_FOR[String(wf).toLowerCase()] || wf;
+      chip.title = why;
+      // 소형 화면(터치): 마우스 올림이 없으므로 이유를 글자로 보인다
+      if (document.body.classList.contains('compact')) chip.append(el('span', 'st-why', why));
+    }
     st.append(chip);
     const live = s && state !== 'off';
     const age = el('td', 'num elapsed', live ? fmtElapsed(s.startedAt) : '—');

@@ -212,6 +212,7 @@ function Enter-WorkDir($name) {
   if ($LASTEXITCODE) { Write-Warning "$name worktree를 기준 가지($base)로 빨리감지 못했습니다(병합 전 커밋이 있거나 같은 파일을 고치는 중일 때가 많음). 그대로 띄웁니다. git: $(($o | Select-Object -First 3) -join ' / ')" }
   # gitignore 대상이라 worktree에 없다. 훅·승인 가드가 빠지지 않게 띄울 때마다 복사한다(S2: -w 복사는 한 번뿐이라 낡음).
   # 복사하지 못했거나 복사본에 승인 가드 훅이 없으면 띄우지 않는다(D-32: 가드 없이 도는 worktree를 만들지 않음)
+  if (-not (Test-Path "$Repo\.claude\settings.local.json")) { throw "본 저장소 .claude/settings.local.json이 없습니다($name worktree에 복사할 원본이 없음). 먼저 install.ps1 setup을 실행하세요." }
   foreach ($f in 'settings.local.json', 'wy-ops.local.json') {
     if (-not (Test-Path "$Repo\.claude\$f")) { continue }
     try { Copy-Item "$Repo\.claude\$f" "$dir\.claude\$f" -Force -ErrorAction Stop }
@@ -371,6 +372,7 @@ switch ($Cmd) {
     $bg = @($live | Where-Object { $_.kind -eq 'background' })
     if ($bg.Count -and -not $Force) { "$PmRole 백그라운드 세션이 이미 실행 중입니다($(($bg | ForEach-Object { $_.id }) -join ', ')). 띄우지 않았습니다. pm 세션 교체 중이면 -Force(메모리 관문도 함께 넘김)"; break }
     # 시작 규칙(pm-ops 먼저·인수인계·중복 pm 판단)은 역할 파일에 있다(D-36). 시작 지시는 인수인계 경로만 넘긴다
+    if (-not (Test-Path "$Repo\.claude\settings.local.json")) { Write-Warning "본 저장소 .claude/settings.local.json이 없어 승인 가드 훅 없이 뜹니다. 먼저 install.ps1 setup을 실행하세요." }
     if (-not (Test-Path "$Repo\.claude\agents\$PmRole.md")) { throw "$PmRole 역할 파일(.claude/agents/$PmRole.md)이 없습니다. install.ps1 gen 먼저 실행하세요." }
     $first = if ($h) { "[$PmRole 시작] 인수인계: $($h -replace '\\','/')" } else { "[$PmRole 시작] 인수인계 없음" }
     # PowerShell 5.1은 큰따옴표를 실행 파일 인자로 제대로 넘기지 못하므로 작은따옴표로 바꾼다

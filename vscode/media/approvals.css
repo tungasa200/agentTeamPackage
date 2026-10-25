@@ -335,3 +335,20 @@ body.vscode-high-contrast .row.perm, body.vscode-high-contrast .row[aria-selecte
 .cost-line b { color: var(--fg); font-weight: 600; }
 .note-text { margin: 0; max-width: 64ch; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .alerts > .link { justify-self: start; padding: 2px 0; }
+
+/* 소형 화면 모드(ui.compact): 눌리는 칸 40px([승인]·[거부]는 44px, 사이 12px), 보조 글자 12px 이상, 키보드 힌트 숨김 */
+.compact kbd, .compact .kbar { display: none; }
+.compact :is(.mc, .grp, .hist .r, .hist li, .badge, .rec, .kind-chip, .pri-lab, .tab .n, .sn .who, .chip, .chip-btn, .mc-tx, .cost-line, .alert) { font-size: 12px; }
+.compact :is(.icon-btn, .tab, .chip, .chip-btn, .back, .dev-name) { min-height: 40px; height: auto; }
+.compact .icon-btn { width: 40px; }
+.compact .code .icon-btn { margin: -8px -8px 0 0; }
+.compact .chip { padding: 0 12px; }
+.compact .filters { gap: 8px; }
+.compact .tab { padding: 0 12px; }
+.compact .back { padding: 0 12px 0 6px; }
+.compact .row { padding: 12px 8px; }
+.compact .opt { min-height: 44px; padding: 11px 12px; }
+.compact .todo-steps li { min-height: 44px; align-items: center; }
+.compact .btn { min-height: 44px; padding: 0 16px; }
+.compact .act .btns { gap: 12px; }
+.compact .link { min-height: 40px; }
