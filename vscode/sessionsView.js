@@ -10,7 +10,7 @@ const { loadOpsConfig, uiBodyClass, compactSetting, onCompactChange } = require(
 const { rootFor } = require('./approvalStore');
 const { readSessionStatus, readAgents, splitByProject, treeMB } = require('./agentsReader');
 const { notifyStuck } = require('./stuckTool');
-const { PmControl } = require('./pmControl');
+const { PmControl, runViaFile } = require('./pmControl');
 const { OrphanCleaner, AUTO_GAP_MS } = require('./orphanCleaner');
 
 const VIEW_ID = 'wyOps.sessions';
@@ -370,7 +370,7 @@ function register(context) {
     store: context.workspaceState,
     folder: workspaceDir,
     ops: workspaceOps,
-    run,
+    run: runViaFile, // D-45: start-pm이 띄운 daemon이 출력 파이프를 쥐지 않게 파일로 받는다
     logFile: path.join(context.logUri ? context.logUri.fsPath : path.join(os.tmpdir(), 'wy-ops'), 'pm-control.log'),
     onChange: () => provider && provider.postPm(),
   });

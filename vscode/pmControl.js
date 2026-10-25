@@ -6,6 +6,7 @@
 //              이 줄은 그 진행을 4단계로 지켜본다. 진행은 workspaceState에 두어 창을 닫았다 열어도 이어서 본다
 //   [멈춤]     확인 창(Enter = 취소) 뒤 session.ps1 stop <pm>
 // vscode·명령 실행·시계는 주입한다(test/pmControl.test.js).
+const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -48,6 +49,52 @@ const STEPS = ['하던 일 저장', '새 pm 시작', '이전 pm 멈춤', '새 �
 function psArgs(ps1, ...args) {
   const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
   return ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `[Console]::OutputEncoding=[Text.Encoding]::UTF8; & ${q(ps1)} ${args.join(' ')}`];
+}
+
+// pm 제어 명령 실행(D-45): 출력을 파이프가 아니라 임시 파일로 받는다(stderr는 전처럼 버린다: 콘솔 코드 페이지라 깨진다). start-pm 안의 claude --bg가 daemon을 띄우면 daemon이
+// 자식의 표준 출력을 물려받는데, 파이프면 execFile이 daemon이 놓을 때까지(timeout) 기다리고 그 뒤 파이프를 닫아 daemon 출력이 EPIPE가 된다.
+// 파일은 자식이 끝나는 대로('exit') 읽고 지운다(Windows에서도 Node는 지우기 공유로 열어 daemon이 쥐고 있어도 지워진다)
+function runViaFile(label, file, args, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const tmp = path.join(os.tmpdir(), `wy-pm-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.log`);
+    let fd;
+    try {
+      fd = fs.openSync(tmp, 'w');
+    } catch (err) {
+      reject(new Error(`${label} 출력 파일을 만들 수 없음(${err.code || err.message})`));
+      return;
+    }
+    let child;
+    let done = false;
+    const finish = (err) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      let out = '';
+      try {
+        out = fs.readFileSync(tmp, 'utf8');
+        fs.unlinkSync(tmp);
+      } catch {
+        // 못 읽거나 못 지워도 결과는 종료 코드로 정한다
+      }
+      if (err) reject(err);
+      else resolve(out);
+    };
+    const timer = setTimeout(() => {
+      if (child) child.kill();
+      finish(new Error(`${label} 응답 없음(${timeout / 1000}초)`));
+    }, timeout);
+    try {
+      child = spawn(file, args, { stdio: ['ignore', fd, 'ignore'], windowsHide: true });
+    } catch (err) {
+      finish(new Error(`${label} 실패(${err.code || err.message})`));
+      return;
+    } finally {
+      fs.closeSync(fd); // 자식은 자기 핸들을 가졌다
+    }
+    child.on('error', (err) => finish(new Error(err.code === 'ENOENT' ? `${label} 명령을 찾을 수 없음` : `${label} 실패(${err.code || err.message})`)));
+    child.on('exit', (code, signal) => finish(code === 0 ? null : new Error(`${label} 실패(${code === null ? `신호 ${signal}` : `종료 코드 ${code}`})`)));
+  });
 }
 
 // 인수인계 파일의 **Worktree:** 머리말이 repo(본 저장소 또는 그 아래 worktree)인가. 머리말 없는 옛 파일·저장소를 모르면 받는다
@@ -361,4 +408,4 @@ class PmControl {
   }
 }
 
-module.exports = { PmControl, psArgs, STEPS, STORE_KEY, ROTATE_TEXT };
+module.exports = { PmControl, psArgs, runViaFile, STEPS, STORE_KEY, ROTATE_TEXT };
