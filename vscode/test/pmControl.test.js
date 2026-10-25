@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { PmControl, psArgs, ROTATE_TEXT } = require('../pmControl');
+const { PmControl, psArgs, runViaFile, ROTATE_TEXT } = require('../pmControl');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wy-pmctl-'));
 const home = path.join(tmp, 'home');
@@ -232,6 +232,24 @@ const row = (extra = {}) => ({ name: 'AB-pm', alive: true, view: 'input', contex
     // [기록 보기]: 기록 파일을 편집기로
     t.pm.openLog();
     assert.ok(t.executed[0][0] === 'vscode.open' && fs.existsSync(t.executed[0][1].fsPath));
+
+    // D-45: 자식이 띄운 손자(claude --bg가 띄운 daemon 자리)가 표준 출력을 쥐고 남아도 자식이 끝나면 바로 끝난다.
+    // 파이프(execFile)였으면 timeout(15초)까지 기다리고 err 없이 끝나므로 걸린 시간으로 가린다. 손자는 끝나면 죽인다
+    const grand = 'setTimeout(() => {}, 30000)';
+    const childJs = `const g = require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grand)}], { stdio: 'inherit', detached: true, windowsHide: true }); g.unref(); console.log('started ' + g.pid)`;
+    const t0 = Date.now();
+    const out = await runViaFile('pm 시작', process.execPath, ['-e', childJs], 15000);
+    const grandPid = Number((/^started (\d+)$/m.exec(out) || [])[1]);
+    try {
+      process.kill(grandPid);
+    } catch {
+      // 이미 끝났으면 그만
+    }
+    assert.ok(Date.now() - t0 < 10000, `손자가 출력을 쥐어도 자식이 끝나면 끝남(${Date.now() - t0}ms)`);
+    assert.ok(grandPid > 0, `자식 출력은 파일로 받음(${JSON.stringify(out)})`);
+    await assert.rejects(runViaFile('pm 시작', process.execPath, ['-e', 'process.exit(3)'], 15000), /pm 시작 실패\(종료 코드 3\)/);
+    await assert.rejects(runViaFile('pm 시작', process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], 300), /pm 시작 응답 없음\(0\.3초\)/);
+    await assert.rejects(runViaFile('pm 시작', path.join(tmp, 'no-such.exe'), []), /pm 시작 명령을 찾을 수 없음/);
 
     console.log('pmControl 검사 통과');
   } finally {
