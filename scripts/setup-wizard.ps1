@@ -46,14 +46,15 @@ function Write-Log([string]$s) { try { [IO.File]::AppendAllText($LogPath, ((Get-
 Write-Log "WY Ops 설치 마법사 시작: 패키지 $Pkg, 배율 $DpiScale$(if ($Demo) { ', 시험(Demo)' })"
 
 function Update-PathFromRegistry {
-  # 방금 설치한 도구가 이 창에서 바로 보이게(install.ps1과 같은 방식)
+  # 프로세스를 띄우기 직전에 부른다: 방금 설치한 도구·마법사 밖에서 깐 프로그램도 보이게(install.ps1과 같은 방식, 자식이 이 창의 PATH를 물려받음)
+  if ($Demo) { return }
   $m = [Environment]::GetEnvironmentVariable('Path', 'Machine'); $u = [Environment]::GetEnvironmentVariable('Path', 'User')
   $env:Path = (@($m, $u) | Where-Object { $_ }) -join ';'
 }
-if (-not $Demo) { Update-PathFromRegistry }
 
 # ── 창 없는 프로세스: 출력은 줄 단위로 타이머에서 읽는다(ReadLineAsync, 다른 스레드에서 스크립트를 돌리지 않음) ──
 function Start-Hidden([string]$cmdLine, [string]$cwd = $env:USERPROFILE, [switch]$KeepInput) {
+  Update-PathFromRegistry
   $psi = New-Object Diagnostics.ProcessStartInfo
   $psi.FileName = $env:ComSpec
   $psi.Arguments = '/d /s /c "' + $cmdLine + ' 2>&1"'
@@ -84,6 +85,17 @@ function Read-Hidden($r) {
 function Stop-Hidden($r) {
   if ($r -and $r.P -and -not $r.P.HasExited) { try { & taskkill.exe /PID $r.P.Id /T /F 2>$null | Out-Null } catch { } }
 }
+# 짧은 lib/install.js 명령(읽기만)을 끝까지 기다려 출력을 받는다
+function Invoke-InstallJs([string]$arguments) {
+  Update-PathFromRegistry
+  $psi = New-Object Diagnostics.ProcessStartInfo 'node'
+  $psi.Arguments = (Q (Join-Path $Pkg 'lib\install.js')) + ' ' + $arguments
+  $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.CreateNoWindow = $true; $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
+  $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
+  return @{ Code = $p.ExitCode; Out = $out }
+}
+# 클립보드가 다른 프로그램에 잡혀 있으면 SetText가 예외를 던진다: 버튼 동작이 멈추지 않게 기록만
+function Copy-Text([string]$s) { try { [Windows.Forms.Clipboard]::SetText($s) } catch { Write-Log "복사하지 못함: $($_.Exception.Message)" } }
 function Q([string]$s) { '"' + $s + '"' }
 # 사용자가 PowerShell 창에 붙여 넣을 명령의 경로: 작은따옴표($·`가 풀리지 않게)
 function QP([string]$s) { "'" + $s.Replace("'", "''") + "'" }
@@ -283,11 +295,8 @@ function Get-OtherPrefixes([string]$dir) {
     $list = @()
     if (-not $Demo) {
       try {
-        $psi = New-Object Diagnostics.ProcessStartInfo 'node'
-        $psi.Arguments = (Q (Join-Path $Pkg 'lib\install.js')) + ' projects'
-        $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.CreateNoWindow = $true; $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
-        $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
-        if ($p.ExitCode -eq 0 -and $out.Trim()) { $list = @(ConvertFrom-Json $out.Trim()); $script:Projects = $list }
+        $r = Invoke-InstallJs 'projects'
+        if ($r.Code -eq 0 -and $r.Out.Trim()) { $list = @(ConvertFrom-Json $r.Out.Trim()); $script:Projects = $list }
       } catch { Write-Log "프로젝트 목록 읽기 실패: $($_.Exception.Message)" }
     }
   }
@@ -340,11 +349,8 @@ function Get-DetectLines([string]$dir) {
   if ($Demo) { return @('폴더의 파일로 알아낸 검증 명령입니다.', '알아낸 폴더: java-gradle(backend/), node(frontend/)', '빌드: ./gradlew build (backend/) · npm run build (frontend/)', '테스트: ./gradlew test (backend/) · npm test (frontend/)') }
   if (-not (Test-Path -LiteralPath $dir)) { return @('아직 없는 폴더입니다. 검증 명령은 비워 두고, 코드가 생긴 뒤 install.ps1 detect --apply로 채웁니다.') }
   try {
-    $psi = New-Object Diagnostics.ProcessStartInfo 'node'
-    $psi.Arguments = (Q (Join-Path $Pkg 'lib\install.js')) + ' detect --project ' + (Q (Join-Path $dir '.'))  # 끝 '\'가 닫는 따옴표를 먹지 않게(C:\는 C:로 자르면 드라이브의 현재 폴더가 됨)
-    $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.CreateNoWindow = $true; $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
-    $p = [Diagnostics.Process]::Start($psi); $out = $p.StandardOutput.ReadToEnd(); $p.WaitForExit()
-    if ($p.ExitCode -eq 0 -and $out.Trim()) { return @($out.Trim() -split "`r?`n") }
+    $r = Invoke-InstallJs ('detect --project ' + (Q (Join-Path $dir '.')))  # 끝 '\'가 닫는 따옴표를 먹지 않게(C:\는 C:로 자르면 드라이브의 현재 폴더가 됨)
+    if ($r.Code -eq 0 -and $r.Out.Trim()) { return @($r.Out.Trim() -split "`r?`n") }
   } catch { Write-Log "검증 명령 알아보기 실패: $($_.Exception.Message)" }
   return @('지금은 알아볼 수 없습니다(Node.js 설치 전). 설치할 때 폴더를 보고 알아냅니다.')
 }
@@ -582,7 +588,6 @@ function Read-Install {
     if ($St.CancelPending) { Close-Wizard; return }
     if ($run.Exit -eq 0 -and (Find-Row 'folder').State -eq 'done') {
       $St.Installed = $true; $St.Done[3] = $true
-      if (-not $Demo) { Update-PathFromRegistry }
       Show-Step; $btnNext.Focus()
     } else {
       if (-not $St.FailMsg) {
@@ -714,7 +719,7 @@ function Show-Step5 {
     $code = New-Object Windows.Forms.Label; $code.AutoSize = $true; $code.Font = $F.Code; $code.Text = $St.GhCode; $code.BorderStyle = 'FixedSingle'; $code.BackColor = [Drawing.Color]::White
     $code.Padding = New-Object Windows.Forms.Padding((Px 12), (Px 8), (Px 12), (Px 8)); $code.AccessibleName = '확인 코드'
     $cp = New-Btn '코드 복사'; $cp.Margin = New-Object Windows.Forms.Padding((Px 12), (Px 12), 0, 0)
-    $cp.Add_Click({ param($s) try { [Windows.Forms.Clipboard]::SetText($St.GhCode) } catch { }; $s.Text = '복사함'; $script:CopyReset = (Get-Date).AddSeconds(2); $script:CopyBtn = $s })
+    $cp.Add_Click({ param($s) Copy-Text $St.GhCode; $s.Text = '복사함'; $script:CopyReset = (Get-Date).AddSeconds(2); $script:CopyBtn = $s })
     $r.Controls.AddRange(@($code, $cp))
     # 코드가 만료(gh가 실패로 끝남)된 뒤에만 [새 코드 받기]
     if ($St.GhExpired) { $nc = New-Btn '새 코드 받기' $true; $nc.Margin = New-Object Windows.Forms.Padding((Px 8), (Px 12), 0, 0); $nc.Add_Click({ Start-GhLogin }); $r.Controls.Add($nc) }
@@ -782,7 +787,6 @@ function Get-GroupOf([string]$id, $missing) {
 }
 function Start-Doctor {
   $St.Doctor = $null; $St.Waiting = 'doctor'
-  if (-not $Demo) { Update-PathFromRegistry }  # 설치 뒤·마법사 밖에서 깐 프로그램도 보이게(점검이 이 창의 PATH를 물려받음)
   $cmd = if ($Demo) {
     $j = if ($St.GhSkipped -and -not $St.GhOk) { '[{"id":"tools","level":"ok"},{"id":"login-github","level":"warn","title":"GitHub 로그인"}]' } else { '[{"id":"tools","level":"ok"},{"id":"login-github","level":"ok"}]' }
     Get-DemoCmd @($j) 0.2
@@ -800,10 +804,8 @@ function Get-InstalledCmd([string]$sub) { 'powershell -ExecutionPolicy Bypass -F
 function Get-FriendlyLine($r, [string]$group) {
   switch ($r.id) {
     'tools' {
-      # 점검 원문 '없음: git, code(VS Code, PATH), claude(…)'에서 프로그램 이름만. 설치는 됐는데 이 창에서 못 찾는 경우가 많아(setup을 다시 해도 같음) 새 창에서 다시 점검하게 한다
-      $d = "$($r.detail)"
-      $names = @(@{ P = '(^|[:,] *)git\b'; N = 'Git' }, @{ P = '(^|[:,] *)code\('; N = 'VS Code' }, @{ P = '(^|[:,] *)claude\('; N = 'Claude Code' }, @{ P = '(^|[:,] *)node '; N = 'Node.js' }, @{ P = 'PowerShell'; N = 'PowerShell 5.1' }) |
-        Where-Object { $d -cmatch $_.P } | ForEach-Object { $_.N }
+      # 점검이 준 없는 프로그램 이름(missing). 설치는 됐는데 이 창에서 못 찾는 경우가 많아(setup을 다시 해도 같음) 새 창에서 다시 점검하게 한다
+      $names = @($r.missing | Where-Object { $_ })
       $cmd = Get-InstalledCmd 'doctor'
       return @{ Head = '이 창에서 찾지 못한 프로그램이 있습니다' + $(if ($names) { ': ' + ($names -join ', ') } else { '.' })
         Do = '설치 마법사를 닫고 PowerShell 창을 새로 열어 아래 명령으로 다시 점검하세요. 거기서도 없는 프로그램은 설치할지 묻습니다(y로 설치).'; Cmd = $cmd }
@@ -840,7 +842,7 @@ function New-DetailDialog($items) {
       $y += Px 6
       $tb = New-Object Windows.Forms.TextBox; $tb.ReadOnly = $true; $tb.Text = $it.Cmd; $tb.Font = $F.Small; $tb.Width = $tw; $tb.Location = New-Object Drawing.Point((Px 66), $y); $d.Controls.Add($tb); $y += $tb.Height + (Px 4)
       $cl = New-Object Windows.Forms.LinkLabel; $cl.AutoSize = $true; $cl.Font = $F.Small; $cl.LinkColor = $C.Accent; $cl.Text = '명령 복사'; $cl.Tag = $it.Cmd; $cl.Location = New-Object Drawing.Point((Px 66), $y)
-      $cl.Add_LinkClicked({ param($s) [Windows.Forms.Clipboard]::SetText($s.Tag) }); $d.Controls.Add($cl); $y += $cl.PreferredHeight
+      $cl.Add_LinkClicked({ param($s) Copy-Text $s.Tag }); $d.Controls.Add($cl); $y += $cl.PreferredHeight
     }
   }
   $ft = New-Object Windows.Forms.Panel; $ft.Dock = 'Bottom'; $ft.Height = Px 50; $ft.BackColor = $C.Foot
@@ -952,7 +954,7 @@ function Show-Step7 {
       'ok' { Add-Status 'ok' 'pm이 일을 시작했습니다.' 'VS Code의 WY Ops 화면에서 [붙기]를 누르세요.' }
       default {
         $why = if ($St.PmPhase -eq 'late') { "pm 시작이 $($PmLimit)초 안에 끝나지 않아 멈췄습니다." } else { 'pm을 시작하지 못했습니다.' }
-        Add-Status 'warn' "$why VS Code는 열었습니다." ('WY Ops 화면 맨 위의 [pm 시작]을 누르거나, PowerShell 창을 새로 열어 이 명령을 붙여 넣으세요: ' + $St.PmCmd) '명령 복사' { [Windows.Forms.Clipboard]::SetText($St.PmCmd) }
+        Add-Status 'warn' "$why VS Code는 열었습니다." ('WY Ops 화면 맨 위의 [pm 시작]을 누르거나, PowerShell 창을 새로 열어 이 명령을 붙여 넣으세요: ' + $St.PmCmd) '명령 복사' { Copy-Text $St.PmCmd }
       }
     }
     return
