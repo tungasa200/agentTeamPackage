@@ -112,12 +112,12 @@ assert.ok(/Invoke-InstallJs 'projects'/.test(wiz) && /cmd === 'projects'/.test(j
     assert.strictEqual(out.status, 0, out.stdout + out.stderr);
     return out.stdout.trim();
   };
-  // PATH 다시 읽기는 프로세스를 띄우는 두 곳(Start-Hidden·Invoke-InstallJs)에서만. 점검·설치 뒤 따로 부르지 않는다
-  assert.ok(/^\s*Update-PathFromRegistry\r?$/m.test(fnText('Start-Hidden')) && /^\s*Update-PathFromRegistry\r?$/m.test(fnText('Invoke-InstallJs')), '띄우기 직전에 PATH를 레지스트리에서 다시 읽음');
-  assert.strictEqual((wiz.match(/Update-PathFromRegistry/g) || []).length, 3, '정의 1 + 부르는 곳 2');
+  // PATH 다시 읽기는 프로세스를 띄우는 세 곳(Start-Hidden·Invoke-InstallJs·Start-Daemon)에서만. 점검·설치 뒤 따로 부르지 않는다
+  for (const fn of ['Start-Hidden', 'Invoke-InstallJs', 'Start-Daemon']) assert.ok(/^\s*Update-PathFromRegistry\r?$/m.test(fnText(fn)), `${fn}: 띄우기 직전에 PATH를 레지스트리에서 다시 읽음`);
+  assert.strictEqual((wiz.match(/Update-PathFromRegistry/g) || []).length, 4, '정의 1 + 부르는 곳 3');
   assert.strictEqual((wiz.match(/ProcessStartInfo/g) || []).length, 2, '프로세스는 Start-Hidden·Invoke-InstallJs로만 띄운다');
   assert.ok(!/Clipboard\]::SetText/.test(wiz.replace(/^function Copy-Text\b.*$/m, '')), '복사는 Copy-Text 한 곳');
-  assert.ok(/^\s*\} \$PmLimit\r?$/m.test(fnText('Start-Pm')) && /^\$PmLimit = 90\b/m.test(wiz), 'pm 시작은 시간 제한을 걸고 부른다');
+  assert.ok(/^\s*\} \$PmLimit -Keep\r?$/m.test(fnText('Start-Pm')) && /^\$PmLimit = 90\b/m.test(wiz), 'pm 시작은 시간 제한을 걸고, 그만둘 때 죽이지 않게(-Keep) 부른다');
   // 'tools': 점검 원문에서 프로그램 이름만, 할 일은 새 창에서 다시 점검(명령 포함)
   const tools = runPs([
     wiz.match(/^function QP\b.*$/m)[0], "$St = @{ Project = 'C:\\w\\my $app' }",
@@ -136,17 +136,50 @@ assert.ok(/Invoke-InstallJs 'projects'/.test(wiz) && /cmd === 'projects'/.test(j
   assert.ok(/: VS Code, Claude Code$/.test(tools[0]) && !/Git|Node/.test(tools[0]), tools.join('\n'));
   assert.ok(/새로 열어/.test(tools[1]) && !/setup을 다시/.test(tools[1]), tools.join('\n'));
   assert.strictEqual(tools[2], 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\.wy-tools\\wy-ops\\current\\install.ps1" doctor --project \'C:\\w\\my $app\'', '붙여 넣는 명령의 경로는 작은따옴표($가 풀리지 않게)');
-  assert.ok(/^function Go-Step[^\n]*\n[^\n]*\n[^\n]*\n\s*if \(\$n -ne 7 -and \$St\.PmPhase -eq 'run'\) \{ \$St\.PmPhase = 'fail' \}/m.test(wiz), 'pm 시작 중 다른 단계로 가면 실패로 둔다(돌아왔을 때 시작하는 중에 머물지 않게)');
-  // 기다리는 명령의 시간 제한(Start-Poll $limit): 안 넘으면 그대로, 넘으면 명령을 멈추고 onDone을 시간 초과로 부른다
+  assert.ok(/^function Go-Step[^\n]*\n[^\n]*\n[^\n]*\n\s*if \(\$n -ne 7 -and \$St\.PmPhase -eq 'run'\) \{ \$St\.PmPhase = 'late' \}/m.test(wiz), 'pm 시작 중 다른 단계로 가면 아직 뜨는 중일 수 있음으로 둔다(돌아왔을 때 시작하는 중에 머물지 않게)');
+  // 기다리는 명령의 시간 제한(Start-Poll $limit): 안 넘으면 그대로, 넘으면 기다림을 그만두고 onDone을 시간 초과로 부른다.
+  //   보통은 명령도 멈추고, -Keep(pm 시작, D-44)은 죽이지 않는다(Stop-Poll: 단계 이동·창 닫기도 같음)
   const poll = runPs([
     "$script:stopped = 0; function Stop-Hidden($r) { $script:stopped++ }; function Write-Log($s) { }",
     "function Start-Hidden($c) { @{ Exit = $null; Lines = @('a'); Cmd = $c } }; function Read-Hidden($r) { }",
-    wiz.match(/^function Start-Poll\b.*$/m)[0], fnText('Read-Poll'),
+    wiz.match(/^function Start-Poll\b.*$/m)[0], wiz.match(/^function Stop-Poll\b.*$/m)[0], fnText('Read-Poll'),
     "$St = @{}; Start-Poll 'x' { param($code, $out, $late) $script:got = \"$code|$out|$late\" } 90; Read-Poll; $null -ne $St.Poll",
     "$St.Poll.Until = (Get-Date).AddSeconds(-1); Read-Poll; $script:got; $script:stopped; $null -eq $St.Poll",
+    "$script:got = $null; Start-Poll 'pm' { param($code, $out, $late) $script:got = \"$code|$out|$late\" } 90 -Keep",
+    "$St.Poll.Until = (Get-Date).AddSeconds(-1); Read-Poll; $script:got; $script:stopped; $null -eq $St.Poll",
+    "Start-Poll 'pm' { } 90 -Keep; Stop-Poll; Start-Poll 'st' { }; Stop-Poll; $script:stopped; $null -eq $St.Poll",
   ]).split(/\r?\n/);
-  assert.deepStrictEqual(poll, ['True', '|a|True', '1', 'True'], poll.join('\n'));
-  assert.ok(/\$St\.PmPhase = if \(\$late\) \{ 'late' \}/.test(fnText('Start-Pm')) && /\$St\.PmPhase -eq 'late'/.test(fnText('Show-Step7')), 'pm 시간 초과는 late로 따로 보인다');
+  assert.deepStrictEqual(poll, ['True', '|a|True', '1', 'True', '|a|True', '1', 'True', '2', 'True'], poll.join('\n'));
+  assert.ok(!/Stop-Hidden \$St\.Poll/.test(wiz.replace(/^function Stop-Poll\b.*$/m, '')),'기다리는 명령은 Stop-Poll로만 그만둔다(-Keep을 지키게)');
+  assert.ok(/\$St\.PmPhase = if \(\$late\) \{ 'late' \}/.test(fnText('Start-Pm')) && /'late' \{ Add-Status 'warn' 'pm이 아직 뜨는 중일 수 있습니다\.'/.test(fnText('Show-Step7')), 'pm 시간 초과는 late(아직 뜨는 중일 수 있음)로 따로 보인다');
+  // daemon 먼저 띄우기(D-44 ①): pm 시작 전에, 없을 때만, lib/host.js daemonArgs와 같은 명령을 Start-Process(숨김)로
+  const sp = fnText('Start-Pm');
+  assert.ok(sp.indexOf('Start-Daemon') > 0 && sp.indexOf('Start-Daemon') < sp.indexOf('Start-Poll'), 'pm 시작 전에 daemon');
+  const exe = "C:\\a'b\\claude.exe";
+  const dm = runPs([
+    "$Demo = $false; $script:n = 0; $script:alive = $null; function Write-Log($s) { }; function Update-PathFromRegistry { }",
+    wiz.match(/^function QP\b.*$/m)[0],
+    'function Get-DaemonPid { $script:alive }',
+    `function Get-Command { [pscustomobject]@{ Source = '${exe.replace(/'/g, "''")}'; Extension = '.exe' } }`,
+    'function Start-Process($FilePath, $ArgumentList, $WindowStyle) { $script:n++; "$FilePath|$WindowStyle"; $ArgumentList; $script:alive = 42 }',
+    fnText('Start-Daemon'),
+    'Start-Daemon; Start-Daemon; $script:n',
+  ]).split(/\r?\n/);
+  assert.deepStrictEqual(dm, ['powershell.exe|Hidden', require('../lib/host').daemonArgs(exe), '1'], dm.join('\n'));
+  // 있는지 판단: daemon.lock의 pid가 살아 있는 claude 프로세스일 때만(없는 파일·다른 프로그램 pid는 없음)
+  const tmpHome = fs.mkdtempSync(path.join(require('os').tmpdir(), 'wiz-daemon-'));
+  const dp = runPs([
+    `$env:USERPROFILE = '${tmpHome}'`, fnText('Get-DaemonPid'),
+    '$null -eq (Get-DaemonPid)',
+    "New-Item -ItemType Directory -Force (Join-Path $env:USERPROFILE '.claude') | Out-Null; [IO.File]::WriteAllText((Join-Path $env:USERPROFILE '.claude\\daemon.lock'), (@{ pid = $PID } | ConvertTo-Json))",
+    '$null -eq (Get-DaemonPid)',
+  ]).split(/\r?\n/);
+  fs.rmSync(tmpHome, { recursive: true, force: true });
+  assert.deepStrictEqual(dp, ['True', 'True'], dp.join('\n'));
+  // 설치 중 [취소](D-44 ②): 한 번은 끝나면 닫기, 그 뒤 창을 다시 닫으면 확인받고 하던 설치까지 바로 멈춘다
+  const fc = wiz.slice(wiz.indexOf('$form.Add_FormClosing('));
+  assert.ok(/if \(\$St\.CancelPending -and \$St\.Run\) \{\s*if \(Confirm-Cancel -Now\) \{[^}]*Stop-Hidden \$St\.Run;/.test(fc), '두 번째 닫기는 확인 뒤 설치 프로세스 트리를 멈춤');
+  assert.ok(/^\$NowStopText = '지금 멈추면 설치 중이던 프로그램이 덜 깔릴 수 있습니다\.'/m.test(wiz), '두 번째 확인 문구');
   assert.ok(/'명령 복사' \{ Copy-Text \$St\.PmCmd \}/.test(wiz) && /\$St\.PmCmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File '/.test(wiz), 'pm 실패 안내에 붙여 넣을 명령');
   // 끝난 명령이 띄운 오래 사는 프로세스가 출력 핸들을 쥐고 있어도(처음 뜨는 claude daemon 등) 몇 초 뒤 끝난 것으로 본다
   //   (ping이 약 8초 출력 핸들을 쥔다. 이 시험 프로세스의 출력도 물려받으므로 걸린 시간은 PowerShell 안에서 재고, 끝에 그 ping을 끈다)
