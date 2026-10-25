@@ -39,6 +39,7 @@
    ```powershell
    powershell -ExecutionPolicy Bypass -File C:\tools\wy-ops\install.ps1 quickstart
    ```
+   - 명령 대신 `quickstart.cmd`(`setup.cmd` 옆, 설치본 `~\.wy-tools\wy-ops\current`에도 있음)를 더블클릭해도 됩니다. 끝나도 창이 닫히지 않아 결과를 읽을 수 있습니다.
    - 묻는 것은 **프로젝트 폴더**와 **이름** 둘뿐입니다(Enter = 보이는 기본값). 경로는 따옴표째 붙여 넣어도 되고 `~`도 됩니다. 없는 폴더는 만들고, git 저장소가 아니면 `git init`을 합니다.
    - 필요한 프로그램(Node.js·Git·GitHub CLI·VS Code·Claude Code)이 없으면 설치를 한 번 묻습니다.
    - 나머지는 기본값입니다: 스택은 루트와 바로 아래 폴더의 파일로 폴더마다 알아냄(미리 보기 `install.ps1 detect`, 빈 폴더에 설치했으면 코드가 생긴 뒤 `install.ps1 detect --apply`), 역할은 아래 기본 구성, 역할 접두사는 이름 앞 두 글자(`my-app` → `MY-`), 역할 worktree 켬(끄려면 `--no-worktree`).

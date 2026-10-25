@@ -93,7 +93,7 @@ PC를 다시 켜면 백그라운드 세션은 모두 꺼져 있습니다. pm은 
 pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 - 세션 현황 pm 줄에 '교체 권장'(컨텍스트가 `rotation.contextTokens` 이상, 기본 10만 토큰)이 뜨면 일이 끊기는 때에 [pm 교체]를 누릅니다. pm에 붙은 터미널('AB-pm 붙기')에 교체 문구가 들어가고, pm이 하던 턴을 마친 뒤 스스로 ① 진행 중인 것 저장(`/wy-save-session`) ② `start-pm latest -Force`로 새 pm ③ 이전 자신 멈춤을 합니다. pm 줄은 이 네 단계(마지막 ④ 새 터미널로 붙기)를 보여 주고, 끝나면 새 pm에 붙은 터미널을 엽니다. 창을 닫아도 교체는 계속되고, 다시 열면 이어서 보여 줍니다.
 - 한 단계가 늦으면(저장 10분, 그 뒤 단계 60초) 멈추고 무엇이 안 됐는지와 지금 상태(이전 pm이 살아 있는지)를 보여 줍니다. [다시 시도]는 실패한 단계부터, [기록 보기]는 교체 기록 파일을 엽니다. 여유 메모리가 `memory.blockFreeMB`(기본 500MB) 미만이면 교체를 시작하지 않습니다.
-- 터미널로 직접: pm에서 `/wy-save-session`(short-id는 pm 역할 이름) → `session.ps1 start-pm latest -Force`(백그라운드 pm이 이미 돌면 -Force 없이는 거부) → `session.ps1 attach <pm 역할>`로 새 pm에 붙고 이전 pm은 `claude stop <이전 id>`. `session.ps1 pm-cmd`가 이 순서를 출력합니다.
+- 터미널로 직접: pm에서 `/wy-save-session`(short-id는 pm 역할 이름) → `session.ps1 start-pm latest -Force`(백그라운드 pm이 이미 돌면 -Force 없이는 거부) → `session.ps1 attach <pm 역할>`로 새 pm에 붙고 이전 pm은 `claude.cmd stop <이전 id>`(PowerShell 실행 정책 때문에 `.cmd`로). `session.ps1 pm-cmd`가 이 순서를 출력합니다.
 
 ### 2-5. 기억은 파일에
 
@@ -191,6 +191,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
    ```powershell
    powershell -ExecutionPolicy Bypass -File C:\tools\wy-ops\install.ps1 quickstart
    ```
+   명령 대신 패키지 폴더(`setup.cmd` 옆)의 `quickstart.cmd`를 더블클릭해도 됩니다(설치본 `~\.wy-tools\wy-ops\current`에도 있음). 프로젝트 폴더는 실행 중에 묻고, 끝나거나 실패해도 창이 닫히지 않아 결과를 읽을 수 있습니다.
 
 차례로 하는 일:
 
@@ -292,7 +293,7 @@ pm 자신(0.10.0부터 세션 현황 **[pm 교체]** 한 번):
 
 접속 PC(한 번):
 1. Tailscale을 설치하고 호스트와 같은 계정으로 로그인합니다.
-2. `<설치> connect <별칭> --host <호스트의 Tailscale 이름> [--user <호스트 계정>] [--folder <호스트의 프로젝트 폴더>] [--wake-relay <주소:포트>] [--passphrase]` → 키 생성, `~\.ssh\config` 별칭, Remote-SSH 확장, 접속 PC 소리 확장(`wy-ops.wy-ops-local` — 원격 창의 새 카드 소리를 접속 PC 스피커로, 0.8.4. 버전이 다르면 다시 설치), 바탕화면 바로가기, 호스트 제어 창 바로가기('<별칭> 제어', 아래). 끝에 '호스트에서 실행할 한 줄'이 나옵니다. `--attach`는 더 쓰지 않습니다(주면 무시하고 한 줄 안내, pm 붙기는 세션 현황 pm 줄). `--passphrase`는 키에 암호를 걸고 ssh-agent에 한 번 올립니다.
+2. `<설치> connect <별칭> --host <호스트의 Tailscale 이름> [--user <호스트 계정>] [--folder <호스트의 프로젝트 폴더>] [--wake-relay <주소:포트>] [--passphrase]` → 키 생성, `~\.ssh\config` 별칭, Remote-SSH 확장, 접속 PC 소리 확장(`wy-ops.wy-ops-local` — 원격 창의 새 카드 소리를 접속 PC 스피커로, 0.8.4. 버전이 다르면 다시 설치), 바탕화면 바로가기, 호스트 제어 창 바로가기('<별칭> 제어', 아래), VS Code 터미널 shift+enter 줄바꿈(원격 claude 포함. 접속 PC `%APPDATA%\Code\User\keybindings.json` 끝에 `{"key":"shift+enter","command":"workbench.action.terminal.sendSequence","args":{"text":"\u001b\r"},"when":"terminalFocus"}`를 덧붙이고 원본은 `keybindings.json.wy-bak`으로 백업. when에 `terminalFocus`가 든 shift+enter가 이미 있으면 `[이미 됨]`으로 건너뛰고(지우는 항목 `-명령`과 `!terminalFocus`는 치지 않음), 파일을 읽지 못하면 고치지 않고 `[건너뜀]` 줄에 손으로 넣을 항목을 보여 줌(connect는 실패로 치지 않음). 재시작 없이 바로 적용. 이 단축키는 VS Code의 모든 터미널에 걸립니다. Claude가 아닌 PowerShell 터미널에서 shift+enter를 누르면 입력 줄이 지워지고 Enter가 눌립니다. 원치 않으면 keybindings.json에서 그 항목을 지우세요(원본은 keybindings.json.wy-bak)). 끝에 '호스트에서 실행할 한 줄'이 나옵니다. `--attach`는 더 쓰지 않습니다(주면 무시하고 한 줄 안내, pm 붙기는 세션 현황 pm 줄). `--passphrase`는 키에 암호를 걸고 ssh-agent에 한 번 올립니다.
 3. 그 한 줄(`… install.ps1 host --add-key '<공개키>'`)을 호스트의 관리자 PowerShell에서 실행합니다. 같은 키는 다시 넣지 않습니다.
 4. `ssh <별칭>`이 비밀번호 없이 되면 끝. 바로가기를 누르면 VS Code가 호스트의 프로젝트 폴더를 엽니다.
 

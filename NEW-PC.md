@@ -65,7 +65,7 @@ git으로 옮기는 것(코드·문서·결정)은 커밋·푸시로 넘깁니�
 
 접속 PC(제어만 하는 PC):
 - [ ] Tailscale 설치·같은 계정 로그인.
-- [ ] `install.ps1 connect <별칭> --host <호스트 Tailscale 이름>` → 끝에 나온 한 줄을 호스트의 관리자 PowerShell에서 실행(공개키 등록).
+- [ ] `install.ps1 connect <별칭> --host <호스트 Tailscale 이름>` → 끝에 나온 한 줄을 호스트의 관리자 PowerShell에서 실행(공개키 등록). `connect`가 VS Code 터미널 shift+enter 줄바꿈도 넣습니다(`%APPDATA%\Code\User\keybindings.json`, 계획 줄 `[바꿈]`/`[이미 됨]`, `[건너뜀]`이 나오면 보여 준 항목을 직접 넣기. 모든 터미널에 걸려 PowerShell 터미널에서는 shift+enter가 입력 줄을 지우고 Enter를 누름 — 원치 않으면 그 항목 삭제, MANUAL 3-5).
 - [ ] `ssh <별칭>`이 비밀번호 없이 되는지, 바로가기로 호스트 프로젝트 폴더가 열리는지 확인.
 - [ ] (필요할 때) 호스트 전용 Chrome 보기: `ssh -N -L 19222:localhost:9222 <별칭>` → `chrome://inspect`에 `localhost:19222`. 접속 PC 쪽 포트는 9222가 아닌 다른 번호로(같은 번호는 bind 실패가 날 수 있음).
 - [ ] 모니터 없는 호스트(화면 1024×768)에서 브라우저 자동화는 뷰포트 크기를 지정해 실행.
