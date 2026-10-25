@@ -30,6 +30,8 @@ $ErrorActionPreference = 'Continue'
 # npm으로 깐 claude는 claude.ps1·claude.cmd가 함께 있고 PowerShell은 .ps1을 먼저 잡는다. 실행 정책이 막는 .ps1 대신 실행 파일(.cmd·.exe)로 부른다
 $Claude = (Get-Command claude -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.cmd', '.exe' } | Select-Object -First 1).Source
 if (-not $Claude) { $Claude = 'claude' }
+# 사용자에게 보여 주는 명령 이름(claude.cmd·claude.exe): 붙여 넣어도 실행 정책에 막히지 않는 쪽
+$ClaudeName = Split-Path -Leaf $Claude
 # 저장소 = 이 스크립트(.claude/skills/pm-ops/scripts/)에서 네 단계 위
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 
@@ -337,7 +339,7 @@ switch ($Cmd) {
     $h = if ($Prompt -and $Prompt -ne 'none') { $Prompt } else { $null }
     try { Start-New $Role $h $dir }
     catch {
-      $back = if ($s) { " 이전 $Role 세션은 이미 멈추고 목록에서 지웠습니다(대화 기록은 남음). 이어 띄우기: claude --bg --resume $($s.sessionId) --name $Role '<지시>'" } else { '' }
+      $back = if ($s) { " 이전 $Role 세션은 이미 멈추고 목록에서 지웠습니다(대화 기록은 남음). 이어 띄우기: $ClaudeName --bg --resume $($s.sessionId) --name $Role '<지시>'" } else { '' }
       throw "$($_.Exception.Message) 새 세션을 띄우지 못했습니다.$back"
     }
     "세션을 교체했습니다. 새 세션이 '시작' 또는 인계 확인을 보내면 '멈춰 있는 동안 끝난 일'을 SendMessage로 알려 주세요."
@@ -358,7 +360,7 @@ switch ($Cmd) {
     "pm 세션 교체(원격 운용: pm은 호스트의 백그라운드 세션, 노트북을 닫아도 계속 돎):"
     "  1. 인수인계 저장(끝남): $hp"
     "  2. 새 pm 띄우기: & '$PSCommandPath' start-pm '$hp' -Force"
-    "  3. 이전 pm 종료: 2가 알려 주는 claude stop <id>. 이전 pm이 2를 실행했다면 3이 마지막 동작"
+    "  3. 이전 pm 종료: 2가 알려 주는 $ClaudeName stop <id>. 이전 pm이 2를 실행했다면 3이 마지막 동작"
     "  4. 붙기: & '$PSCommandPath' attach $PmRole"
   }
   'start-pm' {
@@ -377,7 +379,7 @@ switch ($Cmd) {
     $first = $first -replace '"', "'"
     Start-Bg @('--bg', '--agent', $PmRole, '--name', $PmRole, $first)
     "백그라운드 $PmRole 을 띄웠습니다. 붙기: session.ps1 attach $PmRole"
-    foreach ($o in $live) { "이전 $PmRole 을 멈추세요: claude stop $($o.id)" }
+    foreach ($o in $live) { "이전 $PmRole 을 멈추세요: $ClaudeName stop $($o.id)" }
   }
   'wt-clean' {
     # 고정 worktree는 평소 지우지 않는다(D-31). 역할을 없애거나 worktree를 끌 때·트리가 망가졌을 때만. --force 없이 지우고 가지는 남긴다

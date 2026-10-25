@@ -105,7 +105,7 @@ function extrasCases() {
   // qa 역할이 있으면 agent-browser는 필수: 없으면 실패
   json(cfg, { ...ops0, roles: [...ops0.roles, { name: 'X-qa', agent: true, group: 'qa' }], extras: { off: NON_PLUGIN.filter((id) => !/^agent-browser/.test(id)) } });
   r = byId(doctor.checkAll(pc.opts)).extras;
-  assert.ok(r.level === 'fail' && r.detail.includes('agent-browser'), JSON.stringify(r));
+  assert.ok(r.level === 'fail' && r.detail.includes('agent-browser') && r.missing.some((n) => n.startsWith('agent-browser')), JSON.stringify(r));
   // 역할 필수가 아니면(선택) 없을 때 주의
   json(cfg, { ...ops0, extras: { off: NON_PLUGIN.filter((id) => !/^agent-browser/.test(id)) } });
   assert.strictEqual(byId(doctor.checkAll(pc.opts)).extras.level, 'warn', '선택 항목 없음은 주의');
@@ -121,7 +121,8 @@ function extrasCases() {
   assert.ok(r.level === 'ok' && r.detail.includes('claude-mem@thedotmack 꺼짐(설정)'), JSON.stringify(r));
   // 켜 둔(기본) 플러그인이 없으면 실패
   pc.state.plugins = pc.state.plugins.filter((p) => p.id !== 'impeccable@impeccable');
-  assert.strictEqual(byId(doctor.checkAll(pc.opts)).plugins.level, 'fail', '켜진 플러그인 없음은 실패');
+  r = byId(doctor.checkAll(pc.opts)).plugins;
+  assert.ok(r.level === 'fail' && r.missing.includes('impeccable'), `켜진 플러그인 없음은 실패(missing에 이름, 설치 마법사용)\n${JSON.stringify(r)}`);
 }
 
 const byId = (results) => Object.fromEntries(results.map((r) => [r.id, r]));
@@ -301,7 +302,7 @@ try {
     }
     imp.version = '4.3.9';
     let r = byId(doctor.checkAll(pc.opts)).plugins;
-    assert.ok(r.level === 'warn' && r.detail.includes('impeccable@impeccable 4.3.9(최소 4.4.0)'), '최소보다 낮으면 주의');
+    assert.ok(r.level === 'warn' && r.detail.includes('impeccable@impeccable 4.3.9(최소 4.4.0)') && !r.missing, '최소보다 낮으면 주의(빠진 것 아님)');
     imp.version = 'unknown';
     assert.strictEqual(byId(doctor.checkAll(pc.opts)).plugins.level, 'ok', '읽을 수 없는 버전은 낮다고 보지 않음');
     // 프로젝트에서 끈 플러그인(표준)은 버전이 낮아도·꺼져 있어도 실패·주의가 아님

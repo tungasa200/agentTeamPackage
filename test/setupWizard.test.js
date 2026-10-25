@@ -15,6 +15,9 @@ const POWERSHELL = path.join(SYS, 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 const cmd = fs.readFileSync(path.join(PKG, 'setup.cmd'), 'utf8');
 assert.ok(/^[\x00-\x7f]*$/.test(cmd), 'setup.cmd는 ASCII만');
 assert.ok(cmd.includes('-WindowStyle Hidden') && cmd.includes('-STA') && cmd.includes('%~dp0scripts\\setup-wizard.ps1'), cmd);
+// 1b. quickstart.cmd: 더블클릭으로 install.ps1 quickstart, 끝나도 창을 닫지 않는다(결과를 읽게)
+const qcmd = fs.readFileSync(path.join(PKG, 'quickstart.cmd'), 'utf8');
+assert.ok(/^[\x00-\x7f]*$/.test(qcmd) && qcmd.includes('-ExecutionPolicy Bypass -File "%~dp0install.ps1" quickstart') && /^pause\r?$/m.test(qcmd), qcmd);
 
 // 2. .ps1: BOM(PowerShell 5.1이 한글을 깨뜨리지 않게), 변수 바로 뒤 한글 금지('$n개'는 변수 n개로 읽혀 빈 값)
 const ps1 = [path.join(PKG, 'install.ps1'), ...fs.readdirSync(path.join(PKG, 'scripts')).filter((f) => f.endsWith('.ps1')).map((f) => path.join(PKG, 'scripts', f))];
@@ -56,6 +59,11 @@ assert.ok(!/\$detail\[\$gname\] \+= \(?"\$\(\$r\.title\)/.test(wiz) && /Get-Frie
 assert.ok(/를 확인하지 못했습니다\.'?"?; Do = 'setup을 다시 실행해 주세요\.'/.test(wiz), '바꿀 말이 없는 항목 문구(목업 W7-d)');
 assert.ok(/progress\(`tool stack-\$\{t\.cmd\} installing \$\{t\.label \|\| t\.cmd\}`\)/.test(js), 'install.js 스택 도구 진행 줄 형식(바뀌면 마법사 이름 처리도 확인)');
 assert.ok(/"\$base 개발 도구"/.test(wiz) && /Get-StackToolName/.test(wiz) &&/if \(\$state -ne 'failed'\) \{ \$label = "\$code \$label"\.Trim\(\)/.test(wiz), '스택 도구 이름: 여러 낱말 이름 유지, 없으면 일반 이름');
+// 함께 까는 도구: install.js가 'extra-<id>' 진행 줄을 내고, 마법사는 그 줄을 '프로젝트 폴더 준비' 앞에 넣되 실패해도 설치를 멈추지 않으며,
+//   마지막 점검의 extras·plugins는 pm 시작을 막지 않는 '함께 까는 도구' 묶음(남은 일 + 다시 받는 명령)
+assert.ok(/progress\(`tool extra-\$\{it\.id\} installing \$\{it\.label\}`\)/.test(js) && /timeout: 15 \* 60 \* 1000/.test(js), 'install.js extras 진행 줄·시간 제한');
+assert.ok(/\$k -like 'extra-\*'\) \{ \$St\.Rows\.IndexOf\(\(Find-Row 'folder'\)\)/.test(wiz) && /if \(\$k -notlike 'extra-\*'\) \{ \$St\.FailMsg/.test(wiz), '마법사 extra-* 줄');
+assert.ok(/'extras' \{ 'extras' \} 'plugins' \{ if \(\$missing\) \{ 'extras' \} else \{ 'folder' \} \}/.test(wiz) && /if \(\$gname -eq 'extras' -and \$r\.level -eq 'fail'\) \{ 'warn' \}/.test(wiz) && /Get-InstalledCmd 'setup'/.test(wiz) && /install\.ps1" ' \+ \$sub \+ ' --project/.test(wiz), '마법사 extras 묶음은 pm 시작을 막지 않음(점검 missing 필드로 판정)');
 // STK: 스택은 고르지 않고 보여 주기만(install.js detect)
 assert.ok(!/--stack/.test(wiz), '마법사는 --stack을 넘기지 않는다');
 assert.ok(/' detect --project '/.test(wiz), '마법사는 install.js detect로 검증 명령을 보여 준다');
@@ -109,10 +117,18 @@ assert.ok(/' projects'/.test(wiz) && /cmd === 'projects'/.test(js), '마법사�
   // 'tools': 점검 원문에서 프로그램 이름만, 할 일은 새 창에서 다시 점검(명령 포함)
   const tools = runPs([
     wiz.match(/^function QP\b.*$/m)[0], "$St = @{ Project = 'C:\\w\\my $app' }",
+    wiz.match(/^function Get-InstalledCmd\b.*$/m)[0],
     fnText('Get-FriendlyLine'),
     "$it = Get-FriendlyLine @{ id = 'tools'; detail = '없음: code(VS Code, PATH), claude(Claude Code CLI)' } '프로그램 설치'",
     "$it.Head; $it.Do; $it.Cmd",
+    // 함께 까는 도구: 점검 missing이 있으면 이름 + setup으로 다시 받기, 없으면(버전 낮음) 점검 원문 + 고치는 명령
+    "$it = Get-FriendlyLine @{ id = 'plugins'; detail = 'impeccable@impeccable 없음'; missing = @('impeccable', 'claude-mem') } '함께 까는 도구'",
+    "$it.Head; $it.Cmd",
+    "$it = Get-FriendlyLine @{ id = 'plugins'; title = '플러그인'; detail = '최소 버전보다 낮음'; fix = 'claude plugin update x' } '함께 까는 도구'",
+    "$it.Head; $it.Cmd",
   ]).split(/\r?\n/);
+  assert.ok(/: impeccable, claude-mem$/.test(tools[3]) && /install\.ps1" setup --project 'C:\\w\\my \$app'$/.test(tools[4]), tools.join('\n'));
+  assert.ok(tools[5] === '플러그인: 최소 버전보다 낮음' && tools[6] === 'claude plugin update x', tools.join('\n'));
   assert.ok(/: VS Code, Claude Code$/.test(tools[0]) && !/Git|Node/.test(tools[0]), tools.join('\n'));
   assert.ok(/새로 열어/.test(tools[1]) && !/setup을 다시/.test(tools[1]), tools.join('\n'));
   assert.strictEqual(tools[2], 'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\.wy-tools\\wy-ops\\current\\install.ps1" doctor --project \'C:\\w\\my $app\'', '붙여 넣는 명령의 경로는 작은따옴표($가 풀리지 않게)');
