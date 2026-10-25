@@ -56,7 +56,7 @@ function device(name, memento, { remote = false } = {}) {
 (async () => {
   const trust = require(path.join(EXT, 'approvalTrust.js'));
 
-  // 0) 원격 창(Remote-SSH)은 명부가 없어도 뿌리가 되지 않는다(키가 호스트에 있고 노트북 모두가 함께 씀)
+  // 0) 원격 창(Remote-SSH)은 명부가 없어도 뿌리가 되지 않는다(명부는 호스트에, 키는 접속 PC 쪽 globalState에 있음)
   const R = device('dddd4444', null, { remote: true });
   let sr = R.state();
   assert.strictEqual(sr.devices.selfStatus, 'unpaired', '원격 창은 뿌리가 안 됨');
@@ -202,16 +202,25 @@ function device(name, memento, { remote = false } = {}) {
   C2.send({ type: 'decide', id: 'r1', decision: 'approved' });
   sa = A.state();
   assert.strictEqual(sa.devices.selfStatus, 'member', '옛 고정(자기 자신)이 남아 있으면 등록된 것처럼 보임');
+  assert.strictEqual(sa.devices.anchorMismatch, true, 'KI-09: 고정 뿌리가 명부 뿌리와 다르다고 알림');
+  assert.strictEqual(C2.state().devices.anchorMismatch, false, '뿌리 기기는 불일치 아님');
   assert.ok(sa.untrusted.includes('r1'), '새 뿌리의 결정은 출처 불명');
   // 확인 창에서 취소하면 그대로
   A.fake.nextChoice = undefined;
   assert.strictEqual(await A.fake.commands['wyApprovals.resetTrustAnchors'](), false, '취소');
   assert.strictEqual(A.state().devices.selfStatus, 'member', '취소하면 고정 유지');
   assert.ok(A.fake.messages.some((m) => m[0] === 'warning' && m[2] && m[2].modal), '확인은 모달로');
+  // 경고의 [고정 초기화] 버튼도 같은 확인 창
+  const nWarn = A.fake.messages.length;
+  A.send({ type: 'resetAnchors' });
+  await new Promise((r) => setImmediate(r));
+  assert.ok(A.fake.messages.length > nWarn && A.fake.messages[A.fake.messages.length - 1][2].modal, '버튼도 모달 확인');
+  assert.strictEqual(A.state().devices.selfStatus, 'member', '버튼에서 취소해도 고정 유지');
   A.fake.nextChoice = '초기화';
   assert.strictEqual(await A.fake.commands['wyApprovals.resetTrustAnchors'](), true, '초기화');
   sa = A.state();
   assert.strictEqual(sa.devices.selfStatus, 'unpaired', '고정 초기화 → 미등록(뿌리 지문 비교 안내)');
+  assert.strictEqual(sa.devices.anchorMismatch, false, '초기화하면 불일치 경고 사라짐');
   assert.strictEqual(sa.devices.root.fp, s2.devices.selfFp, '안내에 새 뿌리 지문');
   A.send({ type: 'pinRoot', fp: sa.devices.root.fp, name: '노트북' });
   assert.deepStrictEqual(A.state().untrusted.filter((id) => id === 'r1'), [], '새 뿌리 고정 → 새 뿌리 결정 신뢰');

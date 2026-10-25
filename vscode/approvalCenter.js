@@ -167,8 +167,8 @@ class ApprovalCenter {
     return got;
   }
 
-  // 명부가 없으면 이 기기가 뿌리가 된다. 원격 창(Remote-SSH)은 뿌리를 만들지 않는다: 원격 창 키는 호스트의
-  // ~/.vscode-server에 있고 접속하는 노트북 모두가 함께 써서, 뿌리는 호스트 로컬 창이 맡는다
+  // 명부가 없으면 이 기기가 뿌리가 된다. 원격 창(Remote-SSH)은 뿌리를 만들지 않는다: 명부는 호스트에 있는데 원격 창의
+  // globalState(키·고정)는 접속 PC 쪽에 있어 접속 PC마다 다르다(KI-09에서 확인). 뿌리는 호스트 로컬 창이 맡는다
   // 옛 명부를 하나로 정하지 못했으면(legacyAmbiguous) 로컬 창도 뿌리를 만들지 않는다: 새 뿌리는 옛 기기 신뢰를 끊는다(KI-04)
   ensureRoot() {
     if ((vscode.env && vscode.env.remoteName) || this.legacyAmbiguous) return;
@@ -217,6 +217,7 @@ class ApprovalCenter {
     const last = new Map();
     for (const s of trust.readSigs(this.root).values()) if (s.at && (!last.has(s.fp) || s.at > last.get(s.fp))) last.set(s.fp, s.at);
     const root = trust.rosterRoot(trust.readRoster());
+    const anchors = this.currentAnchors();
     return {
       selfFp: ev.selfFp,
       selfShort: trust.shortFp(ev.selfFp),
@@ -224,6 +225,9 @@ class ApprovalCenter {
       selfStatus: ev.selfStatus,
       remote: !!(vscode.env && vscode.env.remoteName),
       root: root && { fp: root.fp, short: trust.shortFp(root.fp), name: root.name },
+      // 고정한 뿌리 중에 지금 명부의 뿌리가 없다(KI-09: 접속 PC가 자기 로컬 명부의 뿌리로 자기를 고정한 채 원격 창을 열었거나, 명부를 새로 만듦).
+      // 자기 고정이면 등록된 것처럼 보여 등록 안내가 숨으므로 따로 알린다
+      anchorMismatch: !!root && anchors.length > 0 && !anchors.some((a) => a.fp === root.fp),
       // 옛 명부 후보(명부가 아직 없을 때만. 다른 창이 가져오면 사라진다)
       legacyAmbiguous: !root && this.legacyAmbiguous ? this.legacyAmbiguous.map((c) => ({ folder: path.basename(c.root), short: trust.shortFp(c.fp), name: c.name })) : null,
       list: ev.devices.map((d) => ({ ...d, lastSig: last.get(d.fp) || null })),
@@ -403,6 +407,9 @@ class ApprovalCenter {
         if (!ev.devices.some((d) => d.fp === msg.fp) || ev.revoked.has(msg.fp)) throw new Error('해제할 기기가 없습니다');
         trust.revokeDevice(this.key, msg.fp);
         this.reload();
+      } else if (msg.type === 'resetAnchors') {
+        // 고정 뿌리 불일치 경고의 [고정 초기화](확인 창은 명령과 같다). 비동기라 오류는 아래 catch에 닿지 않아 여기서 알린다
+        this.resetAnchors().catch((err) => Promise.resolve(vscode.window.showErrorMessage(`WY 승인 센터: ${err.message || err}`)).catch(() => {}));
       } else if (msg.type === 'reveal' && typeof msg.sessionId === 'string') {
         // 카드의 '세션 현황에서 보기'(B2-5)
         vscode.commands.executeCommand('wyOps.revealSession', msg.sessionId);

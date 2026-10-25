@@ -252,7 +252,15 @@ function screenBehavior(jsdom) {
   assert.ok(at.includes('하나로 정하지 못했습니다') && at.includes('ns1(뿌리 이 PC · 지문 aaaa aaaa)') && at.includes('ns3(뿌리 다른 PC · 지문 xxxx xxxx)') && at.includes('호스트 로컬 창'), '후보와 안내');
   assert.ok(!s7.id('join-request'), '등록 요청 단추 없음');
 
-  assert.deepStrictEqual([...s.errors, ...s2.errors, ...s3.errors, ...s4.errors, ...s5.errors, ...s6.errors, ...s7.errors], [], '화면 오류 없음');
+  // 고정 뿌리가 명부 뿌리와 다름(KI-09): 등록된 것처럼 보여도 경고색·명부 뿌리 지문·고정 초기화 단추
+  const s8 = screen(jsdom, 400);
+  s8.send({ type: 'state', state: { ...STATE, roleWarnings: [], untrusted: [], devices: { ...DEV, selfFp: fp('e'), selfShort: 'eeee eeee', list: [dev('a'), dev('b', { state: 'unknown' })], joins: [], anchorMismatch: true } } });
+  assert.ok(s8.id('open-devices').classList.contains('warn'), '불일치면 경고색');
+  assert.ok(s8.txt('.alert b')[0].includes('뿌리와 다릅니다') && s8.txt('.alert .tx')[0].includes('aaaa aaaa'), '불일치 경고와 명부 뿌리 지문');
+  s8.id('reset-anchors').click();
+  assert.deepStrictEqual(s8.posted.pop(), { type: 'resetAnchors' }, '고정 초기화 보냄');
+
+  assert.deepStrictEqual([...s.errors, ...s2.errors, ...s3.errors, ...s4.errors, ...s5.errors, ...s6.errors, ...s7.errors, ...s8.errors], [], '화면 오류 없음');
 }
 
 // 선택지 input은 .sr-only(position:absolute)라 기준 상자가 없으면 .wy에 붙어 .dt와 함께 스크롤되지 않는다.
