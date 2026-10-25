@@ -233,6 +233,43 @@ try {
   out = ps(['start', 'AB-qa'], { WY_OPS_FREE_MB: '1' });
   assert.ok(/BG --bg --agent AB-qa/.test(out) && !/여유 메모리/.test(out), `blockFreeMB 0은 관문 끔(기본 500으로 돌아가지 않음)\n${out}`);
 
+  // 지시문은 cmd.exe를 거치지 않는다: npm claude.cmd가 부르는 프로그램(여기서는 옛 꾸러미 모양 cli.js)을 직접 불러 줄바꿈·%·^가 그대로 간다
+  {
+    const bin2 = path.join(tmp, 'bin2');
+    const pkg = path.join(bin2, 'node_modules', '@anthropic-ai', 'claude-code');
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(path.join(bin2, 'claude.cmd'), ['@ECHO off', 'SETLOCAL', 'SET dp0=%~dp0', 'SET "_prog=node"', `"%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*`].join('\r\n'));
+    fs.writeFileSync(path.join(pkg, 'cli.js'), `const a = process.argv.slice(2);
+if (a[0] === 'agents') process.stdout.write(require('fs').readFileSync(${JSON.stringify(agents)}, 'utf8'));
+else if (a[0] === '--bg') console.log('BGJSON ' + JSON.stringify(a));
+else console.log(a[0].toUpperCase() + ' ' + (a[1] || ''));
+`);
+    const h3 = path.join(tmp, 'home3');
+    const tdir = path.join(h3, '.claude', 'projects', repoDir.replace(/[^A-Za-z0-9]/g, '-'));
+    fs.mkdirSync(tdir, { recursive: true });
+    fs.writeFileSync(path.join(tdir, 'sid-q6.jsonl'), '{}\n');
+    write([{ id: 'q6', name: 'AB-qa', kind: 'background', state: 'done', startedAt: 1, sessionId: 'sid-q6' }]);
+    const multi = '"line1`nline2 100% %USERNAME% a^b ^x"';
+    out = ps(['start', 'AB-qa', multi], { USERPROFILE: h3, PATH: bin2 + path.delimiter + process.env.PATH });
+    const j = /BGJSON (.*)/.exec(out);
+    assert.ok(j && JSON.parse(j[1]).includes('line1\nline2 100% %USERNAME% a^b ^x') && !/찾지 못해/.test(out), `지시문이 그대로 감\n${out}`);
+    // 지금 npm 꾸러미 모양(bin\claude.exe 하나): 배열 하나짜리가 문자열로 풀리지 않음. 옛 모양의 IF EXIST "%dp0%\node.exe" 줄은 대상이 아님
+    const src = fs.readFileSync(path.join(PKG, 'templates', 'pm-ops', 'scripts', 'session.ps1'), 'utf8');
+    const fn = /^function Get-ClaudeBg\b[\s\S]*?^\}/m.exec(src)[0];
+    const pick = (lines, files) => {
+      const b = fs.mkdtempSync(path.join(tmp, 'shim-'));
+      for (const f of files) { fs.mkdirSync(path.dirname(path.join(b, f)), { recursive: true }); fs.writeFileSync(path.join(b, f), ''); }
+      fs.writeFileSync(path.join(b, 'claude.cmd'), lines.join('\r\n'));
+      const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', `$Claude = '${path.join(b, 'claude.cmd')}'\n${fn}\n$x = @(Get-ClaudeBg); "$($x.Count)|$($x -join '|')"`], { encoding: 'utf8', windowsHide: true });
+      return r.stdout.trim().replace(b + '\\', '');
+    };
+    assert.strictEqual(pick(['@ECHO off', 'SETLOCAL', 'CALL :find_dp0', '"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*'], ['node_modules/@anthropic-ai/claude-code/bin/claude.exe']), '1|node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe');
+    assert.strictEqual(pick(['IF EXIST "%dp0%\\node.exe" (', '  SET "_prog=%dp0%\\node.exe"', ')', '"%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*'], ['node.exe', 'node_modules/@anthropic-ai/claude-code/cli.js']), '2|node|node_modules\\@anthropic-ai\\claude-code\\cli.js');
+    // 부르는 프로그램을 못 찾는 .cmd(위의 가짜)는 그대로 부르되 바뀔 수 있다고 경고
+    out = ps(['start', 'AB-qa', multi], { USERPROFILE: h3 });
+    assert.ok(/BG --bg --resume sid-q6/.test(out) && /찾지 못해 \.cmd로 부릅니다/.test(out), `.cmd 그대로면 경고\n${out}`);
+  }
+
   // MP-02: 인수인계 파일 찾기는 **Worktree:** 머리말이 이 저장소(또는 그 아래 worktree)인 것만. 머리말 없는 옛 파일은 받음
   {
     const h2 = path.join(tmp, 'home2');

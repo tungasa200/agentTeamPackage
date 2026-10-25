@@ -32,6 +32,17 @@ $Claude = (Get-Command claude -CommandType Application -ErrorAction SilentlyCont
 if (-not $Claude) { $Claude = 'claude' }
 # 사용자에게 보여 주는 명령 이름(claude.cmd·claude.exe): 붙여 넣어도 실행 정책에 막히지 않는 쪽
 $ClaudeName = Split-Path -Leaf $Claude
+# .cmd는 cmd.exe가 인자를 다시 읽어 지시문의 줄바꿈 뒤를 버리고 %VAR%·^를 바꾼다. 지시문을 넘기는 Start-Bg는 .cmd가 부르는 프로그램을 직접 부른다
+#   npm 꾸러미의 claude.cmd: "%dp0%\node_modules\@anthropic-ai\claude-code\bin\claude.exe" %* (옛 꾸러미는 "%_prog%" "%dp0%\...\cli.js" %*).
+#   %*가 붙은 줄의 대상만 본다(옛 꾸러미의 IF EXIST "%dp0%\node.exe" 줄은 아님). 프로그램 + 앞 인자를 내보낸다: 받는 쪽은 @()로 감싼다(하나면 문자열로 풀림)
+function Get-ClaudeBg {
+  if ($Claude -like '*.cmd') {
+    $m = [regex]::Match([IO.File]::ReadAllText($Claude), '"%dp0%\\([^"]+\.(exe|js))"\s*%\*')
+    $t = if ($m.Success) { Join-Path (Split-Path $Claude) $m.Groups[1].Value }
+    if ($t -and (Test-Path -LiteralPath $t)) { if ($t -like '*.js') { return 'node', $t } else { return $t } }
+  }
+  return $Claude
+}
 # 저장소 = 이 스크립트(.claude/skills/pm-ops/scripts/)에서 네 단계 위
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 
@@ -214,9 +225,11 @@ function Enter-WorkDir($name) {
   if ($LASTEXITCODE) { Write-Warning "$name worktree를 기준 가지($base)로 빨리감지 못했습니다(병합 전 커밋이 있거나 같은 파일을 고치는 중일 때가 많음). 그대로 띄웁니다. git: $(($o | Select-Object -First 3) -join ' / ')" }
   # gitignore 대상이라 worktree에 없다. 훅·승인 가드가 빠지지 않게 띄울 때마다 복사한다(S2: -w 복사는 한 번뿐이라 낡음).
   # 복사하지 못했거나 복사본에 승인 가드 훅이 없으면 띄우지 않는다(D-32: 가드 없이 도는 worktree를 만들지 않음)
-  if (-not (Test-Path "$Repo\.claude\settings.local.json")) { throw "본 저장소 .claude/settings.local.json이 없습니다($name worktree에 복사할 원본이 없음). 먼저 install.ps1 setup을 실행하세요." }
   foreach ($f in 'settings.local.json', 'wy-ops.local.json') {
-    if (-not (Test-Path "$Repo\.claude\$f")) { continue }
+    if (-not (Test-Path "$Repo\.claude\$f")) {
+      if ($f -eq 'wy-ops.local.json') { continue }  # PC별 덮어쓰기는 없어도 된다
+      throw "본 저장소 .claude/settings.local.json이 없습니다($name worktree에 복사할 원본이 없음). 먼저 install.ps1 setup을 실행하세요."
+    }
     try { Copy-Item "$Repo\.claude\$f" "$dir\.claude\$f" -Force -ErrorAction Stop }
     catch { throw "$name worktree에 $f 를 복사하지 못해 띄우지 않습니다: $($_.Exception.Message)" }
   }
@@ -250,7 +263,10 @@ function Assert-Memory {
 # claude가 0이 아닌 코드로 끝나면 throw(성공 문구를 내지 않게). $dir: 세션 작업 폴더(기본 저장소)
 function Start-Bg([string[]]$argv, $dir = $Repo) {
   Test-Daemon
-  Push-Location $dir; try { & $Claude @argv; $code = $LASTEXITCODE } finally { Pop-Location }
+  $ClaudeBg = @(Get-ClaudeBg)
+  if ($ClaudeBg[0] -like '*.cmd' -and ($argv -join ' ') -match '[\r\n%^]') { Write-Warning "$ClaudeName 이 부르는 프로그램을 찾지 못해 .cmd로 부릅니다. 지시문의 줄바꿈 뒤·%·^가 바뀔 수 있습니다." }
+  $pre = @($ClaudeBg | Select-Object -Skip 1)
+  Push-Location $dir; try { & $ClaudeBg[0] @pre @argv; $code = $LASTEXITCODE } finally { Pop-Location }
   if ($code -ne 0) { throw "claude 백그라운드 시작 실패(종료 코드 $code). 위 출력을 확인하세요." }
 }
 # 새 세션: 역할 파일(.claude/agents/<역할>.md)을 --agent로 싣는다. 인수인계 경로가 있으면 그것부터 불러온다
